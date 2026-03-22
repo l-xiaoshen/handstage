@@ -1,5 +1,5 @@
 import type { Protocol } from "devtools-protocol"
-import { screenshotScriptSources } from "@stagehand/dom/build/screenshotScripts.generated"
+import { screenshotScriptSources } from "@handstage/dom/build/screenshotScripts.generated"
 import type {
 	ScreenshotClip,
 	ScreenshotScaleOption,

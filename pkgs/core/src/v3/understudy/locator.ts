@@ -7,7 +7,7 @@ import {
 	locatorScriptBootstrap,
 	locatorScriptGlobalRefs,
 	locatorScriptSources,
-} from "@stagehand/dom/build/locatorScripts.generated"
+} from "@handstage/dom/build/locatorScripts.generated"
 import type { NormalizedFilePayload } from "../types/private/locator"
 import type {
 	MouseButton,

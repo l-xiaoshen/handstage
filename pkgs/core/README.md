@@ -1,2 +1,2 @@
-# @stagehand/core
+# @handstage/core
 

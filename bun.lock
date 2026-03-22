@@ -13,9 +13,9 @@
       },
     },
     "pkgs/core": {
-      "name": "@stagehand/core",
+      "name": "@handstage/core",
       "dependencies": {
-        "@stagehand/dom": "workspace:*",
+        "@handstage/dom": "workspace:*",
         "chrome-launcher": "^1.2.1",
         "devtools-protocol": "^0.0.1425554",
         "uuid": "^11.1.0",
@@ -44,7 +44,7 @@
       ],
     },
     "pkgs/dom": {
-      "name": "@stagehand/dom",
+      "name": "@handstage/dom",
       "version": "0.0.1",
       "devDependencies": {
         "@types/bun": "latest",
@@ -127,9 +127,9 @@
 
     "@puppeteer/browsers": ["@puppeteer/browsers@2.13.0", "", { "dependencies": { "debug": "^4.4.3", "extract-zip": "^2.0.1", "progress": "^2.0.3", "proxy-agent": "^6.5.0", "semver": "^7.7.4", "tar-fs": "^3.1.1", "yargs": "^17.7.2" }, "bin": { "browsers": "lib/cjs/main-cli.js" } }, "sha512-46BZJYJjc/WwmKjsvDFykHtXrtomsCIrwYQPOP7VfMJoZY2bsDF9oROBABR3paDjDcmkUye1Pb1BqdcdiipaWA=="],
 
-    "@stagehand/core": ["@stagehand/core@workspace:pkgs/core"],
+    "@handstage/core": ["@handstage/core@workspace:pkgs/core"],
 
-    "@stagehand/dom": ["@stagehand/dom@workspace:pkgs/dom"],
+    "@handstage/dom": ["@handstage/dom@workspace:pkgs/dom"],
 
     "@tootallnate/quickjs-emscripten": ["@tootallnate/quickjs-emscripten@0.23.0", "", {}, "sha512-C5Mc6rdnsaJDjO3UpGW/CQTHtCKaYlScZTly4JIu97Jxo/odCiH0ITnDXSJPTOrEKk/ycSZ0AOgTmkDtkOsvIA=="],
 

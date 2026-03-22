@@ -1,6 +1,6 @@
 // lib/v3/understudy/context.ts
 import type { Protocol } from "devtools-protocol"
-import { v3ScriptContent } from "@stagehand/dom/build/scriptV3Content"
+import { v3ScriptContent } from "@handstage/dom/build/scriptV3Content"
 import { v3Logger } from "../logger"
 import { getEnvTimeoutMs } from "../timeoutConfig"
 import type { InitScriptSource } from "../types/private/index"

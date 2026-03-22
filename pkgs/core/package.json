@@ -1,5 +1,5 @@
 {
-	"name": "@stagehand/core",
+	"name": "@handstage/core",
 	"version": "0.0.1",
 	"type": "module",
 	"exports": {
@@ -45,7 +45,7 @@
 		}
 	},
 	"dependencies": {
-		"@stagehand/dom": "workspace:*",
+		"@handstage/dom": "workspace:*",
 		"chrome-launcher": "^1.2.1",
 		"devtools-protocol": "^0.0.1425554",
 		"uuid": "^11.1.0",

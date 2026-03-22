@@ -3,7 +3,7 @@ import {
 	type LocatorScriptName,
 	locatorScriptBootstrap,
 	locatorScriptGlobalRefs,
-} from "@stagehand/dom/build/locatorScripts.generated"
+} from "@handstage/dom/build/locatorScripts.generated"
 import { v3Logger } from "../logger"
 import { LogLevel } from "../types/public/logs"
 import { executionContexts } from "./executionContextRegistry"

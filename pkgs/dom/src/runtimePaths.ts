@@ -1,6 +1,6 @@
 /**
  * Path helpers for DOM script generators (`gen*.ts`).
- * Mirrors `@stagehand/core` `runtimePaths` with this package's layout.
+ * Mirrors `@handstage/core` `runtimePaths` with this package's layout.
  */
 
 import { createRequire } from "node:module"
