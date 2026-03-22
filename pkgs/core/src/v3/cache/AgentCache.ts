@@ -1,6 +1,6 @@
 import { createHash } from "crypto";
-import type { ActHandler } from "../handlers/actHandler.js";
-import type { LLMClient } from "../llm/LLMClient.js";
+import type { ActHandler } from "../handlers/actHandler";
+import type { LLMClient } from "../llm/LLMClient";
 import type {
   AgentReplayActStep,
   AgentReplayFillFormStep,
@@ -16,7 +16,7 @@ import type {
   AgentCacheContext,
   AgentCacheDeps,
   AgentCacheTransferPayload,
-} from "../types/private/index.js";
+} from "../types/private/index";
 import type {
   Action,
   AgentResult,
@@ -25,15 +25,15 @@ import type {
   AgentExecuteOptionsBase,
   AvailableModel,
   Logger,
-} from "../types/public/index.js";
-import type { Page } from "../understudy/page.js";
-import type { V3Context } from "../understudy/context.js";
-import type { CacheStorage } from "./CacheStorage.js";
+} from "../types/public/index";
+import type { Page } from "../understudy/page";
+import type { V3Context } from "../understudy/context";
+import type { CacheStorage } from "./CacheStorage";
 import {
   cloneForCache,
   safeGetPageUrl,
   waitForCachedSelector,
-} from "./utils.js";
+} from "./utils";
 
 const SENSITIVE_CONFIG_KEYS = new Set(["apikey", "api_key", "api-key"]);
 

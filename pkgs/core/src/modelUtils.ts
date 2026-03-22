@@ -1,8 +1,8 @@
-import type { ClientOptions, ModelConfiguration } from "./v3/types/public/model.js";
+import type { ClientOptions, ModelConfiguration } from "./v3/types/public/model";
 import {
   AVAILABLE_CUA_MODELS,
   type AvailableCuaModel,
-} from "./v3/types/public/agent.js";
+} from "./v3/types/public/agent";
 
 //useful when resolving a model from string or object formats we accept
 export function extractModelName(

@@ -1,4 +1,4 @@
-import { countXPathMatches } from "./xpathResolver.js";
+import { countXPathMatches } from "./xpathResolver";
 
 export interface TextMatchSample {
   tag: string;

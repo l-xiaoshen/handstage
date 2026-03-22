@@ -8,22 +8,22 @@ import type {
   ChatCompletionSystemMessageParam,
   ChatCompletionUserMessageParam,
 } from "openai/resources/chat";
-import type { LogLine } from "../types/public/logs.js";
-import type { AvailableModel } from "../types/public/model.js";
-import { validateZodSchema } from "../../utils.js";
+import type { LogLine } from "../types/public/logs";
+import type { AvailableModel } from "../types/public/model";
+import { validateZodSchema } from "../../utils";
 import {
   type ChatCompletionOptions,
   type ChatMessage,
   type CreateChatCompletionOptions,
   LLMClient,
   type LLMResponse,
-} from "./LLMClient.js";
+} from "./LLMClient";
 import {
   CreateChatCompletionResponseError,
   StagehandError,
   ZodSchemaValidationError,
-} from "../types/public/sdkErrors.js";
-import { toJsonSchema } from "../zodCompat.js";
+} from "../types/public/sdkErrors";
+import { toJsonSchema } from "../zodCompat";
 
 export class OpenAIClient extends LLMClient {
   public type = "openai" as const;

@@ -1,6 +1,6 @@
 import makeFetchCookie from "fetch-cookie";
-import { loadApiKeyFromEnv } from "../utils.js";
-import { STAGEHAND_VERSION } from "../version.js";
+import { loadApiKeyFromEnv } from "../utils";
+import { STAGEHAND_VERSION } from "../version";
 import {
   StagehandAPIError,
   StagehandAPIUnauthorizedError,
@@ -9,7 +9,7 @@ import {
   StagehandResponseParseError,
   StagehandServerError,
   ExperimentalNotConfiguredError,
-} from "./types/public/index.js";
+} from "./types/public/index";
 import type {
   ActResult,
   AgentConfig,
@@ -24,14 +24,14 @@ import type {
   ExtractOptions,
   ObserveOptions,
   Api,
-} from "./types/public/index.js";
+} from "./types/public/index";
 import type {
   SerializableResponse,
   AgentCacheTransferPayload,
-} from "./types/private/index.js";
-import type { ModelConfiguration } from "./types/public/model.js";
-import { toJsonSchema } from "./zodCompat.js";
-import type { StagehandZodSchema } from "./zodCompat.js";
+} from "./types/private/index";
+import type { ModelConfiguration } from "./types/public/model";
+import { toJsonSchema } from "./zodCompat";
+import type { StagehandZodSchema } from "./zodCompat";
 
 // =============================================================================
 // Multi-region API URL mapping

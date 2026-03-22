@@ -1,5 +1,5 @@
 import type { Protocol } from "devtools-protocol";
-import type { CDPSessionLike } from "./cdp.js";
+import type { CDPSessionLike } from "./cdp";
 
 type FrameId = Protocol.Page.FrameId;
 type ExecId = Protocol.Runtime.ExecutionContextId;

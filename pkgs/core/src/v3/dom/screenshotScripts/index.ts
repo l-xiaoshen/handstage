@@ -1,1 +1,1 @@
-export { resolveMaskRect } from "./resolveMaskRect.js";
+export { resolveMaskRect } from "./resolveMaskRect";

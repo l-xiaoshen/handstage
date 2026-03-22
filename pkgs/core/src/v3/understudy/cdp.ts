@@ -1,16 +1,16 @@
 // lib/v3/understudy/cdp.ts
 import WebSocket from "ws";
 import type { Protocol } from "devtools-protocol";
-import { STAGEHAND_VERSION } from "../../version.js";
+import { STAGEHAND_VERSION } from "../../version";
 import {
   FlowLogger,
   type FlowEvent,
   type FlowLoggerContext,
-} from "../flowlogger/FlowLogger.js";
+} from "../flowlogger/FlowLogger";
 import {
   CdpConnectionClosedError,
   PageNotFoundError,
-} from "../types/public/sdkErrors.js";
+} from "../types/public/sdkErrors";
 
 /**
  * CDP transport & session multiplexer

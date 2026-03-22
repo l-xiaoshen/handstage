@@ -1,12 +1,12 @@
 import type { Protocol } from "devtools-protocol";
-import type { Locator } from "./locator.js";
-import type { Page } from "./page.js";
-import type { Frame } from "./frame.js";
-import { executionContexts } from "./executionContextRegistry.js";
+import type { Locator } from "./locator";
+import type { Page } from "./page";
+import type { Frame } from "./frame";
+import { executionContexts } from "./executionContextRegistry";
 import {
   ContentFrameNotFoundError,
   StagehandInvalidArgumentError,
-} from "../types/public/sdkErrors.js";
+} from "../types/public/sdkErrors";
 
 /**
  * FrameLocator: resolves iframe elements to their child Frames and allows

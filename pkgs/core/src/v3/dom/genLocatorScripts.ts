@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import esbuild from "esbuild";
-import { getCurrentDirPath } from "../runtimePaths.js";
+import { getCurrentDirPath } from "../runtimePaths";
 
 const here = getCurrentDirPath();
 const outDir = path.join(here, "./build");

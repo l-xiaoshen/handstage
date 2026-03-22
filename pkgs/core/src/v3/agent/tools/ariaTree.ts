@@ -1,7 +1,7 @@
 import { tool } from "ai";
 import { z } from "zod";
-import type { V3 } from "../../v3.js";
-import { TimeoutError } from "../../types/public/sdkErrors.js";
+import type { V3 } from "../../v3";
+import { TimeoutError } from "../../types/public/sdkErrors";
 
 export const ariaTreeTool = (v3: V3, toolTimeout?: number) =>
   tool({

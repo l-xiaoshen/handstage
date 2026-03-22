@@ -1,5 +1,5 @@
 import type { Protocol } from "devtools-protocol";
-import type { Page } from "./page.js";
+import type { Page } from "./page";
 
 type RemoteObject = Protocol.Runtime.RemoteObject;
 

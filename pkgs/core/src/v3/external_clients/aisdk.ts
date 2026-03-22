@@ -10,8 +10,8 @@ import {
   type TextPart,
 } from "ai";
 import type { LanguageModelV2 } from "@ai-sdk/provider";
-import { type CreateChatCompletionOptions, LLMClient } from "../llm/LLMClient.js";
-import type { AvailableModel } from "../types/public/index.js";
+import { type CreateChatCompletionOptions, LLMClient } from "../llm/LLMClient";
+import type { AvailableModel } from "../types/public/index";
 import type { ChatCompletion } from "openai/resources";
 
 export class AISdkClient extends LLMClient {

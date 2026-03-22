@@ -2,7 +2,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { v7 as uuidv7 } from "uuid";
 import type { LanguageModelMiddleware } from "ai";
 import { z } from "zod";
-import type { EventEmitterWithWildcardSupport } from "./EventEmitter.js";
+import type { EventEmitterWithWildcardSupport } from "./EventEmitter";
 
 // =============================================================================
 // Flow Event Model

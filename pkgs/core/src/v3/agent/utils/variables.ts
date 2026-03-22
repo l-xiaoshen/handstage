@@ -1,4 +1,4 @@
-import type { Variables, VariableValue } from "../../types/public/agent.js";
+import type { Variables, VariableValue } from "../../types/public/agent";
 
 /**
  * Resolves a VariableValue to its primitive string value.

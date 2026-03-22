@@ -1,5 +1,5 @@
-import type { AgentToolMode, Variables } from "../../types/public/agent.js";
-import { CAPTCHA_SYSTEM_PROMPT_NOTE } from "../utils/captchaSolver.js";
+import type { AgentToolMode, Variables } from "../../types/public/agent";
+import { CAPTCHA_SYSTEM_PROMPT_NOTE } from "../utils/captchaSolver";
 
 export interface AgentSystemPromptOptions {
   url: string;

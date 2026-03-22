@@ -1,47 +1,47 @@
 import type { Protocol } from "devtools-protocol";
 import { promises as fs } from "fs";
-import { v3Logger } from "../logger.js";
-import { FlowLogger } from "../flowlogger/FlowLogger.js";
-import type { CDPSessionLike } from "./cdp.js";
-import type { CdpConnection } from "./cdp.js";
-import { Frame } from "./frame.js";
-import { FrameLocator } from "./frameLocator.js";
-import { deepLocatorFromPage, resolveLocatorTarget } from "./deepLocator.js";
+import { v3Logger } from "../logger";
+import { FlowLogger } from "../flowlogger/FlowLogger";
+import type { CDPSessionLike } from "./cdp";
+import type { CdpConnection } from "./cdp";
+import { Frame } from "./frame";
+import { FrameLocator } from "./frameLocator";
+import { deepLocatorFromPage, resolveLocatorTarget } from "./deepLocator";
 import {
   captureHybridSnapshot,
   resolveXpathForLocation,
-} from "./a11y/snapshot/index.js";
-import { FrameRegistry } from "./frameRegistry.js";
-import { executionContexts } from "./executionContextRegistry.js";
+} from "./a11y/snapshot/index";
+import { FrameRegistry } from "./frameRegistry";
+import { executionContexts } from "./executionContextRegistry";
 import type {
   LoadState,
   SnapshotResult,
   PageSnapshotOptions,
-} from "../types/public/page.js";
-import { NetworkManager } from "./networkManager.js";
-import { LifecycleWatcher } from "./lifecycleWatcher.js";
-import { NavigationResponseTracker } from "./navigationResponseTracker.js";
-import { Response, isSerializableResponse } from "./response.js";
-import { ConsoleMessage, type ConsoleListener } from "./consoleMessage.js";
-import type { StagehandAPIClient } from "../api.js";
+} from "../types/public/page";
+import { NetworkManager } from "./networkManager";
+import { LifecycleWatcher } from "./lifecycleWatcher";
+import { NavigationResponseTracker } from "./navigationResponseTracker";
+import { Response, isSerializableResponse } from "./response";
+import { ConsoleMessage, type ConsoleListener } from "./consoleMessage";
+import type { StagehandAPIClient } from "../api";
 import {
   type LocalBrowserLaunchOptions,
   StagehandSetExtraHTTPHeadersError,
   StagehandSnapshotError,
-} from "../types/public/index.js";
-import type { Locator } from "./locator.js";
+} from "../types/public/index";
+import type { Locator } from "./locator";
 import {
   StagehandInvalidArgumentError,
   StagehandEvalError,
-} from "../types/public/sdkErrors.js";
-import { normalizeInitScriptSource } from "./initScripts.js";
-import { buildLocatorInvocation } from "./locatorInvocation.js";
+} from "../types/public/sdkErrors";
+import { normalizeInitScriptSource } from "./initScripts";
+import { buildLocatorInvocation } from "./locatorInvocation";
 import type {
   ScreenshotAnimationsOption,
   ScreenshotCaretOption,
   ScreenshotOptions,
   ScreenshotScaleOption,
-} from "../types/public/screenshotTypes.js";
+} from "../types/public/screenshotTypes";
 import {
   applyMaskOverlays,
   applyStyleToFrames,
@@ -53,9 +53,9 @@ import {
   runScreenshotCleanups,
   setTransparentBackground,
   type ScreenshotCleanup,
-} from "./screenshotUtils.js";
-import type { InitScriptSource } from "../types/private/index.js";
-import { withTimeout } from "../timeoutConfig.js";
+} from "./screenshotUtils";
+import type { InitScriptSource } from "../types/private/index";
+import { withTimeout } from "../timeoutConfig";
 
 /**
  * Page

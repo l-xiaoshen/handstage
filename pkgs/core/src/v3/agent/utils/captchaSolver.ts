@@ -1,5 +1,5 @@
-import type { Page } from "../../understudy/page.js";
-import type { ConsoleMessage } from "../../understudy/consoleMessage.js";
+import type { Page } from "../../understudy/page";
+import type { ConsoleMessage } from "../../understudy/consoleMessage";
 
 const SOLVING_STARTED = "browserbase-solving-started";
 const SOLVING_FINISHED = "browserbase-solving-finished";

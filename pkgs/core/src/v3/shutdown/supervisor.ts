@@ -8,8 +8,8 @@
  */
 
 import Browserbase from "@browserbasehq/sdk";
-import type { ShutdownSupervisorConfig } from "../types/private/shutdown.js";
-import { cleanupLocalBrowser } from "./cleanupLocal.js";
+import type { ShutdownSupervisorConfig } from "../types/private/shutdown";
+import { cleanupLocalBrowser } from "./cleanupLocal";
 
 const SIGKILL_POLL_MS = 250;
 const SIGKILL_TIMEOUT_MS = 7_000;

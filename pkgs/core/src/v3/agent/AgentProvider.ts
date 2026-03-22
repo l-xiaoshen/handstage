@@ -1,16 +1,16 @@
 import type { ToolSet } from "ai/dist";
-import type { AgentProviderType } from "../types/public/agent.js";
-import type { LogLine } from "../types/public/logs.js";
-import type { ClientOptions } from "../types/public/model.js";
+import type { AgentProviderType } from "../types/public/agent";
+import type { LogLine } from "../types/public/logs";
+import type { ClientOptions } from "../types/public/model";
 import {
   UnsupportedModelError,
   UnsupportedModelProviderError,
-} from "../types/public/sdkErrors.js";
-import type { AgentClient } from "./AgentClient.js";
-import { AnthropicCUAClient } from "./AnthropicCUAClient.js";
-import { OpenAICUAClient } from "./OpenAICUAClient.js";
-import { GoogleCUAClient } from "./GoogleCUAClient.js";
-import { MicrosoftCUAClient } from "./MicrosoftCUAClient.js";
+} from "../types/public/sdkErrors";
+import type { AgentClient } from "./AgentClient";
+import { AnthropicCUAClient } from "./AnthropicCUAClient";
+import { OpenAICUAClient } from "./OpenAICUAClient";
+import { GoogleCUAClient } from "./GoogleCUAClient";
+import { MicrosoftCUAClient } from "./MicrosoftCUAClient";
 
 // Map model names to their provider types
 export const modelToAgentProviderMap: Record<string, AgentProviderType> = {

@@ -1,23 +1,23 @@
 // lib/v3/handlers/observeHandler.ts
-import { observe as runObserve } from "../../inference.js";
-import { trimTrailingTextNode } from "../../utils.js";
-import { v3Logger } from "../logger.js";
-import { V3FunctionName } from "../types/public/methods.js";
-import { captureHybridSnapshot } from "../understudy/a11y/snapshot/index.js";
-import type { LLMClient } from "../llm/LLMClient.js";
+import { observe as runObserve } from "../../inference";
+import { trimTrailingTextNode } from "../../utils";
+import { v3Logger } from "../logger";
+import { V3FunctionName } from "../types/public/methods";
+import { captureHybridSnapshot } from "../understudy/a11y/snapshot/index";
+import type { LLMClient } from "../llm/LLMClient";
 import {
   type ObserveHandlerParams,
   SupportedUnderstudyAction,
-} from "../types/private/handlers.js";
-import type { EncodedId } from "../types/private/internal.js";
-import type { Action } from "../types/public/methods.js";
+} from "../types/private/handlers";
+import type { EncodedId } from "../types/private/internal";
+import type { Action } from "../types/public/methods";
 import type {
   AvailableModel,
   ClientOptions,
   ModelConfiguration,
-} from "../types/public/model.js";
-import { ObserveTimeoutError } from "../types/public/sdkErrors.js";
-import { createTimeoutGuard } from "./handlerUtils/timeoutGuard.js";
+} from "../types/public/model";
+import { ObserveTimeoutError } from "../types/public/sdkErrors";
+import { createTimeoutGuard } from "./handlerUtils/timeoutGuard";
 
 export class ObserveHandler {
   private readonly llmClient: LLMClient;

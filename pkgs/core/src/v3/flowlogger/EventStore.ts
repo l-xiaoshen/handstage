@@ -1,14 +1,14 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { V3Options } from "../types/public/index.js";
+import type { V3Options } from "../types/public/index";
 import {
   type EventSink,
   JsonlFileEventSink,
   PrettyLogFileEventSink,
   PrettyStderrEventSink,
   ShallowInMemoryEventSink,
-} from "./EventSink.js";
-import { FlowEvent } from "./FlowLogger.js";
+} from "./EventSink";
+import { FlowEvent } from "./FlowLogger";
 
 const DEFAULT_IN_MEMORY_EVENT_LIMIT = 500; // Per-session ancestry window retained by the default shallow query sink.
 const CONFIG_DIR = process.env.BROWSERBASE_CONFIG_DIR || ""; // Base directory for session metadata + file-backed flow logs.

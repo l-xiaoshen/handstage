@@ -5,8 +5,8 @@
  * You can just pass in an OpenAI instance to the client and it will work.
  */
 
-import type { AvailableModel } from "../types/public/model.js";
-import { type CreateChatCompletionOptions, LLMClient } from "../llm/LLMClient.js";
+import type { AvailableModel } from "../types/public/model";
+import { type CreateChatCompletionOptions, LLMClient } from "../llm/LLMClient";
 import type OpenAI from "openai";
 import type {
   ChatCompletion,
@@ -18,12 +18,12 @@ import type {
   ChatCompletionSystemMessageParam,
   ChatCompletionUserMessageParam,
 } from "openai/resources/chat/completions";
-import { toJsonSchema } from "../zodCompat.js";
-import { validateZodSchema } from "../../utils.js";
+import { toJsonSchema } from "../zodCompat";
+import { validateZodSchema } from "../../utils";
 import {
   CreateChatCompletionResponseError,
   ZodSchemaValidationError,
-} from "../types/public/sdkErrors.js";
+} from "../types/public/sdkErrors";
 
 export class CustomOpenAIClient extends LLMClient {
   public type = "openai" as const;

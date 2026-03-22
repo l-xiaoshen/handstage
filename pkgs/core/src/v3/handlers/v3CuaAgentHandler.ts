@@ -1,12 +1,12 @@
-import { computeActiveElementXpath } from "../understudy/a11y/snapshot/index.js";
-import type { V3 } from "../v3.js";
+import { computeActiveElementXpath } from "../understudy/a11y/snapshot/index";
+import type { V3 } from "../v3";
 import type { ToolSet } from "ai";
-import type { AgentClient } from "../agent/AgentClient.js";
-import { AgentProvider } from "../agent/AgentProvider.js";
-import { GoogleCUAClient } from "../agent/GoogleCUAClient.js";
-import { OpenAICUAClient } from "../agent/OpenAICUAClient.js";
-import { mapKeyToPlaywright } from "../agent/utils/cuaKeyMapping.js";
-import { ensureXPath } from "../agent/utils/xpath.js";
+import type { AgentClient } from "../agent/AgentClient";
+import { AgentProvider } from "../agent/AgentProvider";
+import { GoogleCUAClient } from "../agent/GoogleCUAClient";
+import { OpenAICUAClient } from "../agent/OpenAICUAClient";
+import { mapKeyToPlaywright } from "../agent/utils/cuaKeyMapping";
+import { ensureXPath } from "../agent/utils/xpath";
 import type {
   ActionExecutionResult,
   AgentAction,
@@ -14,17 +14,17 @@ import type {
   AgentHandlerOptions,
   AgentResult,
   SafetyConfirmationHandler,
-} from "../types/public/agent.js";
-import type { LogLine } from "../types/public/logs.js";
-import { type Action, V3FunctionName } from "../types/public/methods.js";
-import { FlowLogger } from "../flowlogger/FlowLogger.js";
-import { toTitleCase } from "../../utils.js";
-import { StagehandClosedError } from "../types/public/sdkErrors.js";
+} from "../types/public/agent";
+import type { LogLine } from "../types/public/logs";
+import { type Action, V3FunctionName } from "../types/public/methods";
+import { FlowLogger } from "../flowlogger/FlowLogger";
+import { toTitleCase } from "../../utils";
+import { StagehandClosedError } from "../types/public/sdkErrors";
 import {
   CaptchaSolver,
   CAPTCHA_SOLVED_MSG,
   CAPTCHA_ERRORED_MSG,
-} from "../agent/utils/captchaSolver.js";
+} from "../agent/utils/captchaSolver";
 
 export class V3CuaAgentHandler {
   private v3: V3;

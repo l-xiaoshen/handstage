@@ -7,7 +7,7 @@
  * and resilient to exceptions.
  */
 
-import { resolveXPathFirst } from "./xpathResolver.js";
+import { resolveXPathFirst } from "./xpathResolver";
 
 type WaitForSelectorState = "attached" | "detached" | "visible" | "hidden";
 

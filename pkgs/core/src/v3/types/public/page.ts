@@ -1,4 +1,4 @@
-import type { Page } from "../../understudy/page.js";
+import type { Page } from "../../understudy/page";
 import type { Page as PlaywrightPage } from "playwright-core";
 import type { Page as PatchrightPage } from "patchright-core";
 import type { Page as PuppeteerPage } from "puppeteer-core";
@@ -6,11 +6,11 @@ import type { Page as PuppeteerPage } from "puppeteer-core";
 export type { PlaywrightPage, PatchrightPage, PuppeteerPage, Page };
 export type AnyPage = PlaywrightPage | PuppeteerPage | PatchrightPage | Page;
 
-export { ConsoleMessage } from "../../understudy/consoleMessage.js";
-export type { ConsoleListener } from "../../understudy/consoleMessage.js";
+export { ConsoleMessage } from "../../understudy/consoleMessage";
+export type { ConsoleListener } from "../../understudy/consoleMessage";
 
 export type LoadState = "load" | "domcontentloaded" | "networkidle";
-export { Response } from "../../understudy/response.js";
+export { Response } from "../../understudy/response";
 
 export type SnapshotResult = {
   formattedTree: string;

@@ -1,7 +1,7 @@
 import type { Protocol } from "devtools-protocol";
-import type { CDPSessionLike } from "../../cdp.js";
-import type { Page } from "../../page.js";
-import { v3Logger } from "../../../logger.js";
+import type { CDPSessionLike } from "../../cdp";
+import type { Page } from "../../page";
+import { v3Logger } from "../../../logger";
 import type {
   FrameContext,
   FrameDomMaps,
@@ -9,20 +9,20 @@ import type {
   HybridSnapshot,
   SnapshotOptions,
   SessionDomIndex,
-} from "../../../types/private/index.js";
-import { a11yForFrame } from "./a11yTree.js";
+} from "../../../types/private/index";
+import { a11yForFrame } from "./a11yTree";
 import {
   resolveCssFocusFrameAndTail,
   resolveFocusFrameAndTail,
-} from "./focusSelectors.js";
+} from "./focusSelectors";
 import {
   buildSessionDomIndex,
   domMapsForSession,
   relativizeXPath,
-} from "./domTree.js";
-import { injectSubtrees } from "./treeFormatUtils.js";
-import { ownerSession, parentSession } from "./sessions.js";
-import { normalizeXPath, prefixXPath } from "./xpathUtils.js";
+} from "./domTree";
+import { injectSubtrees } from "./treeFormatUtils";
+import { ownerSession, parentSession } from "./sessions";
+import { normalizeXPath, prefixXPath } from "./xpathUtils";
 
 /**
  * Capture a hybrid DOM + Accessibility snapshot for the provided page.

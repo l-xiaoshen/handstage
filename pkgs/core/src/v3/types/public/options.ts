@@ -1,11 +1,11 @@
 import type { z } from "zod";
-import type { LLMClient } from "../../llm/LLMClient.js";
-import type { ModelConfiguration } from "./model.js";
-import type { LogLine } from "./logs.js";
+import type { LLMClient } from "../../llm/LLMClient";
+import type { ModelConfiguration } from "./model";
+import type { LogLine } from "./logs";
 import {
   type BrowserbaseSessionCreateParams,
   LocalBrowserLaunchOptionsSchema,
-} from "./api.js";
+} from "./api";
 
 export type V3Env = "LOCAL" | "BROWSERBASE";
 

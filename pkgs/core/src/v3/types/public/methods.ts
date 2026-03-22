@@ -5,10 +5,10 @@ import { z } from "zod";
 import type {
   InferStagehandSchema,
   StagehandZodSchema,
-} from "../../zodCompat.js";
-import type { Page } from "../../understudy/page.js";
-import type { ModelConfiguration } from "../public/model.js";
-import type { Variables } from "./agent.js";
+} from "../../zodCompat";
+import type { Page } from "../../understudy/page";
+import type { ModelConfiguration } from "../public/model";
+import type { Variables } from "./agent";
 
 export interface ActOptions {
   model?: ModelConfiguration;

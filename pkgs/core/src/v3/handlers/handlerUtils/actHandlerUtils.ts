@@ -1,17 +1,17 @@
 // lib/v3/handlers/handlerUtils/actHandlerUtils.ts
 import type { Protocol } from "devtools-protocol";
-import type { Frame } from "../../understudy/frame.js";
-import type { Locator } from "../../understudy/locator.js";
-import type { MouseButton } from "../../types/public/locator.js";
-import { resolveLocatorWithHops } from "../../understudy/deepLocator.js";
-import type { Page } from "../../understudy/page.js";
-import { v3Logger } from "../../logger.js";
-import { FlowLogger } from "../../flowlogger/FlowLogger.js";
-import { toTitleCase } from "../../../utils.js";
+import type { Frame } from "../../understudy/frame";
+import type { Locator } from "../../understudy/locator";
+import type { MouseButton } from "../../types/public/locator";
+import { resolveLocatorWithHops } from "../../understudy/deepLocator";
+import type { Page } from "../../understudy/page";
+import { v3Logger } from "../../logger";
+import { FlowLogger } from "../../flowlogger/FlowLogger";
+import { toTitleCase } from "../../../utils";
 import {
   StagehandClickError,
   UnderstudyCommandException,
-} from "../../types/public/sdkErrors.js";
+} from "../../types/public/sdkErrors";
 
 export interface UnderstudyMethodHandlerContext {
   method: string;

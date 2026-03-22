@@ -1,8 +1,8 @@
 import { type Part, type FunctionCall, type FunctionDeclaration, Type } from "@google/genai";
 import type { ToolSet } from "ai";
-import type { LogLine } from "../../types/public/logs.js";
-import { toJsonSchema } from "../../zodCompat.js";
-import type { StagehandZodSchema } from "../../zodCompat.js";
+import type { LogLine } from "../../types/public/logs";
+import { toJsonSchema } from "../../zodCompat";
+import type { StagehandZodSchema } from "../../zodCompat";
 
 /**
  * Result of executing a custom tool for Google CUA

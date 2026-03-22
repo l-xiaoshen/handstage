@@ -1,9 +1,9 @@
-import { Locator } from "./locator.js";
-import type { Frame } from "./frame.js";
-import type { Page } from "./page.js";
-import { type FrameLocator, frameLocatorFromFrame } from "./frameLocator.js";
-import { StagehandInvalidArgumentError } from "../types/public/sdkErrors.js";
-import { IFRAME_STEP_RE } from "./a11y/snapshot/focusSelectors.js";
+import { Locator } from "./locator";
+import type { Frame } from "./frame";
+import type { Page } from "./page";
+import { type FrameLocator, frameLocatorFromFrame } from "./frameLocator";
+import { StagehandInvalidArgumentError } from "../types/public/sdkErrors";
+import { IFRAME_STEP_RE } from "./a11y/snapshot/focusSelectors";
 
 type Axis = "child" | "desc";
 type Step = { axis: Axis; raw: string; name: string };

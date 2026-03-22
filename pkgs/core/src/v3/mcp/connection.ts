@@ -1,13 +1,13 @@
 import {
   Client,
   type ClientOptions,
-} from "@modelcontextprotocol/sdk/client/index.js";
+} from "@modelcontextprotocol/sdk/client/index";
 import {
   StreamableHTTPClientTransport,
   type StreamableHTTPClientTransportOptions,
-} from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { MCPConnectionError } from "../types/public/sdkErrors.js";
+} from "@modelcontextprotocol/sdk/client/streamableHttp";
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio";
+import { MCPConnectionError } from "../types/public/sdkErrors";
 
 export interface ConnectToMCPServerOptions {
   serverUrl: string | URL;

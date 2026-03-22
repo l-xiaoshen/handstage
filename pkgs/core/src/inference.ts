@@ -1,7 +1,7 @@
 import { z } from "zod";
-import type { LogLine } from "./v3/types/public/logs.js";
-import type { ChatMessage, LLMClient } from "./v3/llm/LLMClient.js";
-import { getEnvTimeoutMs, withTimeout } from "./v3/timeoutConfig.js";
+import type { LogLine } from "./v3/types/public/logs";
+import type { ChatMessage, LLMClient } from "./v3/llm/LLMClient";
+import { getEnvTimeoutMs, withTimeout } from "./v3/timeoutConfig";
 import {
   buildActSystemPrompt,
   buildExtractSystemPrompt,
@@ -10,16 +10,16 @@ import {
   buildMetadataSystemPrompt,
   buildObserveSystemPrompt,
   buildObserveUserMessage,
-} from "./prompt.js";
-import { appendSummary, writeTimestampedTxtFile } from "./inferenceLogUtils.js";
+} from "./prompt";
+import { appendSummary, writeTimestampedTxtFile } from "./inferenceLogUtils";
 import type {
   InferStagehandSchema,
   StagehandZodObject,
-} from "./v3/zodCompat.js";
-import { SupportedUnderstudyAction } from "./v3/types/private/handlers.js";
+} from "./v3/zodCompat";
+import { SupportedUnderstudyAction } from "./v3/types/private/handlers";
 
 // Re-export for backward compatibility
-export type { LLMParsedResponse, LLMUsage } from "./v3/llm/LLMClient.js";
+export type { LLMParsedResponse, LLMUsage } from "./v3/llm/LLMClient";
 
 function withLlmTimeout<T>(promise: Promise<T>, operation: string): Promise<T> {
   return withTimeout(

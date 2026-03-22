@@ -1,5 +1,5 @@
-import type { AgentAction } from "../../types/public/agent.js";
-import type { ActionMappingOptions } from "../../types/private/agent.js";
+import type { AgentAction } from "../../types/public/agent";
+import type { ActionMappingOptions } from "../../types/private/agent";
 
 /**
  * Keys to exclude from tool outputs when mapping to actions.

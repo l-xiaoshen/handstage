@@ -3,8 +3,8 @@ import type {
   AgentResult,
   AgentType,
   AgentExecutionOptions,
-} from "../types/public/agent.js";
-import type { ClientOptions } from "../types/public/model.js";
+} from "../types/public/agent";
+import type { ClientOptions } from "../types/public/model";
 
 /**
  * Abstract base class for agent clients

@@ -10,13 +10,13 @@ import {
   Type,
 } from "@google/genai";
 
-import type { LogLine } from "../types/public/logs.js";
-import type { AvailableModel, ClientOptions } from "../types/public/model.js";
+import type { LogLine } from "../types/public/logs";
+import type { AvailableModel, ClientOptions } from "../types/public/model";
 import {
   validateZodSchema,
   toGeminiSchema,
   loadApiKeyFromEnv,
-} from "../../utils.js";
+} from "../../utils";
 import {
   type ChatCompletionOptions,
   type ChatMessage,
@@ -24,11 +24,11 @@ import {
   LLMClient,
   type LLMResponse,
   AnnotatedScreenshotText,
-} from "./LLMClient.js";
+} from "./LLMClient";
 import {
   CreateChatCompletionResponseError,
   StagehandError,
-} from "../types/public/sdkErrors.js";
+} from "../types/public/sdkErrors";
 
 // Mapping from generic roles to Gemini roles
 const roleMap: { [key in ChatMessage["role"]]: string } = {

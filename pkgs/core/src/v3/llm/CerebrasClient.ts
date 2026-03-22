@@ -1,15 +1,15 @@
 import OpenAI from "openai";
 import type { ClientOptions } from "openai";
-import type { LogLine } from "../types/public/logs.js";
-import type { AvailableModel } from "../types/public/model.js";
+import type { LogLine } from "../types/public/logs";
+import type { AvailableModel } from "../types/public/model";
 import {
   type ChatMessage,
   type CreateChatCompletionOptions,
   LLMClient,
   type LLMResponse,
-} from "./LLMClient.js";
-import { CreateChatCompletionResponseError } from "../types/public/sdkErrors.js";
-import { toJsonSchema } from "../zodCompat.js";
+} from "./LLMClient";
+import { CreateChatCompletionResponseError } from "../types/public/sdkErrors";
+import { toJsonSchema } from "../zodCompat";
 
 export class CerebrasClient extends LLMClient {
   public type = "cerebras" as const;

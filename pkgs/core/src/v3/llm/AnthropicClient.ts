@@ -5,18 +5,18 @@ import type {
   TextBlockParam,
   Tool,
 } from "@anthropic-ai/sdk/resources";
-import type { LogLine } from "../types/public/logs.js";
+import type { LogLine } from "../types/public/logs";
 import type {
   AnthropicJsonSchemaObject,
   AvailableModel,
-} from "../types/public/model.js";
+} from "../types/public/model";
 import {
   type CreateChatCompletionOptions,
   LLMClient,
   type LLMResponse,
-} from "./LLMClient.js";
-import { CreateChatCompletionResponseError } from "../types/public/sdkErrors.js";
-import { toJsonSchema } from "../zodCompat.js";
+} from "./LLMClient";
+import { CreateChatCompletionResponseError } from "../types/public/sdkErrors";
+import { toJsonSchema } from "../zodCompat";
 
 export class AnthropicClient extends LLMClient {
   public type = "anthropic" as const;

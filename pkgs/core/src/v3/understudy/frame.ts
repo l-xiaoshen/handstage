@@ -1,9 +1,9 @@
 // lib/v3/understudy/frame.ts
 import type { Protocol } from "devtools-protocol";
-import type { CDPSessionLike } from "./cdp.js";
-import { Locator } from "./locator.js";
-import { StagehandEvalError } from "../types/public/sdkErrors.js";
-import { executionContexts } from "./executionContextRegistry.js";
+import type { CDPSessionLike } from "./cdp";
+import { Locator } from "./locator";
+import { StagehandEvalError } from "../types/public/sdkErrors";
+import { executionContexts } from "./executionContextRegistry";
 
 interface FrameManager {
   session: CDPSessionLike;

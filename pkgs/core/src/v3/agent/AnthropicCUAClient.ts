@@ -8,24 +8,24 @@ import type {
   AnthropicToolResult,
   AgentExecutionOptions,
   ToolUseItem,
-} from "../types/public/agent.js";
-import type { LogLine } from "../types/public/logs.js";
-import type { ClientOptions } from "../types/public/model.js";
+} from "../types/public/agent";
+import type { LogLine } from "../types/public/logs";
+import type { ClientOptions } from "../types/public/model";
 import {
   AgentScreenshotProviderError,
   StagehandClosedError,
-} from "../types/public/sdkErrors.js";
+} from "../types/public/sdkErrors";
 import Anthropic from "@anthropic-ai/sdk";
 import type { ToolSet } from "ai";
-import { AgentClient } from "./AgentClient.js";
-import { compressConversationImages } from "./utils/imageCompression.js";
-import { toJsonSchema } from "../zodCompat.js";
-import type { StagehandZodSchema } from "../zodCompat.js";
+import { AgentClient } from "./AgentClient";
+import { compressConversationImages } from "./utils/imageCompression";
+import { toJsonSchema } from "../zodCompat";
+import type { StagehandZodSchema } from "../zodCompat";
 import {
   FlowLogger,
   extractLlmCuaPromptSummary,
   extractLlmCuaResponseSummary,
-} from "../flowlogger/FlowLogger.js";
+} from "../flowlogger/FlowLogger";
 import { v7 as uuidv7 } from "uuid";
 
 export type ResponseInputItem = AnthropicMessage | AnthropicToolResult;

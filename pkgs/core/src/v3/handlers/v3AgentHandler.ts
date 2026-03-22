@@ -1,7 +1,7 @@
-import { createAgentTools } from "../agent/tools/index.js";
-import { buildAgentSystemPrompt } from "../agent/prompts/agentSystemPrompt.js";
-import type { LogLine } from "../types/public/logs.js";
-import type { V3 } from "../v3.js";
+import { createAgentTools } from "../agent/tools/index";
+import { buildAgentSystemPrompt } from "../agent/prompts/agentSystemPrompt";
+import type { LogLine } from "../types/public/logs";
+import type { V3 } from "../v3";
 import {
   type ModelMessage,
   type ToolSet,
@@ -14,10 +14,10 @@ import {
   type StreamTextOnStepFinishCallback,
   type PrepareStepFunction,
 } from "ai";
-import type { StagehandZodObject } from "../zodCompat.js";
-import { processMessages } from "../agent/utils/messageProcessing.js";
-import type { LLMClient } from "../llm/LLMClient.js";
-import { FlowLogger } from "../flowlogger/FlowLogger.js";
+import type { StagehandZodObject } from "../zodCompat";
+import { processMessages } from "../agent/utils/messageProcessing";
+import type { LLMClient } from "../llm/LLMClient";
+import { FlowLogger } from "../flowlogger/FlowLogger";
 import type {
   AgentExecuteOptions,
   AgentStreamExecuteOptions,
@@ -30,21 +30,21 @@ import type {
   AgentToolMode,
   AgentModelConfig,
   Variables,
-} from "../types/public/agent.js";
-import { V3FunctionName } from "../types/public/methods.js";
-import { mapToolResultToActions } from "../agent/utils/actionMapping.js";
+} from "../types/public/agent";
+import { V3FunctionName } from "../types/public/methods";
+import { mapToolResultToActions } from "../agent/utils/actionMapping";
 import {
   MissingLLMConfigurationError,
   MissingEnvironmentVariableError,
   StreamingCallbacksInNonStreamingModeError,
   AgentAbortError,
-} from "../types/public/sdkErrors.js";
-import { handleDoneToolCall } from "../agent/utils/handleDoneToolCall.js";
+} from "../types/public/sdkErrors";
+import { handleDoneToolCall } from "../agent/utils/handleDoneToolCall";
 import {
   CaptchaSolver,
   CAPTCHA_SOLVED_MSG,
   CAPTCHA_ERRORED_MSG,
-} from "../agent/utils/captchaSolver.js";
+} from "../agent/utils/captchaSolver";
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);

@@ -13,12 +13,12 @@ import { createRequire } from "node:module";
 import type {
   ShutdownSupervisorConfig,
   ShutdownSupervisorHandle,
-} from "../types/private/shutdown.js";
+} from "../types/private/shutdown";
 import {
   ShutdownSupervisorResolveError,
   ShutdownSupervisorSpawnError,
-} from "../types/private/shutdownErrors.js";
-import { getCurrentFilePath } from "../runtimePaths.js";
+} from "../types/private/shutdownErrors";
+import { getCurrentFilePath } from "../runtimePaths";
 
 const moduleFilename = getCurrentFilePath();
 const moduleDir = path.dirname(moduleFilename);

@@ -1,5 +1,5 @@
 import type { Protocol } from "devtools-protocol";
-import type { CDPSessionLike } from "./cdp.js";
+import type { CDPSessionLike } from "./cdp";
 import {
   DEFAULT_IDLE_WAIT,
   IGNORED_RESOURCE_TYPES,
@@ -7,7 +7,7 @@ import {
   type NetworkRequestInfo,
   type WaitForIdleHandle,
   type WaitForIdleOptions,
-} from "../types/private/network.js";
+} from "../types/private/network";
 
 /**
  * Cross-session network tracker.

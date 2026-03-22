@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import process from "node:process";
-import { maybeRunShutdownSupervisorFromArgv } from "./shutdown/supervisor.js";
+import { maybeRunShutdownSupervisorFromArgv } from "./shutdown/supervisor";
 
 // currently the CLI is only used to spawn the shutdown supervisor
 // in the future, we may want to add more CLI commands here

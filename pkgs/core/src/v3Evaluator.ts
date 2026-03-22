@@ -5,18 +5,18 @@
  */
 
 import { z } from "zod";
-import type { AvailableModel, ClientOptions } from "./v3/types/public/model.js";
+import type { AvailableModel, ClientOptions } from "./v3/types/public/model";
 import type {
   EvaluateOptions,
   BatchAskOptions,
   EvaluationResult,
-} from "./v3/types/private/evaluator.js";
-import type { LLMParsedResponse } from "./inference.js";
-import type { LLMResponse, LLMClient } from "./v3/llm/LLMClient.js";
-import type { LogLine } from "./v3/types/public/logs.js";
-import type { V3 } from "./v3/v3.js";
-import { LLMProvider } from "./v3/llm/LLMProvider.js";
-import { StagehandInvalidArgumentError } from "./v3/types/public/sdkErrors.js";
+} from "./v3/types/private/evaluator";
+import type { LLMParsedResponse } from "./inference";
+import type { LLMResponse, LLMClient } from "./v3/llm/LLMClient";
+import type { LogLine } from "./v3/types/public/logs";
+import type { V3 } from "./v3/v3";
+import { LLMProvider } from "./v3/llm/LLMProvider";
+import { StagehandInvalidArgumentError } from "./v3/types/public/sdkErrors";
 
 const EvaluationSchema = z.object({
   evaluation: z.enum(["YES", "NO"]),

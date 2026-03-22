@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
-import type { Logger } from "../types/public/index.js";
-import type { ReadJsonResult, WriteJsonResult } from "../types/private/index.js";
+import type { Logger } from "../types/public/index";
+import type { ReadJsonResult, WriteJsonResult } from "../types/private/index";
 
 const jsonClone = <T>(value: T): T => {
   const serialized = JSON.stringify(value);

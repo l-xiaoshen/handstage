@@ -1,13 +1,13 @@
 import fs from "node:fs";
 import path from "node:path";
-import { FlowEvent } from "./FlowLogger.js";
-import type { EventStoreApi, EventStoreQuery } from "./EventStore.js";
+import { FlowEvent } from "./FlowLogger";
+import type { EventStoreApi, EventStoreQuery } from "./EventStore";
 import {
   prettifyColorStderrLine,
   prettifyEvent,
   prettifyIsCdpEvent,
   prettifySanitizeEvent,
-} from "./prettify.js";
+} from "./prettify";
 
 // =============================================================================
 // Event Sink Contracts

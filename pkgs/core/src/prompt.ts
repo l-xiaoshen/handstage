@@ -1,5 +1,5 @@
-import type { ChatMessage } from "./v3/llm/LLMClient.js";
-import type { Variables } from "./v3/types/public/agent.js";
+import type { ChatMessage } from "./v3/llm/LLMClient";
+import type { Variables } from "./v3/types/public/agent";
 
 export function buildUserInstructionsString(
   userProvidedInstructions?: string,

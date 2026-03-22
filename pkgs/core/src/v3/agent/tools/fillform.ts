@@ -1,9 +1,9 @@
 import { tool } from "ai";
 import { z } from "zod";
-import type { V3 } from "../../v3.js";
-import type { Action } from "../../types/public/methods.js";
-import type { AgentModelConfig, Variables } from "../../types/public/agent.js";
-import { TimeoutError } from "../../types/public/sdkErrors.js";
+import type { V3 } from "../../v3";
+import type { Action } from "../../types/public/methods";
+import type { AgentModelConfig, Variables } from "../../types/public/agent";
+import { TimeoutError } from "../../types/public/sdkErrors";
 
 export const fillFormTool = (
   v3: V3,

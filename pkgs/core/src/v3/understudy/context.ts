@@ -1,33 +1,33 @@
 // lib/v3/understudy/context.ts
 import type { Protocol } from "devtools-protocol";
-import { v3Logger } from "../logger.js";
-import { CdpConnection, type CDPSessionLike } from "./cdp.js";
-import { Page } from "./page.js";
-import { installV3PiercerIntoSession } from "./piercer.js";
-import { v3ScriptContent } from "../dom/build/scriptV3Content.js";
-import { executionContexts } from "./executionContextRegistry.js";
-import type { StagehandAPIClient } from "../api.js";
-import type { LocalBrowserLaunchOptions } from "../types/public/index.js";
-import type { InitScriptSource } from "../types/private/index.js";
-import { normalizeInitScriptSource } from "./initScripts.js";
+import { v3Logger } from "../logger";
+import { CdpConnection, type CDPSessionLike } from "./cdp";
+import { Page } from "./page";
+import { installV3PiercerIntoSession } from "./piercer";
+import { v3ScriptContent } from "../dom/build/scriptV3Content";
+import { executionContexts } from "./executionContextRegistry";
+import type { StagehandAPIClient } from "../api";
+import type { LocalBrowserLaunchOptions } from "../types/public/index";
+import type { InitScriptSource } from "../types/private/index";
+import { normalizeInitScriptSource } from "./initScripts";
 import {
   TimeoutError,
   CookieSetError,
   PageNotFoundError,
   StagehandSetExtraHTTPHeadersError,
-} from "../types/public/sdkErrors.js";
-import { getEnvTimeoutMs, withTimeout } from "../timeoutConfig.js";
+} from "../types/public/sdkErrors";
+import { getEnvTimeoutMs, withTimeout } from "../timeoutConfig";
 import {
   filterCookies,
   normalizeCookieParams,
   cookieMatchesFilter,
   toCdpCookieParam,
-} from "./cookies.js";
+} from "./cookies";
 import type {
   Cookie,
   ClearCookieOptions,
   CookieParam,
-} from "../types/public/context.js";
+} from "../types/public/context";
 
 type TargetId = string;
 type SessionId = string;

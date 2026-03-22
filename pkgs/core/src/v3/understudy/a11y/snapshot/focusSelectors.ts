@@ -1,17 +1,17 @@
 import type { Protocol } from "devtools-protocol";
-import type { CDPSessionLike } from "../../cdp.js";
-import type { Page } from "../../page.js";
-import { executionContexts } from "../../executionContextRegistry.js";
-import { buildLocatorInvocation } from "../../locatorInvocation.js";
-import { StagehandIframeError } from "../../../types/public/sdkErrors.js";
+import type { CDPSessionLike } from "../../cdp";
+import type { Page } from "../../page";
+import { executionContexts } from "../../executionContextRegistry";
+import { buildLocatorInvocation } from "../../locatorInvocation";
+import { StagehandIframeError } from "../../../types/public/sdkErrors";
 import type {
   Axis,
   FrameParentIndex,
   ResolvedCssFocus,
   ResolvedFocusFrame,
   Step,
-} from "../../../types/private/snapshot.js";
-import { prefixXPath } from "./xpathUtils.js";
+} from "../../../types/private/snapshot";
+import { prefixXPath } from "./xpathUtils";
 
 /**
  * Parse a cross-frame XPath into discrete steps. Each step tracks whether it

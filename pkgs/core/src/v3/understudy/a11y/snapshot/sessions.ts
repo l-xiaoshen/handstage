@@ -1,6 +1,6 @@
-import type { CDPSessionLike } from "../../cdp.js";
-import type { Page } from "../../page.js";
-import type { FrameParentIndex } from "../../../types/private/snapshot.js";
+import type { CDPSessionLike } from "../../cdp";
+import type { Page } from "../../page";
+import type { FrameParentIndex } from "../../../types/private/snapshot";
 
 /**
  * Session helpers ensure DOM lookups are always executed against the session

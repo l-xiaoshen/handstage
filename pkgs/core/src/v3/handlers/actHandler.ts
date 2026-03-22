@@ -1,31 +1,31 @@
 // lib/v3/handlers/actHandler.ts
-import { act as actInference } from "../../inference.js";
-import { buildActPrompt, buildStepTwoPrompt } from "../../prompt.js";
-import { trimTrailingTextNode } from "../../utils.js";
-import { v3Logger } from "../logger.js";
-import type { ActHandlerParams } from "../types/private/handlers.js";
-import { type ActResult, type Action, V3FunctionName } from "../types/public/methods.js";
-import { ActTimeoutError } from "../types/public/sdkErrors.js";
+import { act as actInference } from "../../inference";
+import { buildActPrompt, buildStepTwoPrompt } from "../../prompt";
+import { trimTrailingTextNode } from "../../utils";
+import { v3Logger } from "../logger";
+import type { ActHandlerParams } from "../types/private/handlers";
+import { type ActResult, type Action, V3FunctionName } from "../types/public/methods";
+import { ActTimeoutError } from "../types/public/sdkErrors";
 import {
   captureHybridSnapshot,
   diffCombinedTrees,
-} from "../understudy/a11y/snapshot/index.js";
-import type { LLMClient } from "../llm/LLMClient.js";
-import { SupportedUnderstudyAction } from "../types/private/index.js";
-import type { EncodedId } from "../types/private/internal.js";
+} from "../understudy/a11y/snapshot/index";
+import type { LLMClient } from "../llm/LLMClient";
+import { SupportedUnderstudyAction } from "../types/private/index";
+import type { EncodedId } from "../types/private/internal";
 import type {
   AvailableModel,
   ClientOptions,
   ModelConfiguration,
-} from "../types/public/model.js";
-import type { Variables } from "../types/public/agent.js";
-import type { Page } from "../understudy/page.js";
+} from "../types/public/model";
+import type { Variables } from "../types/public/agent";
+import type { Page } from "../understudy/page";
 import {
   performUnderstudyMethod,
   waitForDomNetworkQuiet,
-} from "./handlerUtils/actHandlerUtils.js";
-import { createTimeoutGuard } from "./handlerUtils/timeoutGuard.js";
-import { resolveVariableValue } from "../agent/utils/variables.js";
+} from "./handlerUtils/actHandlerUtils";
+import { createTimeoutGuard } from "./handlerUtils/timeoutGuard";
+import { resolveVariableValue } from "../agent/utils/variables";
 
 type ActInferenceElement = {
   elementId?: string;

@@ -8,31 +8,31 @@ import {
   type InferStagehandSchema,
   type StagehandZodSchema,
   toJsonSchema,
-} from "./zodCompat.js";
-import { loadApiKeyFromEnv } from "../utils.js";
-import { extractModelName } from "../modelUtils.js";
-import { StagehandLogger, type LoggerOptions } from "../logger.js";
-import { ActCache } from "./cache/ActCache.js";
-import { AgentCache } from "./cache/AgentCache.js";
-import { CacheStorage } from "./cache/CacheStorage.js";
-import { ActHandler } from "./handlers/actHandler.js";
-import { ExtractHandler } from "./handlers/extractHandler.js";
-import { ObserveHandler } from "./handlers/observeHandler.js";
-import { V3AgentHandler } from "./handlers/v3AgentHandler.js";
-import { V3CuaAgentHandler } from "./handlers/v3CuaAgentHandler.js";
-import { CAPTCHA_CUA_SYSTEM_PROMPT_NOTE } from "./agent/utils/captchaSolver.js";
-import { createBrowserbaseSession } from "./launch/browserbase.js";
-import { launchLocalChrome } from "./launch/local.js";
-import type { LLMClient } from "./llm/LLMClient.js";
-import { LLMProvider } from "./llm/LLMProvider.js";
+} from "./zodCompat";
+import { loadApiKeyFromEnv } from "../utils";
+import { extractModelName } from "../modelUtils";
+import { StagehandLogger, type LoggerOptions } from "../logger";
+import { ActCache } from "./cache/ActCache";
+import { AgentCache } from "./cache/AgentCache";
+import { CacheStorage } from "./cache/CacheStorage";
+import { ActHandler } from "./handlers/actHandler";
+import { ExtractHandler } from "./handlers/extractHandler";
+import { ObserveHandler } from "./handlers/observeHandler";
+import { V3AgentHandler } from "./handlers/v3AgentHandler";
+import { V3CuaAgentHandler } from "./handlers/v3CuaAgentHandler";
+import { CAPTCHA_CUA_SYSTEM_PROMPT_NOTE } from "./agent/utils/captchaSolver";
+import { createBrowserbaseSession } from "./launch/browserbase";
+import { launchLocalChrome } from "./launch/local";
+import type { LLMClient } from "./llm/LLMClient";
+import { LLMProvider } from "./llm/LLMProvider";
 import {
   bindInstanceLogger,
   unbindInstanceLogger,
   withInstanceLogContext,
-} from "./logger.js";
-import { cleanupLocalBrowser } from "./shutdown/cleanupLocal.js";
-import { startShutdownSupervisor } from "./shutdown/supervisorClient.js";
-import { resolveTools } from "./mcp/utils.js";
+} from "./logger";
+import { cleanupLocalBrowser } from "./shutdown/cleanupLocal";
+import { startShutdownSupervisor } from "./shutdown/supervisorClient";
+import { resolveTools } from "./mcp/utils";
 import type {
   ActHandlerParams,
   ExtractHandlerParams,
@@ -40,11 +40,11 @@ import type {
   AgentReplayStep,
   InitState,
   AgentCacheContext,
-} from "./types/private/index.js";
+} from "./types/private/index";
 import type {
   ShutdownSupervisorConfig,
   ShutdownSupervisorHandle,
-} from "./types/private/shutdown.js";
+} from "./types/private/shutdown";
 import {
   type AgentConfig,
   type AgentExecuteCallbacks,
@@ -78,18 +78,18 @@ import {
   MissingEnvironmentVariableError,
   StagehandInitError,
   type AgentStreamResult,
-} from "./types/public/index.js";
-import { V3Context } from "./understudy/context.js";
-import type { Page } from "./understudy/page.js";
-import { resolveModel } from "../modelUtils.js";
-import { StagehandAPIClient } from "./api.js";
-import { validateExperimentalFeatures } from "./agent/utils/validateExperimentalFeatures.js";
-import { flattenVariables } from "./agent/utils/variables.js";
-import { FlowLogger, type FlowLoggerContext } from "./flowlogger/FlowLogger.js";
-import { EventEmitterWithWildcardSupport } from "./flowlogger/EventEmitter.js";
-import { EventStore } from "./flowlogger/EventStore.js";
-import { createTimeoutGuard } from "./handlers/handlerUtils/timeoutGuard.js";
-import { ActTimeoutError } from "./types/public/sdkErrors.js";
+} from "./types/public/index";
+import { V3Context } from "./understudy/context";
+import type { Page } from "./understudy/page";
+import { resolveModel } from "../modelUtils";
+import { StagehandAPIClient } from "./api";
+import { validateExperimentalFeatures } from "./agent/utils/validateExperimentalFeatures";
+import { flattenVariables } from "./agent/utils/variables";
+import { FlowLogger, type FlowLoggerContext } from "./flowlogger/FlowLogger";
+import { EventEmitterWithWildcardSupport } from "./flowlogger/EventEmitter";
+import { EventStore } from "./flowlogger/EventStore";
+import { createTimeoutGuard } from "./handlers/handlerUtils/timeoutGuard";
+import { ActTimeoutError } from "./types/public/sdkErrors";
 
 const DEFAULT_MODEL_NAME = "openai/gpt-4.1-mini";
 const DEFAULT_VIEWPORT = { width: 1288, height: 711 };

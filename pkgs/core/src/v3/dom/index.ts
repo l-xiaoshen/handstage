@@ -1,1 +1,1 @@
-export * from "./piercer.runtime.js";
+export * from "./piercer.runtime";
