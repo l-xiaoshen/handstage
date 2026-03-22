@@ -1,12 +1,13 @@
 import { ZodSchemaValidationError } from "./v3/types/public/sdkErrors";
-import { z, type ZodTypeAny } from "zod";
-import type { StagehandZodSchema } from "./v3/zodCompat";
+import { formatError, z, type ZodType } from "zod";
+import type { StagehandZodSchema } from "./v3/zodSchema";
 
 const TYPE_NAME_MAP: Record<string, string> = {
   ZodString: "string",
   string: "string",
   ZodNumber: "number",
   number: "number",
+  int: "number",
   ZodBoolean: "boolean",
   boolean: "boolean",
   ZodObject: "object",
@@ -32,24 +33,15 @@ const TYPE_NAME_MAP: Record<string, string> = {
   pipe: "pipe",
 };
 
-type SchemaInternals = {
-  _zod?: { def?: Record<string, unknown>; bag?: Record<string, unknown> };
-  _def?: Record<string, unknown>;
-};
-
 export function validateZodSchema(schema: StagehandZodSchema, data: unknown) {
   const result = schema.safeParse(data);
 
   if (result.success) {
     return true;
   }
-  throw new ZodSchemaValidationError(data, result.error.format());
+  throw new ZodSchemaValidationError(data, formatError(result.error));
 }
 
-/**
- * Detects if the code is running in the Bun runtime environment.
- * @returns {boolean} True if running in Bun, false otherwise.
- */
 export function isRunningInBun(): boolean {
   return (
     typeof process !== "undefined" &&
@@ -58,20 +50,8 @@ export function isRunningInBun(): boolean {
   );
 }
 
-// Helper function to check the type of Zod schema
 export function getZodType(schema: StagehandZodSchema): string {
-  const schemaWithDef = schema as SchemaInternals & {
-    _zod?: { def?: { type?: string } };
-  };
-  const rawType =
-    (schemaWithDef._zod?.def?.type as string | undefined) ??
-    (schemaWithDef._def?.typeName as string | undefined) ??
-    (schemaWithDef._def?.type as string | undefined);
-
-  if (!rawType) {
-    return "unknown";
-  }
-
+  const rawType = schema.type;
   return TYPE_NAME_MAP[rawType] ?? rawType;
 }
 
@@ -88,7 +68,6 @@ export function toTitleCase(str: string): string {
   );
 }
 
-// TODO: move to separate types file
 export interface JsonSchemaProperty {
   type: string;
   enum?: unknown[];
@@ -98,26 +77,21 @@ export interface JsonSchemaProperty {
   minimum?: number;
   maximum?: number;
   description?: string;
-  format?: string; // JSON Schema format field (e.g., "uri", "url", "email", etc.)
+  format?: string;
 }
 export interface JsonSchema extends JsonSchemaProperty {
   type: string;
 }
 
-/**
- * Converts a JSON Schema object to a Zod schema
- * @param schema The JSON Schema object to convert
- * @returns A Zod schema equivalent to the input JSON Schema
- */
-export function jsonSchemaToZod(schema: JsonSchema): ZodTypeAny {
+export function jsonSchemaToZod(schema: JsonSchemaProperty): ZodType {
   switch (schema.type) {
     case "object":
       if (schema.properties) {
-        const shape: Record<string, ZodTypeAny> = {};
+        const shape: Record<string, ZodType> = {};
         for (const key in schema.properties) {
           const prop = schema.properties[key];
           if (prop) {
-            shape[key] = jsonSchemaToZod(prop as JsonSchema);
+            shape[key] = jsonSchemaToZod(prop);
           }
         }
         let zodObject = z.object(shape);
@@ -151,7 +125,6 @@ export function jsonSchemaToZod(schema: JsonSchema): ZodTypeAny {
       }
       let zodString = z.string();
 
-      // Handle JSON Schema format field
       if (schema.format === "uri" || schema.format === "url") {
         zodString = zodString.url();
       } else if (schema.format === "email") {
@@ -159,7 +132,6 @@ export function jsonSchemaToZod(schema: JsonSchema): ZodTypeAny {
       } else if (schema.format === "uuid") {
         zodString = zodString.uuid();
       }
-      // Add more format handlers as needed
 
       if (schema.description) {
         zodString = zodString.describe(schema.description);

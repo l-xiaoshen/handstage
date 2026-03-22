@@ -7,7 +7,7 @@ import {
   trimTrailingTextNode,
   jsonSchemaToZod,
 } from "../utils";
-import { isZod4Schema, isZod3Schema, toJsonSchema } from "./zodCompat";
+import { toJsonSchema } from "./zodSchema";
 import { maybeRunShutdownSupervisorFromArgv } from "./shutdown/supervisor";
 
 export { V3 } from "./v3";
@@ -21,7 +21,7 @@ export {
   trimTrailingTextNode,
   jsonSchemaToZod,
 } from "../utils";
-export { isZod4Schema, isZod3Schema, toJsonSchema } from "./zodCompat";
+export { toJsonSchema } from "./zodSchema";
 
 export { maybeRunShutdownSupervisorFromArgv as __internalMaybeRunShutdownSupervisorFromArgv } from "./shutdown/supervisor";
 
@@ -30,7 +30,7 @@ export type {
   StagehandZodObject,
   InferStagehandSchema,
   JsonSchemaDocument,
-} from "./zodCompat";
+} from "./zodSchema";
 
 export type { JsonSchema, JsonSchemaProperty } from "../utils";
 
@@ -43,8 +43,6 @@ const StagehandDefault = {
   getZodType,
   trimTrailingTextNode,
   jsonSchemaToZod,
-  isZod4Schema,
-  isZod3Schema,
   toJsonSchema,
   __internalMaybeRunShutdownSupervisorFromArgv: maybeRunShutdownSupervisorFromArgv,
 };

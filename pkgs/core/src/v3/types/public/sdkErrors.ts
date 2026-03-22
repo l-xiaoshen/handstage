@@ -1,4 +1,4 @@
-import type { ZodError } from "zod";
+import type { $ZodFormattedError } from "zod/v4/core";
 // Avoid .js extension so bundlers resolve TS source
 import { STAGEHAND_VERSION } from "../../../version";
 
@@ -216,7 +216,7 @@ export class XPathResolutionError extends StagehandError {
 export class ZodSchemaValidationError extends Error {
   constructor(
     public readonly received: unknown,
-    public readonly issues: ReturnType<ZodError["format"]>,
+    public readonly issues: $ZodFormattedError<unknown>,
   ) {
     super(`Zod schema validation failed
 
