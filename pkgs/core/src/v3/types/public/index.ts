@@ -2,6 +2,7 @@
 export * as Api from "./api";
 export * from "./apiErrors";
 export * from "./logs";
+export * from "./consoleLogger";
 export * from "./options";
 export * from "./page";
 export * from "./sdkErrors";

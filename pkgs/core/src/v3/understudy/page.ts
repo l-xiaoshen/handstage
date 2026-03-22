@@ -1,7 +1,7 @@
 import type { Protocol } from "devtools-protocol";
 import { promises as fs } from "fs";
 import { v3Logger } from "../logger";
-import { FlowLogger } from "../flowlogger/FlowLogger";
+import { LogLevel } from "../types/public/logs";
 import type { CDPSessionLike } from "./cdp";
 import type { CdpConnection } from "./cdp";
 import { Frame } from "./frame";
@@ -21,7 +21,7 @@ import type {
 import { NetworkManager } from "./networkManager";
 import { LifecycleWatcher } from "./lifecycleWatcher";
 import { NavigationResponseTracker } from "./navigationResponseTracker";
-import { Response } from "./response";
+import type { Response } from "./response";
 import { ConsoleMessage, type ConsoleListener } from "./consoleMessage";
 import {
   type LocalBrowserLaunchOptions,
@@ -634,7 +634,6 @@ export class Page {
   /**
    * Close this top-level page (tab). Best-effort via Target.closeTarget.
    */
-  @FlowLogger.wrapWithLogging({ eventType: "PageClose" })
   public async close(): Promise<void> {
     try {
       await this.conn.send("Target.closeTarget", { targetId: this._targetId });
@@ -763,10 +762,10 @@ export class Page {
         v3Logger({
           category: "page",
           message: "Console listener threw",
-          level: 2,
-          auxiliary: {
-            error: { value: String(error), type: "string" },
-            type: { value: evt.type, type: "string" },
+          level: LogLevel.Debug,
+          attributes: {
+            error: String(error),
+            type: evt.type,
           },
         });
       }
@@ -779,7 +778,6 @@ export class Page {
    * Navigate the page; optionally wait for a lifecycle state.
    * Waits on the **current** main frame and follows root swaps during navigation.
    */
-  @FlowLogger.wrapWithLogging({ eventType: "PageGoto" })
   async goto(
     url: string,
     options?: { waitUntil?: LoadState; timeoutMs?: number },
@@ -825,7 +823,6 @@ export class Page {
   /**
    * Reload the page; optionally wait for a lifecycle state.
    */
-  @FlowLogger.wrapWithLogging({ eventType: "PageReload" })
   async reload(options?: {
     waitUntil?: LoadState;
     timeoutMs?: number;
@@ -872,7 +869,6 @@ export class Page {
   /**
    * Navigate back in history if possible; optionally wait for a lifecycle state.
    */
-  @FlowLogger.wrapWithLogging({ eventType: "PageGoBack" })
   async goBack(options?: {
     waitUntil?: LoadState;
     timeoutMs?: number;
@@ -925,9 +921,6 @@ export class Page {
   /**
    * Navigate forward in history if possible; optionally wait for a lifecycle state.
    */
-  @FlowLogger.wrapWithLogging({
-    eventType: "PageGoForward",
-  })
   async goForward(options?: {
     waitUntil?: LoadState;
     timeoutMs?: number;
@@ -1057,9 +1050,6 @@ export class Page {
    * timeout error is thrown.
    * @param options.type Image format (`"png"` by default).
    */
-  @FlowLogger.wrapWithLogging({
-    eventType: "PageScreenshot",
-  })
   async screenshot(options?: ScreenshotOptions): Promise<Buffer> {
     const opts = options ?? {};
     const type = opts.type ?? "png";
@@ -1232,9 +1222,6 @@ export class Page {
    * Wait until the page reaches a lifecycle state on the current main frame.
    * Mirrors Playwright's API signatures.
    */
-  @FlowLogger.wrapWithLogging({
-    eventType: "PageWaitForLoadState",
-  })
   async waitForLoadState(state: LoadState, timeoutMs?: number): Promise<void> {
     await this.waitForMainLoadState(state, timeoutMs ?? 15000);
   }
@@ -1262,9 +1249,6 @@ export class Page {
    * @returns True when the condition is met
    * @throws Error if timeout is reached before the condition is met
    */
-  @FlowLogger.wrapWithLogging({
-    eventType: "PageWaitForSelector",
-  })
   async waitForSelector(
     selector: string,
     options?: {
@@ -1299,7 +1283,6 @@ export class Page {
    * - The return value should be JSON-serializable. Non-serializable objects will
    *   best-effort serialize via JSON.stringify inside the page context.
    */
-  @FlowLogger.wrapWithLogging({ eventType: "PageEvaluate" })
   async evaluate<R = unknown, Arg = unknown>(
     pageFunctionOrExpression: string | ((arg: Arg) => R | Promise<R>),
     arg?: Arg,
@@ -1353,7 +1336,6 @@ export class Page {
    * Force the page viewport to an exact CSS size and device scale factor.
    * Ensures screenshots match width x height pixels when deviceScaleFactor = 1.
    */
-  // @FlowLogger.wrapWithLogging({ eventType: "PageSetViewportSize" })  // disabled because it's pretty noisy, can always re-enable if needed for debugging
   async setViewportSize(
     width: number,
     height: number,
@@ -1386,7 +1368,6 @@ export class Page {
    * on the top-level page target's session. Coordinates are relative to the
    * viewport origin (top-left). Does not scroll.
    */
-  @FlowLogger.wrapWithLogging({ eventType: "PageClick" })
   async click(
     x: number,
     y: number,
@@ -1408,24 +1389,21 @@ export class Page {
           v3Logger({
             category: "page",
             message: "click resolved hit",
-            level: 2,
-            auxiliary: {
-              frameId: { value: String(hit.frameId), type: "string" },
-              backendNodeId: {
-                value: String(hit.backendNodeId),
-                type: "string",
-              },
-              x: { value: String(x), type: "integer" },
-              y: { value: String(y), type: "integer" },
+            level: LogLevel.Debug,
+            attributes: {
+              frameId: hit.frameId,
+              backendNodeId: hit.backendNodeId,
+              x,
+              y,
             },
           });
           xpathResult = hit.absoluteXPath;
           v3Logger({
             category: "page",
             message: `click resolved xpath`,
-            level: 2,
-            auxiliary: {
-              xpath: { value: String(xpathResult ?? ""), type: "string" },
+            level: LogLevel.Debug,
+            attributes: {
+              xpath: xpathResult ?? "",
             },
           });
         }
@@ -1478,7 +1456,6 @@ export class Page {
    * Dispatches mouseMoved via CDP Input domain on the top-level page target's
    * session.
    */
-  @FlowLogger.wrapWithLogging({ eventType: "PageHover" })
   async hover(
     x: number,
     y: number,
@@ -1492,15 +1469,12 @@ export class Page {
           v3Logger({
             category: "page",
             message: "hover resolved hit",
-            level: 2,
-            auxiliary: {
-              frameId: { value: String(hit.frameId), type: "string" },
-              backendNodeId: {
-                value: String(hit.backendNodeId),
-                type: "string",
-              },
-              x: { value: String(x), type: "integer" },
-              y: { value: String(y), type: "integer" },
+            level: LogLevel.Debug,
+            attributes: {
+              frameId: hit.frameId,
+              backendNodeId: hit.backendNodeId,
+              x,
+              y,
             },
           });
           xpathResult = hit.absoluteXPath;
@@ -1509,11 +1483,8 @@ export class Page {
         v3Logger({
           category: "page",
           message: "Failed to resolve xpath for hover",
-          level: 2,
-          auxiliary: {
-            x: { value: String(x), type: "integer" },
-            y: { value: String(y), type: "integer" },
-          },
+          level: LogLevel.Debug,
+          attributes: { x, y },
         });
       }
     }
@@ -1529,7 +1500,6 @@ export class Page {
     return xpathResult ?? "";
   }
 
-  @FlowLogger.wrapWithLogging({ eventType: "PageScroll" })
   async scroll(
     x: number,
     y: number,
@@ -1572,9 +1542,6 @@ export class Page {
    * Drag from (fromX, fromY) to (toX, toY) using mouse events.
    * Sends mouseMoved → mousePressed → mouseMoved (steps) → mouseReleased.
    */
-  @FlowLogger.wrapWithLogging({
-    eventType: "PageDragAndDrop",
-  })
   async dragAndDrop(
     fromX: number,
     fromY: number,
@@ -1679,7 +1646,6 @@ export class Page {
    * and never falls back to Input.insertText. Optional delay applies between
    * successive characters.
    */
-  @FlowLogger.wrapWithLogging({ eventType: "PageType" })
   async type(
     text: string,
     options?: { delay?: number; withMistakes?: boolean },
@@ -1806,7 +1772,6 @@ export class Page {
    * For printable characters, uses the text path on keyDown; for named keys, sets key/code/VK.
    * Supports key combinations with modifiers like "Cmd+A", "Ctrl+C", "Shift+Tab", etc.
    */
-  @FlowLogger.wrapWithLogging({ eventType: "PageKeyPress" })
   async keyPress(key: string, options?: { delay?: number }): Promise<void> {
     const delay = Math.max(0, options?.delay ?? 0);
     const sleep = (ms: number) =>
@@ -1858,7 +1823,6 @@ export class Page {
     }
   }
 
-  @FlowLogger.wrapWithLogging({ eventType: "PageSnapshot" })
   async snapshot(options?: PageSnapshotOptions): Promise<SnapshotResult> {
     try {
       const { combinedTree, combinedXpathMap, combinedUrlMap } =

@@ -3,6 +3,13 @@ import os from "os";
 import path from "path";
 import process from "process";
 import { v7 as uuidv7 } from "uuid";
+import { createConsoleLogger } from "./types/public/consoleLogger";
+import {
+  LogLevel,
+  shouldEmitLogLine,
+  type LogLine,
+  type Logger,
+} from "./types/public/logs";
 import { launchLocalChrome } from "./launch/local";
 import {
   bindInstanceLogger,
@@ -16,19 +23,10 @@ import type {
   ShutdownSupervisorHandle,
 } from "./types/private/shutdown";
 import type { InitState } from "./types/private/internal";
-import type { LogLine } from "./types/public/logs";
 import type { LocalBrowserLaunchOptions } from "./types/public/options";
 import type { V3Options } from "./types/public/options";
 import { StagehandNotInitializedError } from "./types/public/sdkErrors";
 import { V3Context } from "./understudy/context";
-import { StagehandLogger, type LoggerOptions } from "../logger";
-import {
-  FlowLogger,
-  type FlowEvent,
-  type FlowLoggerContext,
-} from "./flowlogger/FlowLogger";
-import { EventEmitterWithWildcardSupport } from "./flowlogger/EventEmitter";
-import { EventStore } from "./flowlogger/EventStore";
 
 const DEFAULT_VIEWPORT = { width: 1288, height: 711 };
 
@@ -42,65 +40,39 @@ export class V3 {
   private state: InitState = { kind: "UNINITIALIZED" };
   private ctx: V3Context | null = null;
 
-  /**
-   * Event bus for internal communication (e.g. flow logging).
-   */
-  public readonly bus: EventEmitterWithWildcardSupport =
-    new EventEmitterWithWildcardSupport();
   private _isClosing = false;
 
   private _onCdpClosed = (why: string) => {
     this._immediateShutdown(`CDP transport closed: ${why}`).catch(() => {});
   };
 
-  private externalLogger?: (logLine: LogLine) => void;
-  public verbose: 0 | 1 | 2 = 1;
-  private stagehandLogger: StagehandLogger;
+  private readonly logSink: Logger;
+  public verbose: LogLevel;
   private readonly instanceId: string;
   private readonly sessionId: string;
-  public readonly eventStore: EventStore;
-  public readonly flowLoggerContext: FlowLoggerContext;
   private keepAlive?: boolean;
   private shutdownSupervisor: ShutdownSupervisorHandle | null = null;
 
   constructor(opts: V3Options) {
-    this.externalLogger = opts.logger;
-    this.verbose = opts.verbose ?? 1;
+    this.opts = { env: "LOCAL", ...opts };
+    this.logSink = opts.logger ?? createConsoleLogger();
+    this.verbose = opts.verbose ?? LogLevel.Info;
     this.instanceId = uuidv7();
     this.sessionId = opts.sessionId ?? this.instanceId;
     this.keepAlive = opts.keepAlive;
 
-    const loggerOptions: LoggerOptions = {
-      pretty: true,
-      level: "info",
+    bindInstanceLogger(this.instanceId, (line: LogLine) => this.emitLog(line));
+  }
+
+  private emitLog(line: LogLine): void {
+    if (!shouldEmitLogLine(line.level, this.verbose)) {
+      return;
+    }
+    const normalized: LogLine = {
+      ...line,
+      level: line.level ?? LogLevel.Info,
     };
-
-    if (opts.disablePino !== undefined) {
-      loggerOptions.usePino = !opts.disablePino;
-    }
-
-    this.stagehandLogger = new StagehandLogger(loggerOptions, opts.logger);
-    this.stagehandLogger.setVerbosity(this.verbose);
-
-    try {
-      if (this.externalLogger) {
-        bindInstanceLogger(this.instanceId, this.externalLogger);
-      } else {
-        bindInstanceLogger(this.instanceId, (line) => {
-          this.stagehandLogger.log(line);
-        });
-      }
-    } catch {
-      // ignore
-    }
-
-    this.opts = { env: "LOCAL", ...opts };
-
-    this.eventStore = new EventStore(this.sessionId, opts);
-    this.flowLoggerContext = FlowLogger.init(this.sessionId, this.bus);
-    this.bus.on("*", (...args: unknown[]) => {
-      void this.eventStore.emit(args[0] as FlowEvent);
-    });
+    this.logSink(normalized);
   }
 
   private async _immediateShutdown(reason: string): Promise<void> {
@@ -108,7 +80,7 @@ export class V3 {
       this.logger({
         category: "v3",
         message: `initiating shutdown → ${reason}`,
-        level: 0,
+        level: LogLevel.Error,
       });
     } catch {
       //
@@ -118,7 +90,7 @@ export class V3 {
       this.logger({
         category: "v3",
         message: `closing resources → ${reason}`,
-        level: 0,
+        level: LogLevel.Error,
       });
       await this.close({ force: true });
     } catch {
@@ -139,10 +111,10 @@ export class V3 {
             message:
               "Shutdown supervisor unavailable; crash cleanup disabled. " +
               "If this process exits unexpectedly, local Chrome may remain running when keepAlive=false.",
-            level: 0,
-            auxiliary: {
-              context: { value: context, type: "string" },
-              error: { value: error.message, type: "string" },
+            level: LogLevel.Error,
+            attributes: {
+              context,
+              error: error.message,
             },
           });
         } catch {
@@ -185,7 +157,7 @@ export class V3 {
             category: "init",
             message:
               "`cdpHeaders` was provided but `cdpUrl` is not set — cdpHeaders will be ignored. Set `cdpUrl` to connect to an existing browser via CDP.",
-            level: 2,
+            level: LogLevel.Debug,
           });
         }
 
@@ -193,12 +165,11 @@ export class V3 {
           this.logger({
             category: "init",
             message: "Connecting to local browser",
-            level: 1,
+            level: LogLevel.Info,
           });
           this.ctx = await V3Context.create(lbo.cdpUrl, {
             cdpHeaders: lbo.cdpHeaders,
           });
-          this.ctx.conn.flowLoggerContext = this.flowLoggerContext;
           this.ctx.conn.onTransportClosed(this._onCdpClosed);
           this.state = {
             kind: "LOCAL",
@@ -213,7 +184,7 @@ export class V3 {
         this.logger({
           category: "init",
           message: "Launching local browser",
-          level: 1,
+          level: LogLevel.Info,
         });
 
         let userDataDir = lbo.userDataDir;
@@ -289,7 +260,6 @@ export class V3 {
         this.ctx = await V3Context.create(ws, {
           localBrowserLaunchOptions: lbo,
         });
-        this.ctx.conn.flowLoggerContext = this.flowLoggerContext;
         this.ctx.conn.onTransportClosed(this._onCdpClosed);
         this.state = {
           kind: "LOCAL",
@@ -313,12 +283,10 @@ export class V3 {
         await this._applyPostConnectLocalOptions(lbo);
       });
     } catch (error) {
-      if (this.externalLogger) {
-        try {
-          unbindInstanceLogger(this.instanceId);
-        } catch {
-          // ignore cleanup errors
-        }
+      try {
+        unbindInstanceLogger(this.instanceId);
+      } catch {
+        // ignore cleanup errors
       }
       throw error;
     }
@@ -374,12 +342,6 @@ export class V3 {
 
     try {
       try {
-        await FlowLogger.close(this.flowLoggerContext);
-      } catch {
-        // ignore
-      }
-
-      try {
         await this.ctx?.close();
       } catch {
         // ignore
@@ -405,23 +367,12 @@ export class V3 {
       } catch {
         // ignore
       }
-      try {
-        await this.eventStore.destroy();
-      } catch {
-        // ignore
-      }
-      try {
-        this.bus.removeAllListeners();
-      } catch {
-        // ignore
-      }
     }
   }
 
   public get logger(): (logLine: LogLine) => void {
     return (logLine: LogLine) => {
-      const line = { ...logLine, level: logLine.level ?? 1 };
-      this.stagehandLogger.log(line);
+      this.emitLog(logLine);
     };
   }
 }

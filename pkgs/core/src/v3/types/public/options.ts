@@ -1,5 +1,5 @@
 import type { z } from "zod";
-import type { LogLine } from "./logs";
+import type { LogLine, LogLevel } from "./logs";
 import { LocalBrowserLaunchOptionsSchema } from "./api";
 
 export type V3Env = "LOCAL";
@@ -18,7 +18,7 @@ export interface V3Options {
    */
   env?: V3Env;
   /**
-   * Optional external session identifier to use for flow logging/event storage.
+   * Optional external session identifier.
    * When omitted, Stagehand falls back to its internal instance id.
    */
   sessionId?: string;
@@ -30,9 +30,13 @@ export interface V3Options {
 
   localBrowserLaunchOptions?: LocalBrowserLaunchOptions;
 
-  verbose?: 0 | 1 | 2;
-  /** Disable pino logging backend (useful for tests or minimal environments). */
-  disablePino?: boolean;
-  /** Optional external logger hook for integrating with host apps. */
+  /**
+   * Minimum log level to emit: {@link LogLevel.Error} is quietest (errors only),
+   * {@link LogLevel.Info} includes informational messages,
+   * {@link LogLevel.Debug} includes everything.
+   * @default LogLevel.Info
+   */
+  verbose?: LogLevel;
+  /** When omitted, `createConsoleLogger()` from `./consoleLogger` is used. */
   logger?: (line: LogLine) => void;
 }

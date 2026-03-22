@@ -1,5 +1,6 @@
 import type { Protocol } from "devtools-protocol";
 import { v3Logger } from "../logger";
+import { LogLevel } from "../types/public/logs";
 import type { CDPSessionLike } from "./cdp";
 import { v3ScriptContent } from "../dom/build/scriptV3Content";
 import { reRenderScriptContent } from "../dom/build/reRenderScriptContent";
@@ -60,12 +61,9 @@ export function tapPiercerConsole(
         v3Logger({
           category: "piercer",
           message: `[${label}] ${head}`,
-          level: 2,
-          auxiliary: {
-            value: {
-              value: String(evt.args?.[1]?.value ?? ""),
-              type: "string",
-            },
+          level: LogLevel.Debug,
+          attributes: {
+            value: String(evt.args?.[1]?.value ?? ""),
           },
         });
       }

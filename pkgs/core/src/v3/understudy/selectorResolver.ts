@@ -5,6 +5,7 @@ import {
   type LocatorScriptName,
 } from "../dom/build/locatorScripts.generated";
 import { v3Logger } from "../logger";
+import { LogLevel } from "../types/public/logs";
 import type { Frame } from "./frame";
 import { executionContexts } from "./executionContextRegistry";
 
@@ -157,10 +158,10 @@ export class FrameSelectorResolver {
         v3Logger({
           category: "locator",
           message: "css pierce-fallback",
-          level: 2,
-          auxiliary: {
-            frameId: { value: String(this.frame.frameId), type: "string" },
-            selector: { value: selector, type: "string" },
+          level: LogLevel.Debug,
+          attributes: {
+            frameId: this.frame.frameId,
+            selector,
           },
         });
         loggedFallback = true;
@@ -293,20 +294,17 @@ export class FrameSelectorResolver {
         v3Logger({
           category: "locator",
           message: "count text evaluate exception",
-          level: 0,
-          auxiliary: {
-            frameId: { value: String(this.frame.frameId), type: "string" },
-            selector: { value: value, type: "string" },
-            exception: {
-              value:
-                details.text ??
-                String(
-                  details.exception?.description ??
-                    details.exception?.value ??
-                    "",
-                ),
-              type: "string",
-            },
+          level: LogLevel.Error,
+          attributes: {
+            frameId: this.frame.frameId,
+            selector: value,
+            exception:
+              details.text ??
+              String(
+                details.exception?.description ??
+                  details.exception?.value ??
+                  "",
+              ),
           },
         });
         return 0;

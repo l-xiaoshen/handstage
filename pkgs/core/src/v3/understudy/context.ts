@@ -1,6 +1,7 @@
 // lib/v3/understudy/context.ts
 import type { Protocol } from "devtools-protocol";
 import { v3Logger } from "../logger";
+import { LogLevel } from "../types/public/logs";
 import { CdpConnection, type CDPSessionLike } from "./cdp";
 import { Page } from "./page";
 import { installV3PiercerIntoSession } from "./piercer";
@@ -192,7 +193,7 @@ export class V3Context {
         category: "ctx",
         message:
           "No open browser pages found after connect; creating an initial about:blank page",
-        level: 1,
+        level: LogLevel.Info,
       });
     }
 
@@ -239,12 +240,9 @@ export class V3Context {
       v3Logger({
         category: "ctx",
         message: "Timed out waiting for existing top-level targets to attach",
-        level: 2,
-        auxiliary: {
-          remainingTargets: {
-            value: JSON.stringify(Array.from(pending)),
-            type: "object",
-          },
+        level: LogLevel.Debug,
+        attributes: {
+          remainingTargets: Array.from(pending),
         },
       });
     }
@@ -307,10 +305,8 @@ export class V3Context {
         v3Logger({
           category: "ctx",
           message: "setActivePage called with unknown Page",
-          level: 2,
-          auxiliary: {
-            targetId: { value: String(targetId), type: "string" },
-          },
+          level: LogLevel.Debug,
+          attributes: { targetId },
         });
         return;
       }
@@ -701,19 +697,13 @@ export class V3Context {
         v3Logger({
           category: "ctx",
           message: "Failed target pre-resume setup ordering",
-          level: 2,
-          auxiliary: {
-            targetId: { value: String(info.targetId), type: "string" },
-            targetType: { value: String(info.type), type: "string" },
-            preResumeDispatched: {
-              value: String(preResumeDispatched),
-              type: "string",
-            },
-            resumedDispatched: {
-              value: String(resumedDispatched),
-              type: "string",
-            },
-            resumedOk: { value: String(resumedOk), type: "string" },
+          level: LogLevel.Debug,
+          attributes: {
+            targetId: info.targetId,
+            targetType: info.type,
+            preResumeDispatched,
+            resumedDispatched,
+            resumedOk,
           },
         });
       }
@@ -751,19 +741,15 @@ export class V3Context {
           v3Logger({
             category: "ctx",
             message: "Failed to create top-level Page",
-            level: 2,
-            auxiliary: {
-              targetId: { value: String(info.targetId), type: "string" },
-              targetType: { value: String(info.type), type: "string" },
-              targetUrl: { value: String(info.url ?? ""), type: "string" },
-              error: {
-                value: String(
-                  createError instanceof Error
-                    ? createError.message
-                    : createError,
-                ),
-                type: "string",
-              },
+            level: LogLevel.Debug,
+            attributes: {
+              targetId: info.targetId,
+              targetType: info.type,
+              targetUrl: info.url ?? "",
+              error:
+                createError instanceof Error
+                  ? createError.message
+                  : String(createError),
             },
           });
           return;

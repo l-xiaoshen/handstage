@@ -2,6 +2,7 @@ import type { Protocol } from "devtools-protocol";
 import type { CDPSessionLike } from "../../cdp";
 import type { Page } from "../../page";
 import { v3Logger } from "../../../logger";
+import { LogLevel } from "../../../types/public/logs";
 import type {
   FrameContext,
   FrameDomMaps,
@@ -128,12 +129,9 @@ export async function tryScopedSnapshot(
   const logScopeFallback = () => {
     v3Logger({
       message: `Unable to narrow scope with selector. Falling back to using full DOM`,
-      level: 1,
-      auxiliary: {
-        arguments: {
-          value: `selector: ${options?.focusSelector?.trim()}`,
-          type: "string",
-        },
+      level: LogLevel.Info,
+      attributes: {
+        selector: options?.focusSelector?.trim(),
       },
     });
   };
