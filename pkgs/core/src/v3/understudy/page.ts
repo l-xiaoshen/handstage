@@ -93,7 +93,7 @@ export class Page {
 	private readonly frameCache = new Map<string, Frame>()
 
 	/** Stable id for Frames created by this Page (use top-level TargetId). */
-	private readonly pageId: string
+	public readonly pageId: string
 	/** Cached current URL for synchronous page.url() */
 	private _currentUrl: string = "about:blank"
 
@@ -108,7 +108,7 @@ export class Page {
 	>()
 	/** Document-start scripts installed across every session this page owns. */
 	private readonly initScripts: string[] = []
-	private extraHTTPHeaders: Record<string, string>
+	private extraHTTPHeaders: Record<string, string> = {}
 
 	private constructor(
 		private readonly conn: CdpConnection,
