@@ -1,4 +1,4 @@
-;(() => {
+(() => {
 	function s() {
 		try {
 			const o = window.__stagehandV3__

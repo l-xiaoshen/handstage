@@ -1,4 +1,4 @@
-;(() => {
+(() => {
 	function s(c = {}) {
 		const r = (e) => {
 				const { hostToRoot: o } = e

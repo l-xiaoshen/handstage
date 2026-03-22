@@ -1,7 +1,23 @@
 {
 	"name": "@stagehand/core",
-	"module": "src/index.ts",
+	"version": "0.0.1",
 	"type": "module",
+	"exports": {
+		".": {
+			"types": "./src/index.ts",
+			"import": "./dist/index.js"
+		}
+	},
+	"bin": {
+		"stagehand": "./dist/v3/cli.js"
+	},
+	"files": [
+		"dist",
+		"src"
+	],
+	"scripts": {
+		"build": "tsc -p tsconfig.build.json --noCheck"
+	},
 	"devDependencies": {
 		"@types/bun": "latest",
 		"@types/node": "^22.19.15",

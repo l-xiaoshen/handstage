@@ -1,18 +1,45 @@
 {
 	"name": "@stagehand/dom",
-	"version": "0.0.0-fork",
+	"version": "0.0.1",
 	"private": true,
 	"type": "module",
-	"module": "src/index.ts",
 	"exports": {
-		".": "./src/index.ts",
-		"./build/scriptV3Content": "./src/build/scriptV3Content.ts",
-		"./build/reRenderScriptContent": "./src/build/reRenderScriptContent.ts",
-		"./build/locatorScripts.generated": "./src/build/locatorScripts.generated.ts",
-		"./build/screenshotScripts.generated": "./src/build/screenshotScripts.generated.ts",
-		"./build/a11yScripts.generated": "./src/build/a11yScripts.generated.ts"
+		".": {
+			"types": "./src/index.ts",
+			"import": "./dist/index.js"
+		},
+		"./build/scriptV3Content": {
+			"types": "./src/build/scriptV3Content.ts",
+			"import": "./dist/build/scriptV3Content.js"
+		},
+		"./build/reRenderScriptContent": {
+			"types": "./src/build/reRenderScriptContent.ts",
+			"import": "./dist/build/reRenderScriptContent.js"
+		},
+		"./build/locatorScripts.generated": {
+			"types": "./src/build/locatorScripts.generated.ts",
+			"import": "./dist/build/locatorScripts.generated.js"
+		},
+		"./build/screenshotScripts.generated": {
+			"types": "./src/build/screenshotScripts.generated.ts",
+			"import": "./dist/build/screenshotScripts.generated.js"
+		},
+		"./build/a11yScripts.generated": {
+			"types": "./src/build/a11yScripts.generated.ts",
+			"import": "./dist/build/a11yScripts.generated.js"
+		}
 	},
+	"files": [
+		"dist",
+		"src/index.ts",
+		"src/build/scriptV3Content.ts",
+		"src/build/reRenderScriptContent.ts",
+		"src/build/locatorScripts.generated.ts",
+		"src/build/screenshotScripts.generated.ts",
+		"src/build/a11yScripts.generated.ts"
+	],
 	"scripts": {
+		"build": "tsc -p tsconfig.build.json",
 		"build-dom-scripts": "bun run build-dom-scripts:dom & bun run build-dom-scripts:locator & bun run build-dom-scripts:screenshot & bun run build-dom-scripts:a11y & wait",
 		"build-dom-scripts:dom": "bun src/genDomScripts.ts",
 		"build-dom-scripts:locator": "bun src/genLocatorScripts.ts",

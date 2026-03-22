@@ -45,7 +45,7 @@
     },
     "pkgs/dom": {
       "name": "@stagehand/dom",
-      "version": "0.0.0-fork",
+      "version": "0.0.1",
       "devDependencies": {
         "@types/bun": "latest",
         "@types/node": "^22.19.15",
