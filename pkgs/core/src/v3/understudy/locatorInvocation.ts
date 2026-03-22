@@ -1,8 +1,8 @@
 import {
-  locatorScriptBootstrap,
-  locatorScriptGlobalRefs,
-  type LocatorScriptName,
-} from "../dom/build/locatorScripts.generated";
+	type LocatorScriptName,
+	locatorScriptBootstrap,
+	locatorScriptGlobalRefs,
+} from "../dom/build/locatorScripts.generated"
 
 /**
  * Build an expression that injects the locator bundle (if needed) and invokes a
@@ -11,9 +11,9 @@ import {
  * execution context.
  */
 export function buildLocatorInvocation(
-  name: LocatorScriptName,
-  args: string[],
+	name: LocatorScriptName,
+	args: string[],
 ): string {
-  const invocation = `${locatorScriptGlobalRefs[name]}(${args.join(", ")})`;
-  return `(() => { ${locatorScriptBootstrap}; return ${invocation}; })()`;
+	const invocation = `${locatorScriptGlobalRefs[name]}(${args.join(", ")})`
+	return `(() => { ${locatorScriptBootstrap}; return ${invocation}; })()`
 }

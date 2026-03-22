@@ -1,1 +1,34 @@
-(()=>{function s(){try{const o=window.__stagehandV3__;if(!o||typeof o.getClosedRoot!="function")return;const t=[],r=document.createTreeWalker(document,NodeFilter.SHOW_ELEMENT);for(;r.nextNode();){const e=r.currentNode,n=e.tagName?.toLowerCase()??"";if(!n.includes("-")||typeof customElements?.get!="function"||!customElements.get(n))continue;const c=!!e.shadowRoot,i=!!o.getClosedRoot(e);c||i||t.push(e)}for(const e of t)try{const n=e.cloneNode(!0);e.replaceWith(n)}catch{}o.stats&&t.length&&console.info("[v3-piercer] rerender",{count:t.length})}catch(o){console.info("[v3-piercer] rerender error",{message:String(o??"")})}}s();})();
+;(() => {
+	function s() {
+		try {
+			const o = window.__stagehandV3__
+			if (!o || typeof o.getClosedRoot != "function") return
+			const t = [],
+				r = document.createTreeWalker(document, NodeFilter.SHOW_ELEMENT)
+			for (; r.nextNode(); ) {
+				const e = r.currentNode,
+					n = e.tagName?.toLowerCase() ?? ""
+				if (
+					!n.includes("-") ||
+					typeof customElements?.get != "function" ||
+					!customElements.get(n)
+				)
+					continue
+				const c = !!e.shadowRoot,
+					i = !!o.getClosedRoot(e)
+				c || i || t.push(e)
+			}
+			for (const e of t)
+				try {
+					const n = e.cloneNode(!0)
+					e.replaceWith(n)
+				} catch {}
+			o.stats &&
+				t.length &&
+				console.info("[v3-piercer] rerender", { count: t.length })
+		} catch (o) {
+			console.info("[v3-piercer] rerender error", { message: String(o ?? "") })
+		}
+	}
+	s()
+})()

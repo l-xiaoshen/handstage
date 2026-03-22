@@ -3,14 +3,14 @@
  */
 
 export type ShutdownSupervisorConfig = {
-  kind: "LOCAL";
-  pid: number;
-  userDataDir?: string;
-  createdTempProfile?: boolean;
-  preserveUserDataDir?: boolean;
-};
+	kind: "LOCAL"
+	pid: number
+	userDataDir?: string
+	createdTempProfile?: boolean
+	preserveUserDataDir?: boolean
+}
 
 export interface ShutdownSupervisorHandle {
-  /** Best-effort signal to stop the supervisor process. */
-  stop: () => void;
+	/** Best-effort signal to stop the supervisor process. */
+	stop: () => void
 }

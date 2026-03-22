@@ -1,6 +1,6 @@
-import type { CDPSessionLike } from "../../cdp";
-import type { Page } from "../../page";
-import type { FrameParentIndex } from "../../../types/private/snapshot";
+import type { FrameParentIndex } from "../../../types/private/snapshot"
+import type { CDPSessionLike } from "../../cdp"
+import type { Page } from "../../page"
 
 /**
  * Session helpers ensure DOM lookups are always executed against the session
@@ -10,7 +10,7 @@ import type { FrameParentIndex } from "../../../types/private/snapshot";
 
 /** Return the owning session for a frame as registered on the Page. */
 export function ownerSession(page: Page, frameId: string): CDPSessionLike {
-  return page.getSessionForFrame(frameId);
+	return page.getSessionForFrame(frameId)
 }
 
 /**
@@ -19,13 +19,13 @@ export function ownerSession(page: Page, frameId: string): CDPSessionLike {
  * always reach for the correct connection.
  */
 export function parentSession(
-  page: Page,
-  parentByFrame: FrameParentIndex,
-  frameId: string,
+	page: Page,
+	parentByFrame: FrameParentIndex,
+	frameId: string,
 ): CDPSessionLike {
-  const parentId = parentByFrame.get(frameId) ?? null;
-  if (!parentId) {
-    return page.getSessionForFrame(frameId);
-  }
-  return page.getSessionForFrame(parentId);
+	const parentId = parentByFrame.get(frameId) ?? null
+	if (!parentId) {
+		return page.getSessionForFrame(frameId)
+	}
+	return page.getSessionForFrame(parentId)
 }

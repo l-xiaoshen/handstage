@@ -1,23 +1,23 @@
-import type { Page } from "../../understudy/page";
-import type { Page as PlaywrightPage } from "playwright-core";
-import type { Page as PatchrightPage } from "patchright-core";
-import type { Page as PuppeteerPage } from "puppeteer-core";
+import type { Page as PatchrightPage } from "patchright-core"
+import type { Page as PlaywrightPage } from "playwright-core"
+import type { Page as PuppeteerPage } from "puppeteer-core"
+import type { Page } from "../../understudy/page"
 
-export type { PlaywrightPage, PatchrightPage, PuppeteerPage, Page };
-export type AnyPage = PlaywrightPage | PuppeteerPage | PatchrightPage | Page;
+export type { Page, PatchrightPage, PlaywrightPage, PuppeteerPage }
+export type AnyPage = PlaywrightPage | PuppeteerPage | PatchrightPage | Page
 
-export { ConsoleMessage } from "../../understudy/consoleMessage";
-export type { ConsoleListener } from "../../understudy/consoleMessage";
+export type { ConsoleListener } from "../../understudy/consoleMessage"
+export { ConsoleMessage } from "../../understudy/consoleMessage"
 
-export type LoadState = "load" | "domcontentloaded" | "networkidle";
-export { Response } from "../../understudy/response";
+export type LoadState = "load" | "domcontentloaded" | "networkidle"
+export { Response } from "../../understudy/response"
 
 export type SnapshotResult = {
-  formattedTree: string;
-  xpathMap: Record<string, string>;
-  urlMap: Record<string, string>;
-};
+	formattedTree: string
+	xpathMap: Record<string, string>
+	urlMap: Record<string, string>
+}
 
 export type PageSnapshotOptions = {
-  includeIframes?: boolean;
-};
+	includeIframes?: boolean
+}

@@ -1,17 +1,17 @@
-import type { LaunchedChrome } from "chrome-launcher";
+import type { LaunchedChrome } from "chrome-launcher"
 
 export type InitState =
-  | { kind: "UNINITIALIZED" }
-  | {
-      kind: "LOCAL";
-      chrome: LaunchedChrome;
-      ws: string;
-      userDataDir?: string;
-      createdTempProfile?: boolean;
-      preserveUserDataDir?: boolean;
-    };
+	| { kind: "UNINITIALIZED" }
+	| {
+			kind: "LOCAL"
+			chrome: LaunchedChrome
+			ws: string
+			userDataDir?: string
+			createdTempProfile?: boolean
+			preserveUserDataDir?: boolean
+	  }
 
-export type EncodedId = `${number}-${number}`;
+export type EncodedId = `${number}-${number}`
 
 /**
  * Represents a path through a Zod schema from the root object down to a
@@ -24,14 +24,14 @@ export type EncodedId = `${number}-${number}`;
  * the `homepage` field in `schema.users[0].homepage`.
  */
 export interface ZodPathSegments {
-  /**
-   * The ordered list of keys/indices leading from the schema root
-   * to the targeted field.
-   */
-  segments: Array<string | number>;
+	/**
+	 * The ordered list of keys/indices leading from the schema root
+	 * to the targeted field.
+	 */
+	segments: Array<string | number>
 }
 
 export type InitScriptSource<Arg> =
-  | string
-  | { path?: string; content?: string }
-  | ((arg: Arg) => unknown);
+	| string
+	| { path?: string; content?: string }
+	| ((arg: Arg) => unknown)

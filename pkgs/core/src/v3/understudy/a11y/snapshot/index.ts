@@ -1,4 +1,4 @@
-export { captureHybridSnapshot } from "./capture";
-export { computeActiveElementXpath } from "./activeElement";
-export { diffCombinedTrees } from "./treeFormatUtils";
-export { resolveXpathForLocation } from "./coordinateResolver";
+export { computeActiveElementXpath } from "./activeElement"
+export { captureHybridSnapshot } from "./capture"
+export { resolveXpathForLocation } from "./coordinateResolver"
+export { diffCombinedTrees } from "./treeFormatUtils"

@@ -1,4 +1,4 @@
-import fs from "node:fs";
+import fs from "node:fs"
 
 /**
  * Shared cleanup logic for locally launched Chrome.
@@ -9,27 +9,27 @@ import fs from "node:fs";
  * vs raw `process.kill(pid)` from the supervisor.
  */
 export async function cleanupLocalBrowser(opts: {
-  killChrome?: () => Promise<void> | void;
-  userDataDir?: string;
-  createdTempProfile?: boolean;
-  preserveUserDataDir?: boolean;
+	killChrome?: () => Promise<void> | void
+	userDataDir?: string
+	createdTempProfile?: boolean
+	preserveUserDataDir?: boolean
 }): Promise<void> {
-  if (opts.killChrome) {
-    try {
-      await opts.killChrome();
-    } catch {
-      // best-effort
-    }
-  }
-  if (
-    opts.createdTempProfile &&
-    !opts.preserveUserDataDir &&
-    opts.userDataDir
-  ) {
-    try {
-      fs.rmSync(opts.userDataDir, { recursive: true, force: true });
-    } catch {
-      // ignore cleanup errors
-    }
-  }
+	if (opts.killChrome) {
+		try {
+			await opts.killChrome()
+		} catch {
+			// best-effort
+		}
+	}
+	if (
+		opts.createdTempProfile &&
+		!opts.preserveUserDataDir &&
+		opts.userDataDir
+	) {
+		try {
+			fs.rmSync(opts.userDataDir, { recursive: true, force: true })
+		} catch {
+			// ignore cleanup errors
+		}
+	}
 }

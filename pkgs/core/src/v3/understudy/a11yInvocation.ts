@@ -1,8 +1,8 @@
 import {
-  a11yScriptBootstrap,
-  a11yScriptGlobalRefs,
-  type A11yScriptName,
-} from "../dom/build/a11yScripts.generated";
+	type A11yScriptName,
+	a11yScriptBootstrap,
+	a11yScriptGlobalRefs,
+} from "../dom/build/a11yScripts.generated"
 
 /**
  * Wrap a generated a11y script in a self-invoking expression that first ensures
@@ -11,9 +11,9 @@ import {
  * can reuse the shared bundle without inlining JS strings.
  */
 export function buildA11yInvocation(
-  name: A11yScriptName,
-  args: string[],
+	name: A11yScriptName,
+	args: string[],
 ): string {
-  const invocation = `${a11yScriptGlobalRefs[name]}(${args.join(", ")})`;
-  return `(() => { ${a11yScriptBootstrap}; return ${invocation}; })()`;
+	const invocation = `${a11yScriptGlobalRefs[name]}(${args.join(", ")})`
+	return `(() => { ${a11yScriptBootstrap}; return ${invocation}; })()`
 }
