@@ -1,5 +1,5 @@
 import type { Protocol } from "devtools-protocol"
-import { a11yScriptSources } from "../../../dom/build/a11yScripts.generated"
+import { a11yScriptSources } from "@stagehand/dom/build/a11yScripts.generated"
 import type { CDPSessionLike } from "../../cdp"
 
 /**

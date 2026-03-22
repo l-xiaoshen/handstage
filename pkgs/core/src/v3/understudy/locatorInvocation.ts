@@ -2,7 +2,7 @@ import {
 	type LocatorScriptName,
 	locatorScriptBootstrap,
 	locatorScriptGlobalRefs,
-} from "../dom/build/locatorScripts.generated"
+} from "@stagehand/dom/build/locatorScripts.generated"
 
 /**
  * Build an expression that injects the locator bundle (if needed) and invokes a

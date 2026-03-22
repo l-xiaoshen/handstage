@@ -1,0 +1,28 @@
+{
+	"name": "@stagehand/dom",
+	"version": "0.0.0-fork",
+	"private": true,
+	"type": "module",
+	"module": "src/index.ts",
+	"exports": {
+		".": "./src/index.ts",
+		"./build/scriptV3Content": "./src/build/scriptV3Content.ts",
+		"./build/reRenderScriptContent": "./src/build/reRenderScriptContent.ts",
+		"./build/locatorScripts.generated": "./src/build/locatorScripts.generated.ts",
+		"./build/screenshotScripts.generated": "./src/build/screenshotScripts.generated.ts",
+		"./build/a11yScripts.generated": "./src/build/a11yScripts.generated.ts"
+	},
+	"scripts": {
+		"build-dom-scripts": "bun run build-dom-scripts:dom & bun run build-dom-scripts:locator & bun run build-dom-scripts:screenshot & bun run build-dom-scripts:a11y & wait",
+		"build-dom-scripts:dom": "bun src/genDomScripts.ts",
+		"build-dom-scripts:locator": "bun src/genLocatorScripts.ts",
+		"build-dom-scripts:screenshot": "bun src/genScreenshotScripts.ts",
+		"build-dom-scripts:a11y": "bun src/genA11yScripts.ts"
+	},
+	"devDependencies": {
+		"@types/bun": "latest",
+		"@types/node": "^22.19.15",
+		"esbuild": "^0.25.12",
+		"typescript": "^5.9.3"
+	}
+}

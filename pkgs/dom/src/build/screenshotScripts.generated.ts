@@ -1,6 +1,6 @@
 /*
  * AUTO-GENERATED FILE. DO NOT EDIT.
- * Update sources in lib/v3/dom/screenshotScripts and run genScreenshotScripts.ts.
+ * Update sources in pkgs/dom/src/screenshotScripts and run genScreenshotScripts.ts.
  */
 export const screenshotScriptSources = {
 	resolveMaskRect:

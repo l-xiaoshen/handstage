@@ -18,8 +18,8 @@
 			"semicolons": "asNeeded"
 		}
 	},
-    "vcs": {
-        "enabled": true,
-        "clientKind": "git"
-    }
+	"vcs": {
+		"enabled": true,
+		"clientKind": "git"
+	}
 }

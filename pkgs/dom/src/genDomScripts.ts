@@ -5,7 +5,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import path from "node:path"
 import esbuild from "esbuild"
-import { getCurrentDirPath } from "../runtimePaths"
+import { getCurrentDirPath } from "./runtimePaths"
 
 const here = getCurrentDirPath()
 const outDir = path.join(here, "./build")

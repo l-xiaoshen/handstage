@@ -2,7 +2,7 @@ import { mkdir, readFile, unlink, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { pathToFileURL } from "node:url"
 import esbuild from "esbuild"
-import { getCurrentDirPath } from "../runtimePaths"
+import { getCurrentDirPath } from "./runtimePaths"
 
 const here = getCurrentDirPath()
 const outDir = path.join(here, "./build")
@@ -53,7 +53,7 @@ async function main(): Promise<void> {
 		}),
 	)
 
-	const banner = `/*\n * AUTO-GENERATED FILE. DO NOT EDIT.\n * Update sources in lib/v3/dom/locatorScripts and run genLocatorScripts.ts.\n */`
+	const banner = `/*\n * AUTO-GENERATED FILE. DO NOT EDIT.\n * Update sources in pkgs/dom/src/locatorScripts and run genLocatorScripts.ts.\n */`
 
 	const globalRefs: Record<string, string> = Object.fromEntries(
 		sorted.map(([name]) => [
