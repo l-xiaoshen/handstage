@@ -2,15 +2,22 @@
   "name": "@stagehand/core",
   "module": "src/index.ts",
   "type": "module",
+  "scripts": {
+    "build-dom-scripts": "bun run build-dom-scripts:dom & bun run build-dom-scripts:locator & bun run build-dom-scripts:screenshot & bun run build-dom-scripts:a11y & wait",
+    "build-dom-scripts:dom": "bun src/v3/dom/genDomScripts.ts",
+    "build-dom-scripts:locator": "bun src/v3/dom/genLocatorScripts.ts",
+    "build-dom-scripts:screenshot": "bun src/v3/dom/genScreenshotScripts.ts",
+    "build-dom-scripts:a11y": "bun src/v3/dom/genA11yScripts.ts"
+  },
   "devDependencies": {
     "@types/bun": "latest",
-    "@types/node": "^22.10.0",
-    "@types/ws": "^8.5.13",
-    "esbuild": "^0.25.0",
-    "patchright-core": "^1.0.0",
-    "playwright-core": "^1.50.0",
-    "puppeteer-core": "^24.0.0",
-    "typescript": "^5.7.0"
+    "@types/node": "^22.19.15",
+    "@types/ws": "^8.18.1",
+    "esbuild": "^0.25.12",
+    "patchright-core": "^1.58.2",
+    "playwright-core": "^1.58.2",
+    "puppeteer-core": "^24.40.0",
+    "typescript": "^5.9.3"
   },
   "peerDependencies": {
     "patchright-core": "*",
@@ -19,17 +26,23 @@
     "typescript": "^5"
   },
   "peerDependenciesMeta": {
-    "patchright-core": { "optional": true },
-    "playwright-core": { "optional": true },
-    "puppeteer-core": { "optional": true }
+    "patchright-core": {
+      "optional": true
+    },
+    "playwright-core": {
+      "optional": true
+    },
+    "puppeteer-core": {
+      "optional": true
+    }
   },
   "dependencies": {
-    "chrome-launcher": "^1.2.0",
+    "chrome-launcher": "^1.2.1",
     "devtools-protocol": "^0.0.1425554",
-    "pino": "^9.6.0",
-    "uuid": "^11.0.5",
-    "ws": "^8.18.0",
+    "pino": "^9.14.0",
+    "uuid": "^11.1.0",
+    "ws": "^8.20.0",
     "zod": "^4.3.6",
-    "zod-to-json-schema": "^3.24.5"
+    "zod-to-json-schema": "^3.25.1"
   }
 }

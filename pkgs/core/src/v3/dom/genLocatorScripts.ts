@@ -1,4 +1,4 @@
-import fs from "node:fs";
+import { mkdir, readFile, writeFile, unlink } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import esbuild from "esbuild";
@@ -11,9 +11,9 @@ const moduleOutfile = path.join(outDir, "locatorScripts.mjs");
 const bundleOutfile = path.join(outDir, "locatorScripts.bundle.js");
 
 async function main(): Promise<void> {
-  fs.mkdirSync(outDir, { recursive: true });
+  await mkdir(outDir, { recursive: true });
 
-  esbuild.buildSync({
+  await esbuild.build({
     entryPoints: [entry],
     bundle: true,
     format: "esm",
@@ -23,7 +23,7 @@ async function main(): Promise<void> {
     outfile: moduleOutfile,
   });
 
-  esbuild.buildSync({
+  await esbuild.build({
     entryPoints: [entry],
     bundle: true,
     format: "iife",
@@ -34,7 +34,7 @@ async function main(): Promise<void> {
     outfile: bundleOutfile,
   });
 
-  const bundleRaw = fs.readFileSync(bundleOutfile, "utf8").trim();
+  const bundleRaw = (await readFile(bundleOutfile, "utf8")).trim();
   const bootstrap = `if (!globalThis.__stagehandLocatorScripts) { ${bundleRaw}\n  globalThis.__stagehandLocatorScripts = __stagehandLocatorScriptsFactory;\n}`;
 
   const compiledModule = (await import(
@@ -64,10 +64,10 @@ async function main(): Promise<void> {
 
   const content = `${banner}\nexport const locatorScriptBootstrap = ${JSON.stringify(bootstrap)};\nexport const locatorScriptSources = ${JSON.stringify(scriptMap, null, 2)} as const;\nexport const locatorScriptGlobalRefs = ${JSON.stringify(globalRefs, null, 2)} as const;\nexport type LocatorScriptName = keyof typeof locatorScriptSources;\n`;
 
-  fs.writeFileSync(path.join(outDir, "locatorScripts.generated.ts"), content);
+  await writeFile(path.join(outDir, "locatorScripts.generated.ts"), content);
 
-  await fs.promises.unlink(moduleOutfile).catch(() => {});
-  await fs.promises.unlink(bundleOutfile).catch(() => {});
+  await unlink(moduleOutfile).catch(() => {});
+  await unlink(bundleOutfile).catch(() => {});
 }
 
 void main();

@@ -1,4 +1,4 @@
-import fs from "node:fs";
+import { mkdir, readFile, writeFile, unlink } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import esbuild from "esbuild";
@@ -12,9 +12,9 @@ const moduleOut = path.join(outDir, "a11yScripts.mjs");
 const bundleOut = path.join(outDir, "a11yScripts.bundle.js");
 
 async function main(): Promise<void> {
-  fs.mkdirSync(outDir, { recursive: true });
+  await mkdir(outDir, { recursive: true });
 
-  esbuild.buildSync({
+  await esbuild.build({
     entryPoints: [entry],
     bundle: true,
     format: "esm",
@@ -24,7 +24,7 @@ async function main(): Promise<void> {
     outfile: moduleOut,
   });
 
-  esbuild.buildSync({
+  await esbuild.build({
     entryPoints: [entry],
     bundle: true,
     format: "iife",
@@ -35,7 +35,7 @@ async function main(): Promise<void> {
     outfile: bundleOut,
   });
 
-  const bundleRaw = fs.readFileSync(bundleOut, "utf8").trim();
+  const bundleRaw = (await readFile(bundleOut, "utf8")).trim();
   const bootstrap = `if (!globalThis.__stagehandA11yScripts) { ${bundleRaw}\n  globalThis.__stagehandA11yScripts = __stagehandA11yScriptsFactory;\n}`;
 
   const compiledModule = (await import(
@@ -67,10 +67,10 @@ export const a11yScriptGlobalRefs = ${JSON.stringify(globalRefs, null, 2)} as co
 export type A11yScriptName = keyof typeof a11yScriptSources;
 `;
 
-  fs.writeFileSync(path.join(outDir, "a11yScripts.generated.ts"), content);
+  await writeFile(path.join(outDir, "a11yScripts.generated.ts"), content);
 
-  await fs.promises.unlink(moduleOut).catch(() => {});
-  await fs.promises.unlink(bundleOut).catch(() => {});
+  await unlink(moduleOut).catch(() => {});
+  await unlink(bundleOut).catch(() => {});
 }
 
 void main();

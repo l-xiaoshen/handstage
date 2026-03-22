@@ -1,4 +1,4 @@
-import fs from "node:fs";
+import { mkdir, writeFile, unlink } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import esbuild from "esbuild";
@@ -11,9 +11,9 @@ const entry = path.join(srcDir, "index.ts");
 const moduleOut = path.join(outDir, "screenshotScripts.mjs");
 
 async function main(): Promise<void> {
-  fs.mkdirSync(outDir, { recursive: true });
+  await mkdir(outDir, { recursive: true });
 
-  esbuild.buildSync({
+  await esbuild.build({
     entryPoints: [entry],
     bundle: true,
     format: "esm",
@@ -46,12 +46,12 @@ export const screenshotScriptSources = ${JSON.stringify(scriptMap, null, 2)} as 
 export type ScreenshotScriptName = keyof typeof screenshotScriptSources;
 `;
 
-  fs.writeFileSync(
+  await writeFile(
     path.join(outDir, "screenshotScripts.generated.ts"),
     content,
   );
 
-  await fs.promises.unlink(moduleOut).catch(() => {});
+  await unlink(moduleOut).catch(() => {});
 }
 
 void main();
