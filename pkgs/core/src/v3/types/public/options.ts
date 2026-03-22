@@ -2,12 +2,9 @@ import type { z } from "zod";
 import type { LLMClient } from "../../llm/LLMClient";
 import type { ModelConfiguration } from "./model";
 import type { LogLine } from "./logs";
-import {
-  type BrowserbaseSessionCreateParams,
-  LocalBrowserLaunchOptionsSchema,
-} from "./api";
+import { LocalBrowserLaunchOptionsSchema } from "./api";
 
-export type V3Env = "LOCAL" | "BROWSERBASE";
+export type V3Env = "LOCAL";
 
 // Re-export for backwards compatibility (camelCase alias)
 export const localBrowserLaunchOptionsSchema = LocalBrowserLaunchOptionsSchema;
@@ -18,25 +15,19 @@ export type LocalBrowserLaunchOptions = z.infer<
 
 /** Constructor options for V3 */
 export interface V3Options {
-  env: V3Env;
+  /**
+   * Browser environment. Only local Chrome / CDP is supported in this fork.
+   * @default "LOCAL"
+   */
+  env?: V3Env;
   /**
    * Optional external session identifier to use for flow logging/event storage.
    * When omitted, Stagehand falls back to its internal instance id.
-   * This currently ends up 1:1 with the Browserbase session id when one exists,
-   * but callers should not rely on that remaining a permanent invariant.
    */
   sessionId?: string;
-  // Browserbase (required when env = "BROWSERBASE")
-  apiKey?: string;
-  projectId?: string;
   /**
-   * Optional: fine-tune Browserbase session creation or resume an existing session.
-   */
-  browserbaseSessionCreateParams?: BrowserbaseSessionCreateParams;
-  browserbaseSessionID?: string;
-  /**
-   * Controls browser keepalive behavior. When set, it overrides any value in
-   * browserbaseSessionCreateParams.keepAlive.
+   * When true, the browser process is not killed on `close()` and SIGINT
+   * handling is relaxed so the process can exit while Chrome keeps running.
    */
   keepAlive?: boolean;
 
@@ -50,7 +41,7 @@ export interface V3Options {
   experimental?: boolean;
   verbose?: 0 | 1 | 2;
   selfHeal?: boolean;
-  // V2 compatibility fields - only included because the server imports this type and supports V2
+  // V2 compatibility fields
   waitForCaptchaSolves?: boolean;
   actTimeoutMs?: number;
   /** Disable pino logging backend (useful for tests or minimal environments). */
@@ -60,12 +51,4 @@ export interface V3Options {
   /** Directory used to persist cached actions for act(). */
   cacheDir?: string;
   domSettleTimeout?: number;
-  disableAPI?: boolean;
-  /**
-   * When true, enables server-side caching for API requests.
-   * When false, disables server-side caching.
-   * Defaults to true (caching enabled).
-   * Can be overridden per-method in act(), extract(), and observe() options.
-   */
-  serverCache?: boolean;
 }

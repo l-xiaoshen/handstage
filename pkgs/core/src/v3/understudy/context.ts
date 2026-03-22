@@ -6,7 +6,6 @@ import { Page } from "./page";
 import { installV3PiercerIntoSession } from "./piercer";
 import { v3ScriptContent } from "../dom/build/scriptV3Content";
 import { executionContexts } from "./executionContextRegistry";
-import type { StagehandAPIClient } from "../api";
 import type { LocalBrowserLaunchOptions } from "../types/public/index";
 import type { InitScriptSource } from "../types/private/index";
 import { normalizeInitScriptSource } from "./initScripts";
@@ -16,7 +15,7 @@ import {
   PageNotFoundError,
   StagehandSetExtraHTTPHeadersError,
 } from "../types/public/sdkErrors";
-import { getEnvTimeoutMs, withTimeout } from "../timeoutConfig";
+import { getEnvTimeoutMs } from "../timeoutConfig";
 import {
   filterCookies,
   normalizeCookieParams,
@@ -101,8 +100,6 @@ function getFirstTopLevelPageTimeoutMs(): number {
 export class V3Context {
   private constructor(
     readonly conn: CdpConnection,
-    private readonly env: "LOCAL" | "BROWSERBASE" = "LOCAL",
-    private readonly apiClient: StagehandAPIClient | null = null,
     private readonly localBrowserLaunchOptions: LocalBrowserLaunchOptions | null = null,
   ) {}
 
@@ -156,52 +153,20 @@ export class V3Context {
   static async create(
     wsUrl: string,
     opts?: {
-      env?: "LOCAL" | "BROWSERBASE";
-      apiClient?: StagehandAPIClient | null;
       localBrowserLaunchOptions?: LocalBrowserLaunchOptions | null;
       cdpHeaders?: Record<string, string>;
     },
   ): Promise<V3Context> {
-    const connectTask = async () => {
-      const conn = await CdpConnection.connect(wsUrl, {
-        headers: opts?.cdpHeaders,
-      });
-      const ctx = new V3Context(
-        conn,
-        opts?.env ?? "LOCAL",
-        opts?.apiClient ?? null,
-        opts?.localBrowserLaunchOptions ?? null,
-      );
-      await ctx.bootstrap();
-      await ctx.ensureFirstTopLevelPage(getFirstTopLevelPageTimeoutMs());
-      return ctx;
-    };
-
-    const cdpTimeoutMs =
-      opts?.env === "BROWSERBASE"
-        ? getEnvTimeoutMs("BROWSERBASE_CDP_CONNECT_MAX_MS")
-        : undefined;
-
-    if (cdpTimeoutMs) {
-      let timedOut = false;
-      const connectPromise = connectTask();
-      const guarded = withTimeout(
-        connectPromise,
-        cdpTimeoutMs,
-        "Browserbase CDP connect",
-      ).catch((err) => {
-        timedOut = true;
-        throw err;
-      });
-      connectPromise
-        .then((ctx) => {
-          if (timedOut) void ctx.close();
-        })
-        .catch(() => {});
-      return await guarded;
-    }
-
-    return await connectTask();
+    const conn = await CdpConnection.connect(wsUrl, {
+      headers: opts?.cdpHeaders,
+    });
+    const ctx = new V3Context(
+      conn,
+      opts?.localBrowserLaunchOptions ?? null,
+    );
+    await ctx.bootstrap();
+    await ctx.ensureFirstTopLevelPage(getFirstTopLevelPageTimeoutMs());
+    return ctx;
   }
 
   private hasTopLevelPage(): boolean {
@@ -777,9 +742,7 @@ export class V3Context {
             this.conn,
             session,
             info.targetId,
-            this.apiClient,
             this.localBrowserLaunchOptions,
-            this.env === "BROWSERBASE",
           );
         } catch (error) {
           createError = error;
@@ -1040,11 +1003,10 @@ export class V3Context {
    * Normal path returns immediately; popup path waits up to timeoutMs for the new page.
    */
   async awaitActivePage(timeoutMs?: number): Promise<Page> {
-    const defaultTimeout = this.env === "BROWSERBASE" ? 4000 : 2000;
+    const defaultTimeout = 2000;
     timeoutMs = timeoutMs ?? defaultTimeout;
-    // If a popup was just triggered, Chrome (especially on Browserbase)
-    // may briefly pause new targets at document start ("waiting for debugger").
-    const recentWindowMs = this.env === "BROWSERBASE" ? 1000 : 300;
+    // If a popup was just triggered, Chrome may briefly pause new targets at document start.
+    const recentWindowMs = 300;
     const now = Date.now();
     const hasRecentPopup = now - this._lastPopupSignalAt <= recentWindowMs;
 

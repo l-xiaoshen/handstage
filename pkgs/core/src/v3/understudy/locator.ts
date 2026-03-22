@@ -161,8 +161,8 @@ export class Locator {
   /**
    * Remote browser fallback: build File objects inside the page and attach them via JS.
    *
-   * When Stagehand is driving a browser that cannot see the local filesystem (Browserbase,
-   * remote CDP, etc.), CDP's DOM.setFileInputFiles would fail because Chrome can't reach
+   * When Stagehand is driving a browser that cannot see the local filesystem (e.g. remote
+   * CDP), CDP's DOM.setFileInputFiles would fail because Chrome can't reach
    * our temp files. Instead we base64-encode the payloads, send them into the page, and
    * let a DOM helper create File objects + dispatch change/input events.
    */

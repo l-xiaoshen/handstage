@@ -128,14 +128,11 @@ export class V3AgentHandler {
         useSearch: options.useSearch,
       });
 
-      if (options.useSearch) {
-        const bbApiKey = this.v3.browserbaseApiKey;
-        if (!bbApiKey) {
-          throw new MissingEnvironmentVariableError(
-            "BROWSERBASE_API_KEY",
-            "agent search (useSearch: true)",
-          );
-        }
+      if (options.useSearch && !process.env.BRAVE_API_KEY) {
+        throw new MissingEnvironmentVariableError(
+          "BRAVE_API_KEY",
+          "agent search (useSearch: true)",
+        );
       }
 
       const tools = this.createTools(
@@ -204,7 +201,7 @@ export class V3AgentHandler {
           this.logger({
             category: "agent",
             message:
-              "Captcha detected — waiting for Browserbase to solve it before continuing",
+              "Captcha detected — waiting for captcha auto-solver before continuing",
             level: 1,
           });
         }
@@ -342,7 +339,7 @@ export class V3AgentHandler {
         await page.enableCursorOverlay().catch(() => {});
       }
 
-      // Set up captcha solver for Browserbase environments
+      // Set up captcha solver when console hooks indicate an external solver
       if (this.captchaAutoSolveEnabled) {
         captchaSolver = new CaptchaSolver();
         captchaSolver.init(() => this.v3.context.awaitActivePage());
@@ -467,7 +464,7 @@ export class V3AgentHandler {
       await page.enableCursorOverlay().catch(() => {});
     }
 
-    // Set up captcha solver for Browserbase environments
+    // Set up captcha solver when console hooks indicate an external solver
     let captchaSolver: CaptchaSolver | undefined;
     if (this.captchaAutoSolveEnabled) {
       captchaSolver = new CaptchaSolver();
@@ -658,7 +655,6 @@ export class V3AgentHandler {
       variables,
       toolTimeout,
       useSearch,
-      browserbaseApiKey: useSearch ? this.v3.browserbaseApiKey : undefined,
     });
   }
 

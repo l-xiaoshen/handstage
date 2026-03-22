@@ -2,12 +2,9 @@
  * Shutdown supervisor process.
  *
  * This process watches a stdin lifeline. When the parent dies, stdin closes
- * and the supervisor performs best-effort cleanup:
- * - LOCAL: kill Chrome + remove temp profile
- * - STAGEHAND_API: request session release
+ * and the supervisor performs best-effort cleanup (Chrome kill + temp profile).
  */
 
-import Browserbase from "@browserbasehq/sdk";
 import type { ShutdownSupervisorConfig } from "../types/private/shutdown";
 import { cleanupLocalBrowser } from "./cleanupLocal";
 
@@ -89,7 +86,7 @@ const startPidPolling = (pid: number): void => {
 };
 
 const cleanupLocal = async (
-  cfg: Extract<ShutdownSupervisorConfig, { kind: "LOCAL" }>,
+  cfg: ShutdownSupervisorConfig,
   reason: string,
 ) => {
   const deletingUserDataDir = Boolean(
@@ -114,39 +111,13 @@ const cleanupLocal = async (
   });
 };
 
-const cleanupBrowserbase = async (
-  cfg: Extract<ShutdownSupervisorConfig, { kind: "STAGEHAND_API" }>,
-  reason: string,
-) => {
-  if (!cfg.apiKey || !cfg.sessionId) return;
-  try {
-    console.error(
-      `[shutdown-supervisor] Ending Browserbase session ${cfg.sessionId} ` +
-        `(reason=${reason})`,
-    );
-    const bb = new Browserbase({ apiKey: cfg.apiKey });
-    await bb.sessions.update(cfg.sessionId, {
-      status: "REQUEST_RELEASE",
-      ...(cfg.projectId ? { projectId: cfg.projectId } : {}),
-    } as Browserbase.Sessions.SessionUpdateParams);
-  } catch {
-    // best-effort cleanup
-  }
-};
-
 // Idempotent cleanup entrypoint used by all supervisor shutdown paths.
 const runCleanup = (reason: string): Promise<void> => {
   if (!cleanupPromise) {
     cleanupPromise = (async () => {
       const cfg = config;
       if (!cfg) return;
-      if (cfg.kind === "LOCAL") {
-        await cleanupLocal(cfg, reason);
-        return;
-      }
-      if (cfg.kind === "STAGEHAND_API") {
-        await cleanupBrowserbase(cfg, reason);
-      }
+      await cleanupLocal(cfg, reason);
     })();
   }
   return cleanupPromise;
@@ -155,7 +126,7 @@ const runCleanup = (reason: string): Promise<void> => {
 const applyConfig = (nextConfig: ShutdownSupervisorConfig): void => {
   config = nextConfig;
   localPidKnownGone = false;
-  if (config.kind === "LOCAL" && config.pid) {
+  if (config.pid) {
     startPidPolling(config.pid);
   }
 };

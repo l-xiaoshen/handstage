@@ -222,8 +222,7 @@ function prettifyCompactValue(value: unknown): unknown {
       key === "mainSession" ||
       key === "sessions" ||
       key === "registry" ||
-      key === "networkManager" ||
-      key === "apiClient"
+      key === "networkManager"
     ) {
       result[key] = `[${toTitleCase(key)}]`;
       continue;

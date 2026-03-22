@@ -15,12 +15,6 @@ export interface ActOptions {
   variables?: Variables;
   timeout?: number;
   page?: PlaywrightPage | PuppeteerPage | PatchrightPage | Page;
-  /**
-   * Override the instance-level serverCache setting for this request.
-   * When true, enables server-side caching.
-   * When false, disables server-side caching.
-   */
-  serverCache?: boolean;
 }
 
 export interface ActResult {
@@ -55,12 +49,6 @@ export interface ExtractOptions {
   timeout?: number;
   selector?: string;
   page?: PlaywrightPage | PuppeteerPage | PatchrightPage | Page;
-  /**
-   * Override the instance-level serverCache setting for this request.
-   * When true, enables server-side caching.
-   * When false, disables server-side caching.
-   */
-  serverCache?: boolean;
 }
 
 export const defaultExtractSchema = z.object({
@@ -76,20 +64,9 @@ export interface ObserveOptions {
   timeout?: number;
   selector?: string;
   page?: PlaywrightPage | PuppeteerPage | PatchrightPage | Page;
-  /**
-   * Override the instance-level serverCache setting for this request.
-   * When true, enables server-side caching.
-   * When false, disables server-side caching.
-   */
-  serverCache?: boolean;
 }
 
-/**
- * Observe returns an array of candidate actions. The optional `cacheStatus`
- * property is attached when the server responds with a
- * `browserbase-cache-status` header so callers can tell whether the result
- * was served from the server-side cache.
- */
+/** Observe returns an array of candidate actions. */
 export type ObserveResult = Action[] & { cacheStatus?: "HIT" | "MISS" };
 
 export enum V3FunctionName {

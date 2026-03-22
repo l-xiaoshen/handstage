@@ -21,7 +21,6 @@ import { ObserveHandler } from "./handlers/observeHandler";
 import { V3AgentHandler } from "./handlers/v3AgentHandler";
 import { V3CuaAgentHandler } from "./handlers/v3CuaAgentHandler";
 import { CAPTCHA_CUA_SYSTEM_PROMPT_NOTE } from "./agent/utils/captchaSolver";
-import { createBrowserbaseSession } from "./launch/browserbase";
 import { launchLocalChrome } from "./launch/local";
 import type { LLMClient } from "./llm/LLMClient";
 import { LLMProvider } from "./llm/LLMProvider";
@@ -75,14 +74,12 @@ import {
   CuaModelRequiredError,
   StagehandInvalidArgumentError,
   StagehandNotInitializedError,
-  MissingEnvironmentVariableError,
   StagehandInitError,
   type AgentStreamResult,
 } from "./types/public/index";
 import { V3Context } from "./understudy/context";
 import type { Page } from "./understudy/page";
 import { resolveModel } from "../modelUtils";
-import { StagehandAPIClient } from "./api";
 import { validateExperimentalFeatures } from "./agent/utils/validateExperimentalFeatures";
 import { flattenVariables } from "./agent/utils/variables";
 import { FlowLogger, type FlowLoggerContext } from "./flowlogger/FlowLogger";
@@ -130,17 +127,8 @@ function resolveModelConfiguration(
 /**
  * V3
  *
- * Purpose:
- * A high-level orchestrator for Stagehand V3. Abstracts away whether the browser
- * runs **locally via Chrome** or remotely on **Browserbase**, and exposes simple
- * entrypoints (`act`, `extract`, `observe`) that delegate to the corresponding
- * handler classes.
- *
- * Responsibilities:
- * - Bootstraps Chrome or Browserbase, ensures a working CDP WebSocket, and builds a `V3Context`.
- * - Manages lifecycle: init, context access, cleanup.
- * - Bridges external page objects (Playwright/Puppeteer) into internal frameIds for handlers.
- * - Provides a stable API surface for downstream code regardless of runtime environment.
+ * High-level orchestrator for Stagehand V3: launches or attaches to local Chrome over CDP,
+ * and exposes `act`, `extract`, and `observe` via handler classes.
  */
 export class V3 {
   private readonly opts: V3Options;
@@ -163,45 +151,15 @@ export class V3 {
   private overrideLlmClients: Map<string, LLMClient> = new Map();
   private readonly domSettleTimeoutMs?: number;
   private _isClosing = false;
-  public browserbaseSessionId?: string;
-  private browserbaseSessionUrl?: string;
-  private browserbaseDebugUrl?: string;
-  public get browserbaseSessionID(): string | undefined {
-    return this.browserbaseSessionId;
-  }
-  public get browserbaseSessionURL(): string | undefined {
-    return this.browserbaseSessionUrl;
-  }
-  public get browserbaseDebugURL(): string | undefined {
-    return this.browserbaseDebugUrl;
-  }
-  /**
-   * Returns true if the browser is running on Browserbase.
-   */
-  public get isBrowserbase(): boolean {
-    return this.state.kind === "BROWSERBASE";
-  }
 
-  /**
-   * Returns true if captcha auto-solving is enabled on Browserbase.
-   * Defaults to true when not explicitly set to false.
-   */
+  /** Captcha auto-solve is not available in the local-only build. */
   public get isCaptchaAutoSolveEnabled(): boolean {
-    return (
-      this.isBrowserbase &&
-      this.opts.browserbaseSessionCreateParams?.browserSettings
-        ?.solveCaptchas !== false
-    );
+    return false;
   }
 
-  /**
-   * Returns true if advancedStealth is enabled in Browserbase settings.
-   */
+  /** Advanced stealth presets are not used in the local-only build. */
   public get isAdvancedStealth(): boolean {
-    return (
-      this.opts.browserbaseSessionCreateParams?.browserSettings
-        ?.advancedStealth === true
-    );
+    return false;
   }
 
   /**
@@ -211,17 +169,6 @@ export class V3 {
   public get configuredViewport(): { width: number; height: number } {
     const defaultWidth = 1288;
     const defaultHeight = 711;
-
-    if (this.opts.env === "BROWSERBASE") {
-      const vp =
-        this.opts.browserbaseSessionCreateParams?.browserSettings?.viewport;
-      return {
-        width: vp?.width ?? defaultWidth,
-        height: vp?.height ?? defaultHeight,
-      };
-    }
-
-    // LOCAL env
     const vp = this.opts.localBrowserLaunchOptions?.viewport;
     return {
       width: vp?.width ?? defaultWidth,
@@ -230,16 +177,10 @@ export class V3 {
   }
 
   private _onCdpClosed = (why: string) => {
-    if (this.state.kind === "BROWSERBASE") {
-      void this._logBrowserbaseSessionStatus();
-    }
-
-    // Single place to react to the transport closing
     this._immediateShutdown(`CDP transport closed: ${why}`).catch(() => {});
   };
   public readonly experimental: boolean = false;
   public readonly logInferenceToFile: boolean = false;
-  public readonly disableAPI: boolean = false;
   private externalLogger?: (logLine: LogLine) => void;
   public verbose: 0 | 1 | 2 = 1;
   private stagehandLogger: StagehandLogger;
@@ -253,7 +194,6 @@ export class V3 {
   private cacheStorage: CacheStorage;
   private actCache: ActCache;
   private agentCache: AgentCache;
-  private apiClient: StagehandAPIClient | null = null;
   private keepAlive?: boolean;
   private shutdownSupervisor: ShutdownSupervisorHandle | null = null;
 
@@ -290,8 +230,7 @@ export class V3 {
     this.verbose = opts.verbose ?? 1;
     this.instanceId = uuidv7();
     this.sessionId = opts.sessionId ?? this.instanceId;
-    this.keepAlive =
-      opts.keepAlive ?? opts.browserbaseSessionCreateParams?.keepAlive;
+    this.keepAlive = opts.keepAlive;
 
     // Create per-instance StagehandLogger (handles usePino, verbose, externalLogger)
     // This gives each V3 instance independent logger configuration
@@ -329,7 +268,6 @@ export class V3 {
     this.logInferenceToFile = opts.logInferenceToFile ?? false;
     this.llmProvider = new LLMProvider(this.logger);
     this.domSettleTimeoutMs = opts.domSettleTimeout;
-    this.disableAPI = opts.disableAPI ?? false;
 
     const baseClientOptions: ClientOptions = clientOptions
       ? ({ ...clientOptions } as ClientOptions)
@@ -337,7 +275,6 @@ export class V3 {
     if (opts.llmClient) {
       this.llmClient = opts.llmClient;
       this.modelClientOptions = baseClientOptions;
-      this.disableAPI = true;
     } else {
       // Ensure API key is set
       let apiKey = (baseClientOptions as { apiKey?: string }).apiKey;
@@ -365,7 +302,7 @@ export class V3 {
       this.llmClient = this.llmProvider.getClient(
         this.modelName,
         this.modelClientOptions,
-        { experimental: this.experimental, disableAPI: this.disableAPI },
+        { experimental: this.experimental },
       );
     }
 
@@ -391,7 +328,7 @@ export class V3 {
       act: this.act.bind(this),
     });
 
-    this.opts = opts;
+    this.opts = { env: "LOCAL", ...opts };
 
     // FlowLogger always gets a per-instance session context and shared event
     // bus. The attached EventStore decides which sinks are active:
@@ -414,22 +351,8 @@ export class V3 {
   }
   /**
    * Async property for metrics so callers can `await v3.metrics`.
-   * When using API mode, fetches metrics from the API. Otherwise returns local metrics.
    */
   public get metrics(): Promise<StagehandMetrics> {
-    if (this.apiClient) {
-      // Fetch metrics from the API
-      return this.apiClient.getReplayMetrics().catch((error) => {
-        this.logger({
-          category: "metrics",
-          message: `Failed to fetch metrics from API: ${error}`,
-          level: 0,
-        });
-        // Fall back to local metrics on error
-        return this.stagehandMetrics;
-      });
-    }
-    // Return local metrics wrapped in a Promise for consistency
     return Promise.resolve(this.stagehandMetrics);
   }
 
@@ -485,7 +408,7 @@ export class V3 {
     const client = this.llmProvider.getClient(
       modelName as AvailableModel,
       mergedOptions,
-      { experimental: this.experimental, disableAPI: this.disableAPI },
+      { experimental: this.experimental },
     );
 
     this.overrideLlmClients.set(cacheKey, client);
@@ -636,8 +559,7 @@ export class V3 {
             category: "v3",
             message:
               "Shutdown supervisor unavailable; crash cleanup disabled. " +
-              "If this process exits unexpectedly, local Chrome or Browserbase " +
-              "sessions may remain running even with keepAlive=false.",
+              "If this process exits unexpectedly, local Chrome may remain running when keepAlive=false.",
             level: 0,
             auxiliary: {
               context: { value: context, type: "string" },
@@ -664,8 +586,7 @@ export class V3 {
   }
 
   /**
-   * Entrypoint: initializes handlers, launches Chrome or Browserbase,
-   * and sets up a CDP context.
+   * Entrypoint: initializes handlers, launches or attaches to local Chrome, and sets up a CDP context.
    */
   async init(): Promise<void> {
     try {
@@ -746,293 +667,157 @@ export class V3 {
               inferenceTimeMs,
             ),
         );
-        if (this.opts.env === "LOCAL") {
-          // chrome-launcher conditionally adds --headless when the environment variable
-          // HEADLESS is set, without parsing its value.
-          // if it is not equal to true, then we delete it from the process
-          const envHeadless = process.env.HEADLESS;
-          if (envHeadless !== undefined) {
-            const normalized = envHeadless.trim().toLowerCase();
-            if (normalized !== "true") {
-              delete process.env.HEADLESS;
-            }
+        // chrome-launcher conditionally adds --headless when the environment variable
+        // HEADLESS is set, without parsing its value.
+        // if it is not equal to true, then we delete it from the process
+        const envHeadless = process.env.HEADLESS;
+        if (envHeadless !== undefined) {
+          const normalized = envHeadless.trim().toLowerCase();
+          if (normalized !== "true") {
+            delete process.env.HEADLESS;
           }
-          const lbo: LocalBrowserLaunchOptions =
-            this.opts.localBrowserLaunchOptions ?? {};
+        }
+        const lbo: LocalBrowserLaunchOptions =
+          this.opts.localBrowserLaunchOptions ?? {};
 
-          if (lbo.cdpHeaders && !lbo.cdpUrl) {
-            this.logger({
-              category: "init",
-              message:
-                "`cdpHeaders` was provided but `cdpUrl` is not set — cdpHeaders will be ignored. Set `cdpUrl` to connect to an existing browser via CDP.",
-              level: 2,
-            });
-          }
-
-          // If a CDP URL is provided, attach instead of launching.
-          if (lbo.cdpUrl) {
-            this.logger({
-              category: "init",
-              message: "Connecting to local browser",
-              level: 1,
-            });
-            this.ctx = await V3Context.create(lbo.cdpUrl, {
-              env: "LOCAL",
-              cdpHeaders: lbo.cdpHeaders,
-            });
-            this.ctx.conn.flowLoggerContext = this.flowLoggerContext;
-            this.ctx.conn.onTransportClosed(this._onCdpClosed);
-            this.state = {
-              kind: "LOCAL",
-              // no LaunchedChrome when attaching externally; create a stub kill
-              chrome: {
-                kill: async () => {},
-              } as unknown as import("chrome-launcher").LaunchedChrome,
-              ws: lbo.cdpUrl,
-            };
-            this.resetBrowserbaseSessionMetadata();
-            // Post-connect settings (downloads and viewport) if provided
-            await this._applyPostConnectLocalOptions(lbo);
-            return;
-          }
+        if (lbo.cdpHeaders && !lbo.cdpUrl) {
           this.logger({
             category: "init",
-            message: "Launching local browser",
+            message:
+              "`cdpHeaders` was provided but `cdpUrl` is not set — cdpHeaders will be ignored. Set `cdpUrl` to connect to an existing browser via CDP.",
+            level: 2,
+          });
+        }
+
+        // If a CDP URL is provided, attach instead of launching.
+        if (lbo.cdpUrl) {
+          this.logger({
+            category: "init",
+            message: "Connecting to local browser",
             level: 1,
           });
-
-          // Determine or create user data dir
-          let userDataDir = lbo.userDataDir;
-          let createdTemp = false;
-          if (!userDataDir) {
-            const base = path.join(os.tmpdir(), "stagehand-v3");
-            fs.mkdirSync(base, { recursive: true });
-            userDataDir = fs.mkdtempSync(path.join(base, "profile-"));
-            createdTemp = true;
-          }
-
-          // Build chrome flags
-          const defaults = [
-            "--remote-allow-origins=*",
-            "--no-first-run",
-            "--no-default-browser-check",
-            "--disable-dev-shm-usage",
-            "--site-per-process",
-          ];
-          let chromeFlags: string[];
-          const ignore = lbo.ignoreDefaultArgs;
-          if (ignore === true) {
-            // drop defaults
-            chromeFlags = [];
-          } else if (Array.isArray(ignore)) {
-            chromeFlags = defaults.filter(
-              (f) => !ignore.some((ex) => f.includes(ex)),
-            );
-          } else {
-            chromeFlags = [...defaults];
-          }
-
-          // headless handled by launchLocalChrome
-          if (lbo.devtools) chromeFlags.push("--auto-open-devtools-for-tabs");
-          if (lbo.locale) chromeFlags.push(`--lang=${lbo.locale}`);
-          if (!lbo.viewport) {
-            lbo.viewport = DEFAULT_VIEWPORT;
-          }
-          if (lbo.viewport?.width && lbo.viewport?.height) {
-            chromeFlags.push(
-              `--window-size=${lbo.viewport.width},${lbo.viewport.height + 87}`, // Added pixels to the window to account for the address bar
-            );
-          }
-          if (typeof lbo.deviceScaleFactor === "number") {
-            chromeFlags.push(
-              `--force-device-scale-factor=${Math.max(0.1, lbo.deviceScaleFactor)}`,
-            );
-          }
-          if (lbo.hasTouch) chromeFlags.push("--touch-events=enabled");
-          if (lbo.ignoreHTTPSErrors)
-            chromeFlags.push("--ignore-certificate-errors");
-          if (lbo.proxy?.server)
-            chromeFlags.push(`--proxy-server=${lbo.proxy.server}`);
-          if (lbo.proxy?.bypass)
-            chromeFlags.push(`--proxy-bypass-list=${lbo.proxy.bypass}`);
-
-          // add user-supplied args last
-          if (Array.isArray(lbo.args)) chromeFlags.push(...lbo.args);
-
-          const keepAlive = this.keepAlive === true;
-          const { ws, chrome } = await launchLocalChrome({
-            chromePath: lbo.executablePath,
-            chromeFlags,
-            port: lbo.port,
-            headless: lbo.headless,
-            userDataDir,
-            connectTimeoutMs: lbo.connectTimeoutMs,
-            handleSIGINT: !keepAlive,
-          });
-          if (keepAlive) {
-            try {
-              chrome.process?.unref?.();
-            } catch {
-              // best-effort: avoid keeping the event loop alive
-            }
-          }
-          this.ctx = await V3Context.create(ws, {
-            env: "LOCAL",
-            localBrowserLaunchOptions: lbo,
+          this.ctx = await V3Context.create(lbo.cdpUrl, {
+            cdpHeaders: lbo.cdpHeaders,
           });
           this.ctx.conn.flowLoggerContext = this.flowLoggerContext;
           this.ctx.conn.onTransportClosed(this._onCdpClosed);
           this.state = {
             kind: "LOCAL",
-            chrome,
-            ws,
-            userDataDir,
-            createdTempProfile: createdTemp,
-            preserveUserDataDir: !!lbo.preserveUserDataDir,
+            // no LaunchedChrome when attaching externally; create a stub kill
+            chrome: {
+              kill: async () => {},
+            } as unknown as import("chrome-launcher").LaunchedChrome,
+            ws: lbo.cdpUrl,
           };
-          this.resetBrowserbaseSessionMetadata();
-          const chromePid = chrome.process?.pid ?? chrome.pid;
-          if (!keepAlive && chromePid) {
-            this.startShutdownSupervisor({
-              kind: "LOCAL",
-              pid: chromePid,
-              userDataDir,
-              createdTempProfile: createdTemp,
-              preserveUserDataDir: !!lbo.preserveUserDataDir,
-            });
-          }
-
-          // Post-connect settings (downloads and viewport) if provided
           await this._applyPostConnectLocalOptions(lbo);
           return;
         }
+        this.logger({
+          category: "init",
+          message: "Launching local browser",
+          level: 1,
+        });
 
-        if (this.opts.env === "BROWSERBASE") {
-          const { apiKey, projectId } = this.requireBrowserbaseCreds();
-          this.logger({
-            category: "init",
-            message: "Starting browserbase session",
-            level: 1,
-          });
-          const baseSessionParams =
-            this.opts.browserbaseSessionCreateParams ?? {};
-          const resolvedKeepAlive = this.keepAlive;
-          const keepAlive = this.keepAlive === true;
-          let effectiveSessionParams = baseSessionParams;
-          if (resolvedKeepAlive !== undefined) {
-            effectiveSessionParams = {
-              ...baseSessionParams,
-              keepAlive: resolvedKeepAlive,
-            };
-          }
-          if (!this.disableAPI && !this.experimental) {
-            this.apiClient = new StagehandAPIClient({
-              apiKey,
-              projectId,
-              logger: this.logger,
-              serverCache: this.opts.serverCache,
-            });
-            const {
-              projectId: overrideProjectId,
-              browserSettings,
-              userMetadata,
-              ...restSessionParams
-            } = effectiveSessionParams;
-            const resolvedProjectId = overrideProjectId ?? projectId;
-            const createSessionPayload = {
-              ...(resolvedProjectId ? { projectId: resolvedProjectId } : {}),
-              ...restSessionParams,
-              browserSettings: {
-                ...(browserSettings ?? {}),
-                viewport: browserSettings?.viewport ?? {
-                  width: 1288,
-                  height: 711,
-                },
-              },
-              userMetadata: {
-                ...(userMetadata ?? {}),
-                stagehand: "true",
-              },
-            };
-            const { sessionId, available } = await this.apiClient.init({
-              modelName: this.modelName,
-              modelApiKey: this.modelClientOptions.apiKey,
-              domSettleTimeoutMs: this.domSettleTimeoutMs,
-              verbose: this.verbose,
-              systemPrompt: this.opts.systemPrompt,
-              selfHeal: this.opts.selfHeal,
-              browserbaseSessionCreateParams: createSessionPayload,
-              browserbaseSessionID: this.opts.browserbaseSessionID,
-            });
-            if (!available) {
-              this.apiClient = null;
-            }
-            this.opts.browserbaseSessionID = sessionId;
-          }
-          const { ws, sessionId, bb } = await createBrowserbaseSession(
-            apiKey,
-            projectId,
-            effectiveSessionParams,
-            this.opts.browserbaseSessionID,
-          );
-          this.ctx = await V3Context.create(ws, {
-            env: "BROWSERBASE",
-            apiClient: this.apiClient,
-          });
-          this.ctx.conn.flowLoggerContext = this.flowLoggerContext;
-          this.ctx.conn.onTransportClosed(this._onCdpClosed);
-          this.state = { kind: "BROWSERBASE", sessionId, ws, bb };
-          this.browserbaseSessionId = sessionId;
-          if (!keepAlive && !this.disableAPI) {
-            this.startShutdownSupervisor({
-              kind: "STAGEHAND_API",
-              sessionId,
-              apiKey,
-              projectId,
-            });
-          }
-
-          await this._ensureBrowserbaseDownloadsEnabled();
-
-          const resumed = !!this.opts.browserbaseSessionID;
-          let debugUrl: string | undefined;
-          try {
-            const dbg = (await bb.sessions.debug(sessionId)) as unknown as {
-              debuggerUrl?: string;
-            };
-            debugUrl = dbg?.debuggerUrl;
-          } catch {
-            // Ignore debug fetch failures; continue with sessionUrl only
-          }
-          const sessionUrl = `https://www.browserbase.com/sessions/${sessionId}`;
-          this.browserbaseSessionUrl = sessionUrl;
-          this.browserbaseDebugUrl = debugUrl;
-
-          try {
-            this.logger({
-              category: "init",
-              message: resumed
-                ? this.apiClient
-                  ? "Browserbase session started"
-                  : "Browserbase session resumed"
-                : "Browserbase session started",
-              level: 1,
-              auxiliary: {
-                sessionUrl: { value: sessionUrl, type: "string" },
-                ...(debugUrl && {
-                  debugUrl: { value: debugUrl, type: "string" },
-                }),
-                sessionId: { value: sessionId, type: "string" },
-              },
-            });
-          } catch {
-            // best-effort logging — ignore failures
-          }
-          return;
+        // Determine or create user data dir
+        let userDataDir = lbo.userDataDir;
+        let createdTemp = false;
+        if (!userDataDir) {
+          const base = path.join(os.tmpdir(), "stagehand-v3");
+          fs.mkdirSync(base, { recursive: true });
+          userDataDir = fs.mkdtempSync(path.join(base, "profile-"));
+          createdTemp = true;
         }
 
-        const neverEnv: never = this.opts.env;
-        throw new StagehandInitError(`Unsupported env: ${neverEnv}`);
+        // Build chrome flags
+        const defaults = [
+          "--remote-allow-origins=*",
+          "--no-first-run",
+          "--no-default-browser-check",
+          "--disable-dev-shm-usage",
+          "--site-per-process",
+        ];
+        let chromeFlags: string[];
+        const ignore = lbo.ignoreDefaultArgs;
+        if (ignore === true) {
+          // drop defaults
+          chromeFlags = [];
+        } else if (Array.isArray(ignore)) {
+          chromeFlags = defaults.filter(
+            (f) => !ignore.some((ex) => f.includes(ex)),
+          );
+        } else {
+          chromeFlags = [...defaults];
+        }
+
+        // headless handled by launchLocalChrome
+        if (lbo.devtools) chromeFlags.push("--auto-open-devtools-for-tabs");
+        if (lbo.locale) chromeFlags.push(`--lang=${lbo.locale}`);
+        if (!lbo.viewport) {
+          lbo.viewport = DEFAULT_VIEWPORT;
+        }
+        if (lbo.viewport?.width && lbo.viewport?.height) {
+          chromeFlags.push(
+            `--window-size=${lbo.viewport.width},${lbo.viewport.height + 87}`, // Added pixels to the window to account for the address bar
+          );
+        }
+        if (typeof lbo.deviceScaleFactor === "number") {
+          chromeFlags.push(
+            `--force-device-scale-factor=${Math.max(0.1, lbo.deviceScaleFactor)}`,
+          );
+        }
+        if (lbo.hasTouch) chromeFlags.push("--touch-events=enabled");
+        if (lbo.ignoreHTTPSErrors)
+          chromeFlags.push("--ignore-certificate-errors");
+        if (lbo.proxy?.server)
+          chromeFlags.push(`--proxy-server=${lbo.proxy.server}`);
+        if (lbo.proxy?.bypass)
+          chromeFlags.push(`--proxy-bypass-list=${lbo.proxy.bypass}`);
+
+        // add user-supplied args last
+        if (Array.isArray(lbo.args)) chromeFlags.push(...lbo.args);
+
+        const keepAlive = this.keepAlive === true;
+        const { ws, chrome } = await launchLocalChrome({
+          chromePath: lbo.executablePath,
+          chromeFlags,
+          port: lbo.port,
+          headless: lbo.headless,
+          userDataDir,
+          connectTimeoutMs: lbo.connectTimeoutMs,
+          handleSIGINT: !keepAlive,
+        });
+        if (keepAlive) {
+          try {
+            chrome.process?.unref?.();
+          } catch {
+            // best-effort: avoid keeping the event loop alive
+          }
+        }
+        this.ctx = await V3Context.create(ws, {
+          localBrowserLaunchOptions: lbo,
+        });
+        this.ctx.conn.flowLoggerContext = this.flowLoggerContext;
+        this.ctx.conn.onTransportClosed(this._onCdpClosed);
+        this.state = {
+          kind: "LOCAL",
+          chrome,
+          ws,
+          userDataDir,
+          createdTempProfile: createdTemp,
+          preserveUserDataDir: !!lbo.preserveUserDataDir,
+        };
+        const chromePid = chrome.process?.pid ?? chrome.pid;
+        if (!keepAlive && chromePid) {
+          this.startShutdownSupervisor({
+            kind: "LOCAL",
+            pid: chromePid,
+            userDataDir,
+            createdTempProfile: createdTemp,
+            preserveUserDataDir: !!lbo.preserveUserDataDir,
+          });
+        }
+
+        await this._applyPostConnectLocalOptions(lbo);
       });
     } catch (error) {
       // Cleanup instanceLoggers map on init failure to prevent memory leak
@@ -1068,26 +853,6 @@ export class V3 {
     }
   }
 
-  private async _ensureBrowserbaseDownloadsEnabled(): Promise<void> {
-    const conn = this.ctx?.conn;
-    if (!conn) return;
-    try {
-      await conn.send("Browser.setDownloadBehavior", {
-        behavior: "allow",
-        downloadPath: "downloads",
-        eventsEnabled: true,
-      });
-    } catch {
-      // best-effort only
-    }
-  }
-
-  private resetBrowserbaseSessionMetadata(): void {
-    this.browserbaseSessionId = undefined;
-    this.browserbaseSessionUrl = undefined;
-    this.browserbaseDebugUrl = undefined;
-  }
-
   /**
    * Run an "act" instruction through the ActHandler.
    *
@@ -1113,26 +878,18 @@ export class V3 {
 
         // Use selector as provided to support XPath, CSS, and other engines
         const selector = input.selector;
-        if (this.apiClient) {
-          actResult = await this.apiClient.act({
-            input,
-            options,
-            frameId: v3Page.mainFrameId(),
-          });
-        } else {
-          const ensureTimeRemaining = createTimeoutGuard(
-            options?.timeout,
-            (ms) => new ActTimeoutError(ms),
-          );
-          actResult = await this.actHandler.takeDeterministicAction(
-            { ...input, selector },
-            v3Page,
-            this.domSettleTimeoutMs,
-            this.resolveLlmClient(options?.model),
-            ensureTimeRemaining,
-            options?.variables,
-          );
-        }
+        const ensureTimeRemaining = createTimeoutGuard(
+          options?.timeout,
+          (ms) => new ActTimeoutError(ms),
+        );
+        actResult = await this.actHandler.takeDeterministicAction(
+          { ...input, selector },
+          v3Page,
+          this.domSettleTimeoutMs,
+          this.resolveLlmClient(options?.model),
+          ensureTimeRemaining,
+          options?.variables,
+        );
 
         // history: record ObserveResult-based act call
         this.addToHistory(
@@ -1200,12 +957,7 @@ export class V3 {
         timeout: options?.timeout,
         model: options?.model,
       };
-      if (this.apiClient) {
-        const frameId = page.mainFrameId();
-        actResult = await this.apiClient.act({ input, options, frameId });
-      } else {
-        actResult = await this.actHandler.act(handlerParams);
-      }
+      actResult = await this.actHandler.act(handlerParams);
       // history: record instruction-based act call (omit page object)
       this.addToHistory(
         "act",
@@ -1312,18 +1064,8 @@ export class V3 {
         page,
       };
       let result: z.infer<typeof effectiveSchema> | { pageText: string };
-      if (this.apiClient) {
-        const frameId = page.mainFrameId();
-        result = await this.apiClient.extract({
-          instruction: handlerParams.instruction,
-          schema: handlerParams.schema,
-          options,
-          frameId,
-        });
-      } else {
-        result =
-          await this.extractHandler.extract<StagehandZodSchema>(handlerParams);
-      }
+      result =
+        await this.extractHandler.extract<StagehandZodSchema>(handlerParams);
       const historySchemaDescriptor = effectiveSchema
         ? toJsonSchema(effectiveSchema)
         : undefined;
@@ -1383,17 +1125,7 @@ export class V3 {
         page: page!,
       };
 
-      let results: Action[];
-      if (this.apiClient) {
-        const frameId = page.mainFrameId();
-        results = await this.apiClient.observe({
-          instruction,
-          options,
-          frameId,
-        });
-      } else {
-        results = await this.observeHandler.observe(handlerParams);
-      }
+      const results = await this.observeHandler.observe(handlerParams);
 
       // history: record observe call (omit page object)
       this.addToHistory(
@@ -1429,26 +1161,12 @@ export class V3 {
 
     const keepAlive = this.keepAlive === true;
 
-    // Unhook CDP transport close handler BEFORE ending the API session.
-    // apiClient.end() can cause the hosted API to terminate the Browserbase
-    // session, which closes the CDP WebSocket. If the handler is still
-    // registered, _onCdpClosed fires and re-enters close() with force=true,
-    // causing a double-close cascade.
     try {
       if (this.ctx?.conn && this._onCdpClosed) {
         this.ctx.conn.offTransportClosed?.(this._onCdpClosed);
       }
     } catch {
       // ignore
-    }
-
-    // End Browserbase session via API when keepAlive is not enabled
-    if (!keepAlive && this.apiClient) {
-      try {
-        await this.apiClient.end();
-      } catch {
-        // best-effort cleanup
-      }
     }
 
     try {
@@ -1483,7 +1201,6 @@ export class V3 {
       this.state = { kind: "UNINITIALIZED" };
       this.ctx = null;
       this._isClosing = false;
-      this.resetBrowserbaseSessionMetadata();
       try {
         unbindInstanceLogger(this.instanceId);
       } catch {
@@ -1505,49 +1222,6 @@ export class V3 {
       this.observeHandler = null;
       V3._instances.delete(this);
     }
-  }
-
-  /**
-   * Resolves the Browserbase API key from options or environment variables.
-   * Returns undefined if no key is found (does not throw).
-   */
-  public get browserbaseApiKey(): string | undefined {
-    return this.opts.apiKey || process.env.BROWSERBASE_API_KEY;
-  }
-
-  /** Guard: ensure Browserbase credentials exist in options. */
-  private requireBrowserbaseCreds(): {
-    apiKey: string;
-    projectId?: string;
-  } {
-    let { apiKey, projectId } = this.opts;
-
-    // Fall back to environment variables if not explicitly provided
-    if (!apiKey)
-      apiKey = process.env.BROWSERBASE_API_KEY ?? process.env.BB_API_KEY;
-    if (!projectId)
-      projectId =
-        process.env.BROWSERBASE_PROJECT_ID ?? process.env.BB_PROJECT_ID;
-
-    if (!apiKey) {
-      throw new MissingEnvironmentVariableError(
-        "BROWSERBASE_API_KEY",
-        "Browserbase",
-      );
-    }
-
-    // Cache resolved values back into opts for consistency
-    this.opts.apiKey = apiKey;
-    if (projectId) this.opts.projectId = projectId;
-
-    // Informational log
-    this.logger({
-      category: "init",
-      message: "Using Browserbase credentials",
-      level: 1,
-    });
-
-    return { apiKey, projectId };
   }
 
   public get logger(): (logLine: LogLine) => void {
@@ -1664,33 +1338,6 @@ export class V3 {
       return page;
     }
     throw new StagehandInvalidArgumentError("Unsupported page object.");
-  }
-
-  private async _logBrowserbaseSessionStatus(): Promise<void> {
-    if (this.state.kind !== "BROWSERBASE") {
-      return;
-    }
-
-    try {
-      const snapshot = (await this.state.bb.sessions.retrieve(
-        this.state.sessionId,
-      )) as { id?: string; status?: string };
-      if (!snapshot?.status) return;
-
-      const sessionId = snapshot.id ?? this.state.sessionId;
-      const message =
-        snapshot.status === "TIMED_OUT"
-          ? `Browserbase session timed out (sessionId: ${sessionId})`
-          : `Browserbase session status: ${snapshot.status}`;
-
-      this.logger({
-        category: "v3",
-        message,
-        level: 0,
-      });
-    } catch {
-      // Ignore failures; nothing to log
-    }
   }
 
   /**
@@ -1959,30 +1606,14 @@ export class V3 {
             }
 
             let agentSteps: AgentReplayStep[] = [];
-            const shouldRecordLocally =
-              !!cacheContext && (!this.apiClient || this.experimental);
+            const shouldRecordLocally = !!cacheContext;
             if (shouldRecordLocally) {
               this.beginAgentReplayRecording();
             }
 
             let result: AgentResult;
             try {
-              if (this.apiClient && !this.experimental) {
-                const page = await this.ctx!.awaitActivePage();
-                result = await this.apiClient.agentExecute(
-                  options,
-                  resolvedOptions,
-                  page.mainFrameId(),
-                  !!cacheContext,
-                );
-                if (cacheContext) {
-                  const transferredEntry =
-                    this.apiClient.consumeLatestAgentCacheEntry();
-                  await this.agentCache.storeTransferredEntry(transferredEntry);
-                }
-              } else {
-                result = await handler.execute(instructionOrOptions);
-              }
+              result = await handler.execute(instructionOrOptions);
               if (shouldRecordLocally) {
                 agentSteps = this.endAgentReplayRecording();
               }
@@ -2093,32 +1724,16 @@ export class V3 {
           }
 
           let agentSteps: AgentReplayStep[] = [];
-          const shouldRecordLocally =
-            !!cacheContext && (!this.apiClient || this.experimental);
+          const shouldRecordLocally = !!cacheContext;
           if (shouldRecordLocally) {
             this.beginAgentReplayRecording();
           }
           let result: AgentResult;
 
           try {
-            if (this.apiClient && !this.experimental) {
-              const page = await this.ctx!.awaitActivePage();
-              result = await this.apiClient.agentExecute(
-                options ?? {},
-                resolvedOptions as AgentExecuteOptions,
-                page.mainFrameId(),
-                !!cacheContext,
-              );
-              if (cacheContext) {
-                const transferredEntry =
-                  this.apiClient.consumeLatestAgentCacheEntry();
-                await this.agentCache.storeTransferredEntry(transferredEntry);
-              }
-            } else {
-              result = await handler.execute(
-                resolvedOptions as AgentExecuteOptions,
-              );
-            }
+            result = await handler.execute(
+              resolvedOptions as AgentExecuteOptions,
+            );
             if (shouldRecordLocally) {
               agentSteps = this.endAgentReplayRecording();
             }

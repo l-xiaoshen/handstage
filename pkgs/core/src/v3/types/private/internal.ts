@@ -1,4 +1,3 @@
-import type Browserbase from "@browserbasehq/sdk";
 import type { LaunchedChrome } from "chrome-launcher";
 
 export type InitState =
@@ -10,8 +9,7 @@ export type InitState =
       userDataDir?: string;
       createdTempProfile?: boolean;
       preserveUserDataDir?: boolean;
-    }
-  | { kind: "BROWSERBASE"; bb: Browserbase; sessionId: string; ws: string };
+    };
 
 export type EncodedId = `${number}-${number}`;
 

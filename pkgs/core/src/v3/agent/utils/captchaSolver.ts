@@ -29,7 +29,7 @@ export const CAPTCHA_CUA_SYSTEM_PROMPT_NOTE =
   "\n\nCaptchas on this page are automatically detected and solved by the browser environment. Do not interact with or attempt to solve any captchas yourself — they will be handled for you. Continue with your task as if the captcha does not exist.";
 
 /**
- * Tracks Browserbase captcha solver state via console messages and provides
+ * Tracks captcha solver state via browser console messages and provides
  * a blocking `waitIfSolving()` that agents call before each step/action.
  *
  * Accepts a page-provider callback so the listener is automatically

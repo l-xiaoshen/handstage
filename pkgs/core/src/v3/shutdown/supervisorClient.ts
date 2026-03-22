@@ -2,8 +2,8 @@
  * Parent-side helper for spawning the shutdown supervisor process.
  *
  * The supervisor runs out-of-process and watches a lifeline pipe. If the parent
- * dies, the supervisor performs best-effort cleanup (Chrome kill or Browserbase
- * session release) when keepAlive is false.
+ * dies, the supervisor performs best-effort cleanup (Chrome kill, temp profile)
+ * when keepAlive is false.
  */
 
 import fs from "node:fs";

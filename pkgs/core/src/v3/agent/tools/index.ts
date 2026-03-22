@@ -14,7 +14,6 @@ import { clickAndHoldTool } from "./clickAndHold";
 import { keysTool } from "./keys";
 import { fillFormVisionTool } from "./fillFormVision";
 import { thinkTool } from "./think";
-import { searchTool as browserbaseSearchTool } from "./browserbaseSearch";
 import { searchTool as braveSearchTool } from "./braveSearch";
 
 import type { ToolSet, InferUITools } from "ai";
@@ -57,15 +56,10 @@ export interface V3AgentToolOptions {
    */
   toolTimeout?: number;
   /**
-   * Whether to enable the Browserbase-powered web search tool.
-   * Requires a valid Browserbase API key.
+   * Whether to enable web search (Brave Search API).
+   * Requires BRAVE_API_KEY when true.
    */
   useSearch?: boolean;
-  /**
-   * The Browserbase API key used for the search tool.
-   * Resolved from BROWSERBASE_API_KEY env var or the Stagehand constructor.
-   */
-  browserbaseApiKey?: string;
 }
 
 /**
@@ -175,12 +169,7 @@ export function createAgentTools(v3: V3, options?: V3AgentToolOptions) {
     type: typeTool(v3, provider, variables),
   };
 
-  if (options?.useSearch && options.browserbaseApiKey) {
-    unwrappedTools.search = browserbaseSearchTool(
-      v3,
-      options.browserbaseApiKey,
-    );
-  } else if (process.env.BRAVE_API_KEY) {
+  if (options?.useSearch && process.env.BRAVE_API_KEY) {
     unwrappedTools.search = braveSearchTool(v3);
   }
 
@@ -189,7 +178,7 @@ export function createAgentTools(v3: V3, options?: V3AgentToolOptions) {
       Object.entries(unwrappedTools).map(([name, t]) => [
         name,
         wrapToolWithTimeout(
-          t,
+          t as Record<string, any>,
           `${name}()`,
           v3,
           toolTimeout,
@@ -208,7 +197,7 @@ export type AgentTools = ReturnType<typeof createAgentTools>;
 
 /**
  * Type map of all agent tools for strong typing of tool calls and results.
- * Note: `search` is optional — enabled via useSearch: true (Browserbase) or BRAVE_API_KEY env var (legacy).
+ * Note: `search` is optional — enabled via useSearch: true and BRAVE_API_KEY.
  */
 export type AgentToolTypesMap = {
   act: ReturnType<typeof actTool>;
@@ -224,9 +213,7 @@ export type AgentToolTypesMap = {
   navback: ReturnType<typeof navBackTool>;
   screenshot: ReturnType<typeof screenshotTool>;
   scroll: ReturnType<typeof scrollTool> | ReturnType<typeof scrollVisionTool>;
-  search?:
-    | ReturnType<typeof browserbaseSearchTool>
-    | ReturnType<typeof braveSearchTool>;
+  search?: ReturnType<typeof braveSearchTool>;
   think: ReturnType<typeof thinkTool>;
   type: ReturnType<typeof typeTool>;
   wait: ReturnType<typeof waitTool>;
@@ -239,7 +226,7 @@ export type AgentToolTypesMap = {
 export type AgentUITools = InferUITools<AgentToolTypesMap>;
 
 /**
- * Union type for all possible agent tool calls.
+ * Union of all possible agent tool calls.
  * Provides type-safe access to tool call arguments.
  */
 export type AgentToolCall = {
@@ -251,7 +238,7 @@ export type AgentToolCall = {
 }[keyof AgentToolTypesMap];
 
 /**
- * Union type for all possible agent tool results.
+ * Union of all possible agent tool results.
  * Provides type-safe access to tool result values.
  */
 export type AgentToolResult = {

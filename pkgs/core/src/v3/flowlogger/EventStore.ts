@@ -54,7 +54,7 @@ function sanitizeOptions(options: V3Options): Record<string, unknown> {
   return sanitize({ ...options }) as Record<string, unknown>;
 }
 
-// Resolves the configured Browserbase config directory used by file sinks.
+// Resolves the directory from BROWSERBASE_CONFIG_DIR (legacy env name) for file sinks.
 export function getConfigDir(): string {
   return CONFIG_DIR ? path.resolve(CONFIG_DIR) : "";
 }

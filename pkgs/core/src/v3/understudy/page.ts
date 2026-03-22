@@ -21,9 +21,8 @@ import type {
 import { NetworkManager } from "./networkManager";
 import { LifecycleWatcher } from "./lifecycleWatcher";
 import { NavigationResponseTracker } from "./navigationResponseTracker";
-import { Response, isSerializableResponse } from "./response";
+import { Response } from "./response";
 import { ConsoleMessage, type ConsoleListener } from "./consoleMessage";
-import type { StagehandAPIClient } from "../api";
 import {
   type LocalBrowserLaunchOptions,
   StagehandSetExtraHTTPHeadersError,
@@ -93,7 +92,6 @@ export class Page {
 
   /** cache Frames per frameId so everyone uses the same one */
   private readonly frameCache = new Map<string, Frame>();
-  private readonly browserIsRemote: boolean;
 
   /** Stable id for Frames created by this Page (use top-level TargetId). */
   private readonly pageId: string;
@@ -104,8 +102,6 @@ export class Page {
   private latestNavigationCommandId = 0;
 
   private readonly networkManager: NetworkManager;
-  /** Optional API client for routing page operations to the API */
-  private readonly apiClient: StagehandAPIClient | null = null;
   private readonly consoleListeners = new Set<ConsoleListener>();
   private readonly consoleHandlers = new Map<
     string,
@@ -120,12 +116,8 @@ export class Page {
     private readonly mainSession: CDPSessionLike,
     private readonly _targetId: string,
     mainFrameId: string,
-    apiClient?: StagehandAPIClient | null,
-    browserIsRemote = false,
   ) {
     this.pageId = _targetId;
-    this.apiClient = apiClient ?? null;
-    this.browserIsRemote = browserIsRemote;
 
     // own the main session
     if (mainSession.id) this.sessions.set(mainSession.id, mainSession);
@@ -138,7 +130,7 @@ export class Page {
       this.mainSession,
       mainFrameId,
       this.pageId,
-      this.browserIsRemote,
+      false,
     );
 
     this.networkManager = new NetworkManager();
@@ -300,9 +292,7 @@ export class Page {
     conn: CdpConnection,
     session: CDPSessionLike,
     targetId: string,
-    apiClient?: StagehandAPIClient | null,
     localBrowserLaunchOptions?: LocalBrowserLaunchOptions | null,
-    browserIsRemote = false,
   ): Promise<Page> {
     // Context already issues Page.enable + lifecycle enable before resume.
     // Re-issue here only as best-effort and do not block page registration on
@@ -317,14 +307,7 @@ export class Page {
     }>("Page.getFrameTree");
     const mainFrameId = frameTree.frame.id;
 
-    const page = new Page(
-      conn,
-      session,
-      targetId,
-      mainFrameId,
-      apiClient,
-      browserIsRemote,
-    );
+    const page = new Page(conn, session, targetId, mainFrameId);
     // Seed current URL from initial frame tree
     try {
       page._currentUrl = String(frameTree?.frame?.url ?? page._currentUrl);
@@ -395,7 +378,7 @@ export class Page {
         this.mainSession,
         newRoot,
         this.pageId,
-        this.browserIsRemote,
+        false,
       );
     }
 
@@ -539,7 +522,7 @@ export class Page {
     if (hit) return hit;
 
     const sess = this.getSessionForFrame(frameId);
-    const f = new Frame(sess, frameId, this.pageId, this.browserIsRemote);
+    const f = new Frame(sess, frameId, this.pageId, false);
     this.frameCache.set(frameId, f);
     return f;
   }
@@ -821,23 +804,6 @@ export class Page {
     });
 
     try {
-      // Route to API if available
-      if (this.apiClient) {
-        const result = await this.apiClient.goto(
-          url,
-          { waitUntil: options?.waitUntil },
-          this.mainFrameId(),
-        );
-        this._currentUrl = url;
-
-        if (isSerializableResponse(result)) {
-          return Response.fromSerializable(result, {
-            page: this,
-            session: this.mainSession,
-          });
-        }
-        return result;
-      }
       const response =
         await this.mainSession.send<Protocol.Page.NavigateResponse>(
           "Page.navigate",

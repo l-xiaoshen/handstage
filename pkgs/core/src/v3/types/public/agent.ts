@@ -318,7 +318,7 @@ export interface AgentExecuteOptionsBase {
    * - `think` - Agent reasoning/planning step
    * - `wait` - Wait for time or condition
    * - `done` - Mark task as complete
-   * - `search` - Web search (requires useSearch: true and BROWSERBASE_API_KEY)
+   * - `search` - Web search (requires useSearch: true and BRAVE_API_KEY)
    *
    * **Hybrid mode:**
    * - `click` - Click at specific coordinates
@@ -337,7 +337,7 @@ export interface AgentExecuteOptionsBase {
    * - `think` - Agent reasoning step
    * - `wait` - Wait for time/condition
    * - `done` - Mark task complete
-   * - `search` - Web search (requires useSearch: true and BROWSERBASE_API_KEY)
+   * - `search` - Web search (requires useSearch: true and BRAVE_API_KEY)
    *
    * @experimental
    * @example
@@ -403,8 +403,8 @@ export interface AgentExecuteOptionsBase {
    */
   toolTimeout?: number;
   /**
-   * Enable the web search tool powered by Browserbase Search API.
-   * Requires a valid Browserbase API key (BROWSERBASE_API_KEY).
+   * Enable the web search tool (Brave Search API).
+   * Requires the BRAVE_API_KEY environment variable.
    * When set to true, the agent gains access to a `search` tool for web searches.
    *
    * @example

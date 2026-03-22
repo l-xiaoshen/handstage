@@ -89,7 +89,7 @@ export class V3CuaAgentHandler {
           this.logger({
             category: "agent",
             message:
-              "Captcha detected — waiting for Browserbase to solve it before continuing",
+              "Captcha detected — waiting for captcha auto-solver before continuing",
             level: 1,
           });
         }
@@ -211,7 +211,7 @@ export class V3CuaAgentHandler {
       await page.goto("https://www.google.com", { waitUntil: "load" });
     }
 
-    // Set up captcha solver for Browserbase environments
+    // Set up captcha solver when console hooks indicate an external solver
     if (this.v3.isCaptchaAutoSolveEnabled) {
       this.captchaSolver = new CaptchaSolver();
       this.captchaSolver.init(() => this.v3.context.awaitActivePage());
@@ -222,7 +222,7 @@ export class V3CuaAgentHandler {
           this.logger({
             category: "agent",
             message:
-              "Captcha detected — waiting for Browserbase to solve it before continuing",
+              "Captcha detected — waiting for captcha auto-solver before continuing",
             level: 1,
           });
         }
