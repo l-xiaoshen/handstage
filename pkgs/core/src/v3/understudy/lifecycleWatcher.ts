@@ -8,7 +8,7 @@ import {
   DEFAULT_IDLE_WAIT,
   IGNORED_RESOURCE_TYPES,
   type NetworkRequestInfo,
-  WaitForIdleHandle,
+  type WaitForIdleHandle,
 } from "../types/private/network.js";
 
 /**

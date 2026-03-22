@@ -1,6 +1,6 @@
 import { z } from "zod";
-import { LogLine } from "./v3/types/public/logs.js";
-import { ChatMessage, LLMClient } from "./v3/llm/LLMClient.js";
+import type { LogLine } from "./v3/types/public/logs.js";
+import type { ChatMessage, LLMClient } from "./v3/llm/LLMClient.js";
 import { getEnvTimeoutMs, withTimeout } from "./v3/timeoutConfig.js";
 import {
   buildActSystemPrompt,

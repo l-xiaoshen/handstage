@@ -1,5 +1,5 @@
 import type { CDPSessionLike } from "../../cdp.js";
-import { Page } from "../../page.js";
+import type { Page } from "../../page.js";
 import type { FrameParentIndex } from "../../../types/private/snapshot.js";
 
 /**

@@ -1,9 +1,9 @@
-import { Protocol } from "devtools-protocol";
+import type { Protocol } from "devtools-protocol";
 import { promises as fs } from "fs";
 import { v3Logger } from "../logger.js";
 import { FlowLogger } from "../flowlogger/FlowLogger.js";
 import type { CDPSessionLike } from "./cdp.js";
-import { CdpConnection } from "./cdp.js";
+import type { CdpConnection } from "./cdp.js";
 import { Frame } from "./frame.js";
 import { FrameLocator } from "./frameLocator.js";
 import { deepLocatorFromPage, resolveLocatorTarget } from "./deepLocator.js";
@@ -13,7 +13,7 @@ import {
 } from "./a11y/snapshot/index.js";
 import { FrameRegistry } from "./frameRegistry.js";
 import { executionContexts } from "./executionContextRegistry.js";
-import {
+import type {
   LoadState,
   SnapshotResult,
   PageSnapshotOptions,
@@ -22,10 +22,10 @@ import { NetworkManager } from "./networkManager.js";
 import { LifecycleWatcher } from "./lifecycleWatcher.js";
 import { NavigationResponseTracker } from "./navigationResponseTracker.js";
 import { Response, isSerializableResponse } from "./response.js";
-import { ConsoleMessage, ConsoleListener } from "./consoleMessage.js";
+import { ConsoleMessage, type ConsoleListener } from "./consoleMessage.js";
 import type { StagehandAPIClient } from "../api.js";
 import {
-  LocalBrowserLaunchOptions,
+  type LocalBrowserLaunchOptions,
   StagehandSetExtraHTTPHeadersError,
   StagehandSnapshotError,
 } from "../types/public/index.js";
@@ -54,7 +54,7 @@ import {
   setTransparentBackground,
   type ScreenshotCleanup,
 } from "./screenshotUtils.js";
-import { InitScriptSource } from "../types/private/index.js";
+import type { InitScriptSource } from "../types/private/index.js";
 import { withTimeout } from "../timeoutConfig.js";
 
 /**

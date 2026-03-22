@@ -1,7 +1,7 @@
-import { z } from "zod";
-import { LLMClient } from "../../llm/LLMClient.js";
-import { ModelConfiguration } from "./model.js";
-import { LogLine } from "./logs.js";
+import type { z } from "zod";
+import type { LLMClient } from "../../llm/LLMClient.js";
+import type { ModelConfiguration } from "./model.js";
+import type { LogLine } from "./logs.js";
 import {
   type BrowserbaseSessionCreateParams,
   LocalBrowserLaunchOptionsSchema,

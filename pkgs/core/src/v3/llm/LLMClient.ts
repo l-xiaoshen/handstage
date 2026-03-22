@@ -1,4 +1,4 @@
-import { LLMTool } from "../types/public/model.js";
+import type { LLMTool } from "../types/public/model.js";
 import {
   embed,
   embedMany,
@@ -11,8 +11,8 @@ import {
   streamText,
 } from "ai";
 import type { LanguageModelV2 } from "@ai-sdk/provider";
-import { LogLine } from "../types/public/logs.js";
-import { AvailableModel, ClientOptions } from "../types/public/model.js";
+import type { LogLine } from "../types/public/logs.js";
+import type { AvailableModel, ClientOptions } from "../types/public/model.js";
 import type { StagehandZodSchema } from "../zodCompat.js";
 
 export interface ChatMessage {

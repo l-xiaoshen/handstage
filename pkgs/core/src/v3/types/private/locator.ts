@@ -1,4 +1,4 @@
-import { Buffer } from "buffer";
+import type { Buffer } from "buffer";
 
 export interface NormalizedFilePayload {
   name: string;

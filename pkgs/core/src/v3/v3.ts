@@ -3,15 +3,15 @@ import os from "os";
 import path from "path";
 import process from "process";
 import { v7 as uuidv7 } from "uuid";
-import { z } from "zod";
+import type { z } from "zod";
 import {
-  InferStagehandSchema,
-  StagehandZodSchema,
+  type InferStagehandSchema,
+  type StagehandZodSchema,
   toJsonSchema,
 } from "./zodCompat.js";
 import { loadApiKeyFromEnv } from "../utils.js";
 import { extractModelName } from "../modelUtils.js";
-import { StagehandLogger, LoggerOptions } from "../logger.js";
+import { StagehandLogger, type LoggerOptions } from "../logger.js";
 import { ActCache } from "./cache/ActCache.js";
 import { AgentCache } from "./cache/AgentCache.js";
 import { CacheStorage } from "./cache/CacheStorage.js";
@@ -23,7 +23,7 @@ import { V3CuaAgentHandler } from "./handlers/v3CuaAgentHandler.js";
 import { CAPTCHA_CUA_SYSTEM_PROMPT_NOTE } from "./agent/utils/captchaSolver.js";
 import { createBrowserbaseSession } from "./launch/browserbase.js";
 import { launchLocalChrome } from "./launch/local.js";
-import { LLMClient } from "./llm/LLMClient.js";
+import type { LLMClient } from "./llm/LLMClient.js";
 import { LLMProvider } from "./llm/LLMProvider.js";
 import {
   bindInstanceLogger,
@@ -33,7 +33,7 @@ import {
 import { cleanupLocalBrowser } from "./shutdown/cleanupLocal.js";
 import { startShutdownSupervisor } from "./shutdown/supervisorClient.js";
 import { resolveTools } from "./mcp/utils.js";
-import {
+import type {
   ActHandlerParams,
   ExtractHandlerParams,
   ObserveHandlerParams,
@@ -46,41 +46,41 @@ import type {
   ShutdownSupervisorHandle,
 } from "./types/private/shutdown.js";
 import {
-  AgentConfig,
-  AgentExecuteCallbacks,
-  AgentExecuteOptions,
-  AgentStreamExecuteOptions,
-  AgentResult,
+  type AgentConfig,
+  type AgentExecuteCallbacks,
+  type AgentExecuteOptions,
+  type AgentStreamExecuteOptions,
+  type AgentResult,
   AVAILABLE_CUA_MODELS,
-  LogLine,
-  StagehandMetrics,
-  Action,
-  ActOptions,
-  ActResult,
+  type LogLine,
+  type StagehandMetrics,
+  type Action,
+  type ActOptions,
+  type ActResult,
   defaultExtractSchema,
-  ExtractOptions,
-  HistoryEntry,
-  ObserveOptions,
-  pageTextSchema,
+  type ExtractOptions,
+  type HistoryEntry,
+  type ObserveOptions,
+  type pageTextSchema,
   V3FunctionName,
-  AvailableModel,
-  ClientOptions,
-  ModelConfiguration,
-  LocalBrowserLaunchOptions,
-  V3Options,
-  AnyPage,
-  PatchrightPage,
-  PlaywrightPage,
-  PuppeteerPage,
+  type AvailableModel,
+  type ClientOptions,
+  type ModelConfiguration,
+  type LocalBrowserLaunchOptions,
+  type V3Options,
+  type AnyPage,
+  type PatchrightPage,
+  type PlaywrightPage,
+  type PuppeteerPage,
   CuaModelRequiredError,
   StagehandInvalidArgumentError,
   StagehandNotInitializedError,
   MissingEnvironmentVariableError,
   StagehandInitError,
-  AgentStreamResult,
+  type AgentStreamResult,
 } from "./types/public/index.js";
 import { V3Context } from "./understudy/context.js";
-import { Page } from "./understudy/page.js";
+import type { Page } from "./understudy/page.js";
 import { resolveModel } from "../modelUtils.js";
 import { StagehandAPIClient } from "./api.js";
 import { validateExperimentalFeatures } from "./agent/utils/validateExperimentalFeatures.js";

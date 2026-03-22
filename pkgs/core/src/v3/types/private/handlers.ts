@@ -1,5 +1,5 @@
-import { Page } from "../../understudy/page.js";
-import { ModelConfiguration } from "../public/model.js";
+import type { Page } from "../../understudy/page.js";
+import type { ModelConfiguration } from "../public/model.js";
 import type { StagehandZodSchema } from "../../zodCompat.js";
 import type { Variables } from "../public/agent.js";
 

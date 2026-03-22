@@ -1,15 +1,15 @@
 import {
   GoogleGenAI,
-  Content,
-  Part,
-  GenerateContentResponse,
-  FunctionCall,
-  GenerateContentConfig,
-  Tool,
-  GoogleGenAIOptions,
+  type Content,
+  type Part,
+  type GenerateContentResponse,
+  type FunctionCall,
+  type GenerateContentConfig,
+  type Tool,
+  type GoogleGenAIOptions,
 } from "@google/genai";
-import { LogLine } from "../types/public/logs.js";
-import {
+import type { LogLine } from "../types/public/logs.js";
+import type {
   AgentAction,
   AgentResult,
   AgentType,
@@ -17,7 +17,7 @@ import {
   SafetyCheck,
   SafetyConfirmationHandler,
 } from "../types/public/agent.js";
-import { ClientOptions } from "../types/public/model.js";
+import type { ClientOptions } from "../types/public/model.js";
 import { AgentClient } from "./AgentClient.js";
 import {
   AgentScreenshotProviderError,
@@ -32,7 +32,7 @@ import {
   isCustomTool,
   convertToolSetToFunctionDeclarations,
 } from "./utils/googleCustomToolHandler.js";
-import { ToolSet } from "ai";
+import type { ToolSet } from "ai";
 import {
   FlowLogger,
   extractLlmCuaPromptSummary,
@@ -380,7 +380,7 @@ export class GoogleCUAClient extends AgentClient {
         try {
           // Add exponential backoff delay for retries
           if (attempt > 0) {
-            const delay = baseDelayS * Math.pow(2, attempt) * 1000; // Convert to ms
+            const delay = baseDelayS * 2 ** attempt * 1000; // Convert to ms
             logger({
               category: "agent",
               message: `Generating content failed on attempt ${attempt + 1}. Retrying in ${delay / 1000} seconds...`,

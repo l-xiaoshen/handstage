@@ -1,6 +1,6 @@
 import {
   Client,
-  ClientOptions,
+  type ClientOptions,
 } from "@modelcontextprotocol/sdk/client/index.js";
 import {
   StreamableHTTPClientTransport,

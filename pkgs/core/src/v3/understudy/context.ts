@@ -1,14 +1,14 @@
 // lib/v3/understudy/context.ts
 import type { Protocol } from "devtools-protocol";
 import { v3Logger } from "../logger.js";
-import { CdpConnection, CDPSessionLike } from "./cdp.js";
+import { CdpConnection, type CDPSessionLike } from "./cdp.js";
 import { Page } from "./page.js";
 import { installV3PiercerIntoSession } from "./piercer.js";
 import { v3ScriptContent } from "../dom/build/scriptV3Content.js";
 import { executionContexts } from "./executionContextRegistry.js";
 import type { StagehandAPIClient } from "../api.js";
-import { LocalBrowserLaunchOptions } from "../types/public/index.js";
-import { InitScriptSource } from "../types/private/index.js";
+import type { LocalBrowserLaunchOptions } from "../types/public/index.js";
+import type { InitScriptSource } from "../types/private/index.js";
 import { normalizeInitScriptSource } from "./initScripts.js";
 import {
   TimeoutError,
@@ -23,7 +23,7 @@ import {
   cookieMatchesFilter,
   toCdpCookieParam,
 } from "./cookies.js";
-import {
+import type {
   Cookie,
   ClearCookieOptions,
   CookieParam,

@@ -1,24 +1,24 @@
 import { createAgentTools } from "../agent/tools/index.js";
 import { buildAgentSystemPrompt } from "../agent/prompts/agentSystemPrompt.js";
-import { LogLine } from "../types/public/logs.js";
-import { V3 } from "../v3.js";
+import type { LogLine } from "../types/public/logs.js";
+import type { V3 } from "../v3.js";
 import {
-  ModelMessage,
-  ToolSet,
+  type ModelMessage,
+  type ToolSet,
   wrapLanguageModel,
   stepCountIs,
-  LanguageModel,
+  type LanguageModel,
   type LanguageModelUsage,
   type StepResult,
   type GenerateTextOnStepFinishCallback,
   type StreamTextOnStepFinishCallback,
   type PrepareStepFunction,
 } from "ai";
-import { StagehandZodObject } from "../zodCompat.js";
+import type { StagehandZodObject } from "../zodCompat.js";
 import { processMessages } from "../agent/utils/messageProcessing.js";
-import { LLMClient } from "../llm/LLMClient.js";
+import type { LLMClient } from "../llm/LLMClient.js";
 import { FlowLogger } from "../flowlogger/FlowLogger.js";
-import {
+import type {
   AgentExecuteOptions,
   AgentStreamExecuteOptions,
   AgentExecuteOptionsBase,

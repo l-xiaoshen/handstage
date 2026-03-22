@@ -1,4 +1,4 @@
-import { launch, LaunchedChrome } from "chrome-launcher";
+import { launch, type LaunchedChrome } from "chrome-launcher";
 import WebSocket from "ws";
 import { ConnectionTimeoutError } from "../types/public/sdkErrors.js";
 

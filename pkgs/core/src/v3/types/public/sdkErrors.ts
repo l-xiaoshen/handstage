@@ -1,4 +1,4 @@
-import { ZodError } from "zod";
+import type { ZodError } from "zod";
 // Avoid .js extension so bundlers resolve TS source
 import { STAGEHAND_VERSION } from "../../../version.js";
 

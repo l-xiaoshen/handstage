@@ -1,12 +1,12 @@
 import OpenAI from "openai";
 import type { ClientOptions } from "openai";
-import { LogLine } from "../types/public/logs.js";
-import { AvailableModel } from "../types/public/model.js";
+import type { LogLine } from "../types/public/logs.js";
+import type { AvailableModel } from "../types/public/model.js";
 import {
-  ChatMessage,
-  CreateChatCompletionOptions,
+  type ChatMessage,
+  type CreateChatCompletionOptions,
   LLMClient,
-  LLMResponse,
+  type LLMResponse,
 } from "./LLMClient.js";
 import { CreateChatCompletionResponseError } from "../types/public/sdkErrors.js";
 import { toJsonSchema } from "../zodCompat.js";

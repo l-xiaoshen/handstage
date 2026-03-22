@@ -1,5 +1,5 @@
 import { toTitleCase } from "../../utils.js";
-import { FlowEvent } from "./FlowLogger.js";
+import type { FlowEvent } from "./FlowLogger.js";
 import type { EventStoreApi } from "./EventStore.js";
 
 const MAX_LINE_LENGTH = 160; // Maximum width for a prettified log line.

@@ -1,13 +1,13 @@
-import { Page as PatchrightPage } from "patchright-core";
-import { Page as PlaywrightPage } from "playwright-core";
-import { Page as PuppeteerPage } from "puppeteer-core";
+import type { Page as PatchrightPage } from "patchright-core";
+import type { Page as PlaywrightPage } from "playwright-core";
+import type { Page as PuppeteerPage } from "puppeteer-core";
 import { z } from "zod";
 import type {
   InferStagehandSchema,
   StagehandZodSchema,
 } from "../../zodCompat.js";
-import { Page } from "../../understudy/page.js";
-import { ModelConfiguration } from "../public/model.js";
+import type { Page } from "../../understudy/page.js";
+import type { ModelConfiguration } from "../public/model.js";
 import type { Variables } from "./agent.js";
 
 export interface ActOptions {

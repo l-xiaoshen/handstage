@@ -4,8 +4,8 @@ import {
   UnsupportedModelError,
   UnsupportedModelProviderError,
 } from "../types/public/sdkErrors.js";
-import { LogLine } from "../types/public/logs.js";
-import {
+import type { LogLine } from "../types/public/logs.js";
+import type {
   AvailableModel,
   ClientOptions,
   ModelProvider,
@@ -15,7 +15,7 @@ import { AnthropicClient } from "./AnthropicClient.js";
 import { CerebrasClient } from "./CerebrasClient.js";
 import { GoogleClient } from "./GoogleClient.js";
 import { GroqClient } from "./GroqClient.js";
-import { LLMClient } from "./LLMClient.js";
+import type { LLMClient } from "./LLMClient.js";
 import { OpenAIClient } from "./OpenAIClient.js";
 import { openai, createOpenAI } from "@ai-sdk/openai";
 import { bedrock, createAmazonBedrock } from "@ai-sdk/amazon-bedrock";
@@ -32,7 +32,7 @@ import { deepseek, createDeepSeek } from "@ai-sdk/deepseek";
 import { perplexity, createPerplexity } from "@ai-sdk/perplexity";
 import { ollama, createOllama } from "ollama-ai-provider-v2";
 import { gateway, createGateway } from "ai";
-import { AISDKProvider, AISDKCustomProvider } from "../types/public/model.js";
+import type { AISDKProvider, AISDKCustomProvider } from "../types/public/model.js";
 
 const AISDKProviders: Record<string, AISDKProvider> = {
   openai,

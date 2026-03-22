@@ -1,4 +1,4 @@
-import { Protocol } from "devtools-protocol";
+import type { Protocol } from "devtools-protocol";
 
 /** Metadata tracked for each network request currently in-flight. */
 export type NetworkRequestInfo = {

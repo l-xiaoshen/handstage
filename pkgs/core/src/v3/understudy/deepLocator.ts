@@ -1,7 +1,7 @@
 import { Locator } from "./locator.js";
 import type { Frame } from "./frame.js";
 import type { Page } from "./page.js";
-import { FrameLocator, frameLocatorFromFrame } from "./frameLocator.js";
+import { type FrameLocator, frameLocatorFromFrame } from "./frameLocator.js";
 import { StagehandInvalidArgumentError } from "../types/public/sdkErrors.js";
 import { IFRAME_STEP_RE } from "./a11y/snapshot/focusSelectors.js";
 

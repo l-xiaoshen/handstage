@@ -1,13 +1,13 @@
 import { computeActiveElementXpath } from "../understudy/a11y/snapshot/index.js";
-import { V3 } from "../v3.js";
-import { ToolSet } from "ai";
-import { AgentClient } from "../agent/AgentClient.js";
+import type { V3 } from "../v3.js";
+import type { ToolSet } from "ai";
+import type { AgentClient } from "../agent/AgentClient.js";
 import { AgentProvider } from "../agent/AgentProvider.js";
 import { GoogleCUAClient } from "../agent/GoogleCUAClient.js";
 import { OpenAICUAClient } from "../agent/OpenAICUAClient.js";
 import { mapKeyToPlaywright } from "../agent/utils/cuaKeyMapping.js";
 import { ensureXPath } from "../agent/utils/xpath.js";
-import {
+import type {
   ActionExecutionResult,
   AgentAction,
   AgentExecuteOptions,
@@ -15,7 +15,7 @@ import {
   AgentResult,
   SafetyConfirmationHandler,
 } from "../types/public/agent.js";
-import { LogLine } from "../types/public/logs.js";
+import type { LogLine } from "../types/public/logs.js";
 import { type Action, V3FunctionName } from "../types/public/methods.js";
 import { FlowLogger } from "../flowlogger/FlowLogger.js";
 import { toTitleCase } from "../../utils.js";

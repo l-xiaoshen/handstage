@@ -1,8 +1,8 @@
 // lib/v3/handlers/handlerUtils/actHandlerUtils.ts
-import { Protocol } from "devtools-protocol";
-import { Frame } from "../../understudy/frame.js";
-import { Locator } from "../../understudy/locator.js";
-import { MouseButton } from "../../types/public/locator.js";
+import type { Protocol } from "devtools-protocol";
+import type { Frame } from "../../understudy/frame.js";
+import type { Locator } from "../../understudy/locator.js";
+import type { MouseButton } from "../../types/public/locator.js";
 import { resolveLocatorWithHops } from "../../understudy/deepLocator.js";
 import type { Page } from "../../understudy/page.js";
 import { v3Logger } from "../../logger.js";

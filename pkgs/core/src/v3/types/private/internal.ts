@@ -1,5 +1,5 @@
-import Browserbase from "@browserbasehq/sdk";
-import { LaunchedChrome } from "chrome-launcher";
+import type Browserbase from "@browserbasehq/sdk";
+import type { LaunchedChrome } from "chrome-launcher";
 
 export type InitState =
   | { kind: "UNINITIALIZED" }

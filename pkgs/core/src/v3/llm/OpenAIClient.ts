@@ -1,5 +1,5 @@
-import OpenAI, { ClientOptions } from "openai";
-import {
+import OpenAI, { type ClientOptions } from "openai";
+import type {
   ChatCompletionAssistantMessageParam,
   ChatCompletionContentPartImage,
   ChatCompletionContentPartText,
@@ -8,15 +8,15 @@ import {
   ChatCompletionSystemMessageParam,
   ChatCompletionUserMessageParam,
 } from "openai/resources/chat";
-import { LogLine } from "../types/public/logs.js";
-import { AvailableModel } from "../types/public/model.js";
+import type { LogLine } from "../types/public/logs.js";
+import type { AvailableModel } from "../types/public/model.js";
 import { validateZodSchema } from "../../utils.js";
 import {
-  ChatCompletionOptions,
-  ChatMessage,
-  CreateChatCompletionOptions,
+  type ChatCompletionOptions,
+  type ChatMessage,
+  type CreateChatCompletionOptions,
   LLMClient,
-  LLMResponse,
+  type LLMResponse,
 } from "./LLMClient.js";
 import {
   CreateChatCompletionResponseError,

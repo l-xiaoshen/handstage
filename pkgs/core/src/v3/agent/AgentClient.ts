@@ -1,10 +1,10 @@
-import {
+import type {
   AgentAction,
   AgentResult,
   AgentType,
   AgentExecutionOptions,
 } from "../types/public/agent.js";
-import { ClientOptions } from "../types/public/model.js";
+import type { ClientOptions } from "../types/public/model.js";
 
 /**
  * Abstract base class for agent clients

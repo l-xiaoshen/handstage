@@ -1,5 +1,5 @@
 // lib/v3/understudy/locator.ts
-import { Protocol } from "devtools-protocol";
+import type { Protocol } from "devtools-protocol";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
@@ -20,8 +20,8 @@ import {
   ElementNotVisibleError,
 } from "../types/public/sdkErrors.js";
 import { normalizeInputFiles } from "./fileUploadUtils.js";
-import { SetInputFilesArgument, MouseButton } from "../types/public/locator.js";
-import { NormalizedFilePayload } from "../types/private/locator.js";
+import type { SetInputFilesArgument, MouseButton } from "../types/public/locator.js";
+import type { NormalizedFilePayload } from "../types/private/locator.js";
 
 const MAX_REMOTE_UPLOAD_BYTES = 50 * 1024 * 1024; // 50MB guard copied from Playwright
 

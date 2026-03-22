@@ -1,4 +1,4 @@
-import { Protocol } from "devtools-protocol";
+import type { Protocol } from "devtools-protocol";
 import type { CDPSessionLike } from "./cdp.js";
 import type { Frame } from "./frame.js";
 import type { Locator } from "./locator.js";

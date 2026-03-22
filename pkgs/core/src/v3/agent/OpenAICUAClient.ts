@@ -1,6 +1,6 @@
 import OpenAI from "openai";
-import { LogLine } from "../types/public/logs.js";
-import {
+import type { LogLine } from "../types/public/logs.js";
+import type {
   AgentAction,
   AgentResult,
   AgentType,
@@ -12,13 +12,13 @@ import {
   SafetyCheck,
   SafetyConfirmationHandler,
 } from "../types/public/agent.js";
-import { ClientOptions } from "../types/public/model.js";
+import type { ClientOptions } from "../types/public/model.js";
 import { AgentClient } from "./AgentClient.js";
 import {
   AgentScreenshotProviderError,
   StagehandClosedError,
 } from "../types/public/sdkErrors.js";
-import { ToolSet } from "ai";
+import type { ToolSet } from "ai";
 import {
   FlowLogger,
   extractLlmCuaPromptSummary,
@@ -142,7 +142,7 @@ export class OpenAICUAClient extends AgentClient {
 
     // Start with the initial instruction
     let inputItems = this.createInitialInputItems(instruction);
-    let previousResponseId: string | undefined = undefined;
+    let previousResponseId: string | undefined ;
     let totalInputTokens = 0;
     let totalOutputTokens = 0;
     let totalInferenceTime = 0;

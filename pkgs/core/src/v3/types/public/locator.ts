@@ -1,4 +1,4 @@
-import { Buffer } from "buffer";
+import type { Buffer } from "buffer";
 
 export type MouseButton = "left" | "right" | "middle";
 

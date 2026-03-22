@@ -28,7 +28,7 @@ import type {
 } from "../types/public/index.js";
 import type { Page } from "../understudy/page.js";
 import type { V3Context } from "../understudy/context.js";
-import { CacheStorage } from "./CacheStorage.js";
+import type { CacheStorage } from "./CacheStorage.js";
 import {
   cloneForCache,
   safeGetPageUrl,

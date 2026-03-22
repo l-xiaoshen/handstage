@@ -2,7 +2,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { v7 as uuidv7 } from "uuid";
 import type { LanguageModelMiddleware } from "ai";
 import { z } from "zod";
-import { EventEmitterWithWildcardSupport } from "./EventEmitter.js";
+import type { EventEmitterWithWildcardSupport } from "./EventEmitter.js";
 
 // =============================================================================
 // Flow Event Model
@@ -456,13 +456,13 @@ export class FlowLogger {
   static wrapWithLogging<TMethod extends AsyncOriginalMethod>(
     options: FlowLoggerLogOptions,
   ) {
-    return function <
+    return <
       TWrappedMethod extends AsyncOriginalMethod<
         Parameters<TMethod>,
         Awaited<ReturnType<TMethod>>,
         ThisParameterType<TMethod>
       >,
-    >(originalMethod: TWrappedMethod): TWrappedMethod {
+    >(originalMethod: TWrappedMethod): TWrappedMethod => {
       const wrappedMethod = async function (
         this: ThisParameterType<TWrappedMethod>,
         ...args: Parameters<TWrappedMethod>

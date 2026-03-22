@@ -1,7 +1,7 @@
-import { Page } from "../../understudy/page.js";
-import { Page as PlaywrightPage } from "playwright-core";
-import { Page as PatchrightPage } from "patchright-core";
-import { Page as PuppeteerPage } from "puppeteer-core";
+import type { Page } from "../../understudy/page.js";
+import type { Page as PlaywrightPage } from "playwright-core";
+import type { Page as PatchrightPage } from "patchright-core";
+import type { Page as PuppeteerPage } from "puppeteer-core";
 
 export type { PlaywrightPage, PatchrightPage, PuppeteerPage, Page };
 export type AnyPage = PlaywrightPage | PuppeteerPage | PatchrightPage | Page;

@@ -1,5 +1,5 @@
 import type { Protocol } from "devtools-protocol";
-import { Page } from "../../page.js";
+import type { Page } from "../../page.js";
 import { executionContexts } from "../../executionContextRegistry.js";
 import { buildA11yInvocation } from "../../a11yInvocation.js";
 import { a11yScriptSources } from "../../../dom/build/a11yScripts.generated.js";

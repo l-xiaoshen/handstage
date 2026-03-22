@@ -1,4 +1,4 @@
-import { ChatMessage } from "./v3/llm/LLMClient.js";
+import type { ChatMessage } from "./v3/llm/LLMClient.js";
 import type { Variables } from "./v3/types/public/agent.js";
 
 export function buildUserInstructionsString(

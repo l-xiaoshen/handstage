@@ -6,8 +6,8 @@
  */
 
 import type { AvailableModel } from "../types/public/model.js";
-import { CreateChatCompletionOptions, LLMClient } from "../llm/LLMClient.js";
-import OpenAI from "openai";
+import { type CreateChatCompletionOptions, LLMClient } from "../llm/LLMClient.js";
+import type OpenAI from "openai";
 import type {
   ChatCompletion,
   ChatCompletionAssistantMessageParam,

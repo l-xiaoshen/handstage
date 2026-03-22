@@ -1,5 +1,5 @@
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import {
+import type {
   ToolSet,
   ModelMessage,
   wrapLanguageModel,
@@ -12,19 +12,19 @@ import {
   StreamTextOnChunkCallback,
   StreamTextOnFinishCallback,
 } from "ai";
-import { LogLine } from "./logs.js";
-import { ClientOptions } from "./model.js";
-import { StagehandZodObject } from "../../zodCompat.js";
+import type { LogLine } from "./logs.js";
+import type { ClientOptions } from "./model.js";
+import type { StagehandZodObject } from "../../zodCompat.js";
 
 // Re-export ModelMessage for consumers who want to use it for conversation continuation
 export type { ModelMessage } from "ai";
 
 // Re-export Tool type for consumers who want to define custom tools
 export type { Tool } from "ai";
-import { Page as PlaywrightPage } from "playwright-core";
-import { Page as PuppeteerPage } from "puppeteer-core";
-import { Page as PatchrightPage } from "patchright-core";
-import { Page } from "../../understudy/page.js";
+import type { Page as PlaywrightPage } from "playwright-core";
+import type { Page as PuppeteerPage } from "puppeteer-core";
+import type { Page as PatchrightPage } from "patchright-core";
+import type { Page } from "../../understudy/page.js";
 
 // =============================================================================
 // Variable Types

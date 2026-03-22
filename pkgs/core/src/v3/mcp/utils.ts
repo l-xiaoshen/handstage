@@ -1,6 +1,6 @@
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { ToolSet } from "ai";
-import { JsonSchema, jsonSchemaToZod } from "../../utils.js";
+import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import type { ToolSet } from "ai";
+import { type JsonSchema, jsonSchemaToZod } from "../../utils.js";
 import { connectToMCPServer } from "./connection.js";
 
 export const resolveTools = async (
@@ -17,7 +17,7 @@ export const resolveTools = async (
       clientInstance = client;
     }
 
-    let nextCursor: string | undefined = undefined;
+    let nextCursor: string | undefined ;
 
     do {
       const clientTools = await clientInstance.listTools({

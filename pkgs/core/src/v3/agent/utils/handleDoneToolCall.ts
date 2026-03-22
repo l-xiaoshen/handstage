@@ -1,8 +1,8 @@
-import { generateText, ModelMessage, LanguageModel, ToolSet } from "ai";
+import { generateText, type ModelMessage, type LanguageModel, type ToolSet } from "ai";
 import { z } from "zod";
 import { tool } from "ai";
-import { LogLine } from "../../types/public/logs.js";
-import { StagehandZodObject } from "../../zodCompat.js";
+import type { LogLine } from "../../types/public/logs.js";
+import type { StagehandZodObject } from "../../zodCompat.js";
 import { getZFactory } from "../../../utils.js";
 import type { StagehandZodSchema } from "../../zodCompat.js";
 

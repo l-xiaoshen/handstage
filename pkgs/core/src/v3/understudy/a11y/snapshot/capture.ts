@@ -1,6 +1,6 @@
 import type { Protocol } from "devtools-protocol";
 import type { CDPSessionLike } from "../../cdp.js";
-import { Page } from "../../page.js";
+import type { Page } from "../../page.js";
 import { v3Logger } from "../../../logger.js";
 import type {
   FrameContext,

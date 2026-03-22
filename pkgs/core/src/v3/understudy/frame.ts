@@ -1,5 +1,5 @@
 // lib/v3/understudy/frame.ts
-import { Protocol } from "devtools-protocol";
+import type { Protocol } from "devtools-protocol";
 import type { CDPSessionLike } from "./cdp.js";
 import { Locator } from "./locator.js";
 import { StagehandEvalError } from "../types/public/sdkErrors.js";

@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import type { V3Options } from "../types/public/index.js";
 import {
-  EventSink,
+  type EventSink,
   JsonlFileEventSink,
   PrettyLogFileEventSink,
   PrettyStderrEventSink,

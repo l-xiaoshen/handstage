@@ -3,10 +3,10 @@ import type { CDPSessionLike } from "./cdp.js";
 import {
   DEFAULT_IDLE_WAIT,
   IGNORED_RESOURCE_TYPES,
-  NetworkObserver,
-  NetworkRequestInfo,
-  WaitForIdleHandle,
-  WaitForIdleOptions,
+  type NetworkObserver,
+  type NetworkRequestInfo,
+  type WaitForIdleHandle,
+  type WaitForIdleOptions,
 } from "../types/private/network.js";
 
 /**

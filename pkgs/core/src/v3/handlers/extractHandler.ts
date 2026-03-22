@@ -10,14 +10,14 @@ import { v3Logger } from "../logger.js";
 import { V3FunctionName } from "../types/public/methods.js";
 import { captureHybridSnapshot } from "../understudy/a11y/snapshot/index.js";
 import type { ZodTypeAny } from "zod";
-import { LLMClient } from "../llm/LLMClient.js";
-import { ExtractHandlerParams } from "../types/private/handlers.js";
-import { EncodedId, ZodPathSegments } from "../types/private/internal.js";
+import type { LLMClient } from "../llm/LLMClient.js";
+import type { ExtractHandlerParams } from "../types/private/handlers.js";
+import type { EncodedId, ZodPathSegments } from "../types/private/internal.js";
 import {
   defaultExtractSchema,
   pageTextSchema,
 } from "../types/public/methods.js";
-import {
+import type {
   AvailableModel,
   ClientOptions,
   ModelConfiguration,

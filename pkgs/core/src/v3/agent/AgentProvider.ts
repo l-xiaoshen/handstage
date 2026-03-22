@@ -1,12 +1,12 @@
-import { ToolSet } from "ai/dist";
-import { AgentProviderType } from "../types/public/agent.js";
-import { LogLine } from "../types/public/logs.js";
-import { ClientOptions } from "../types/public/model.js";
+import type { ToolSet } from "ai/dist";
+import type { AgentProviderType } from "../types/public/agent.js";
+import type { LogLine } from "../types/public/logs.js";
+import type { ClientOptions } from "../types/public/model.js";
 import {
   UnsupportedModelError,
   UnsupportedModelProviderError,
 } from "../types/public/sdkErrors.js";
-import { AgentClient } from "./AgentClient.js";
+import type { AgentClient } from "./AgentClient.js";
 import { AnthropicCUAClient } from "./AnthropicCUAClient.js";
 import { OpenAICUAClient } from "./OpenAICUAClient.js";
 import { GoogleCUAClient } from "./GoogleCUAClient.js";

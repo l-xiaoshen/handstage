@@ -1,16 +1,16 @@
 import OpenAI from "openai";
-import { LogLine } from "../types/public/logs.js";
-import {
+import type { LogLine } from "../types/public/logs.js";
+import type {
   AgentAction,
   AgentResult,
   AgentType,
   AgentExecutionOptions,
 } from "../types/public/agent.js";
-import { ClientOptions } from "../types/public/model.js";
+import type { ClientOptions } from "../types/public/model.js";
 import { AgentClient } from "./AgentClient.js";
 import { AgentScreenshotProviderError } from "../types/public/sdkErrors.js";
 import { mapKeyToPlaywright } from "./utils/cuaKeyMapping.js";
-import { ChatCompletionMessageParam } from "openai/resources/chat/completions";
+import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
 
 /**
  * Message types for FARA agent

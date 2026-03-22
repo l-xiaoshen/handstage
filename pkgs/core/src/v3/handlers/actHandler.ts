@@ -3,17 +3,17 @@ import { act as actInference } from "../../inference.js";
 import { buildActPrompt, buildStepTwoPrompt } from "../../prompt.js";
 import { trimTrailingTextNode } from "../../utils.js";
 import { v3Logger } from "../logger.js";
-import { ActHandlerParams } from "../types/private/handlers.js";
-import { ActResult, Action, V3FunctionName } from "../types/public/methods.js";
+import type { ActHandlerParams } from "../types/private/handlers.js";
+import { type ActResult, type Action, V3FunctionName } from "../types/public/methods.js";
 import { ActTimeoutError } from "../types/public/sdkErrors.js";
 import {
   captureHybridSnapshot,
   diffCombinedTrees,
 } from "../understudy/a11y/snapshot/index.js";
-import { LLMClient } from "../llm/LLMClient.js";
+import type { LLMClient } from "../llm/LLMClient.js";
 import { SupportedUnderstudyAction } from "../types/private/index.js";
-import { EncodedId } from "../types/private/internal.js";
-import {
+import type { EncodedId } from "../types/private/internal.js";
+import type {
   AvailableModel,
   ClientOptions,
   ModelConfiguration,

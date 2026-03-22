@@ -1,6 +1,6 @@
 import type { Protocol } from "devtools-protocol";
 import type { CDPSessionLike } from "../../cdp.js";
-import { Page } from "../../page.js";
+import type { Page } from "../../page.js";
 import { executionContexts } from "../../executionContextRegistry.js";
 import { buildLocatorInvocation } from "../../locatorInvocation.js";
 import { StagehandIframeError } from "../../../types/public/sdkErrors.js";
@@ -104,7 +104,6 @@ export async function resolveFocusFrameAndTail(
             break;
           }
         } catch {
-          continue;
         }
       }
       if (!childFrameId)
@@ -179,7 +178,6 @@ export async function resolveCssFocusFrameAndTail(
             break;
           }
         } catch {
-          continue;
         }
       }
       if (!childFrameId)

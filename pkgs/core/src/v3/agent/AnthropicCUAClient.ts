@@ -1,4 +1,4 @@
-import {
+import type {
   AgentAction,
   AgentResult,
   AgentType,
@@ -9,14 +9,14 @@ import {
   AgentExecutionOptions,
   ToolUseItem,
 } from "../types/public/agent.js";
-import { LogLine } from "../types/public/logs.js";
-import { ClientOptions } from "../types/public/model.js";
+import type { LogLine } from "../types/public/logs.js";
+import type { ClientOptions } from "../types/public/model.js";
 import {
   AgentScreenshotProviderError,
   StagehandClosedError,
 } from "../types/public/sdkErrors.js";
 import Anthropic from "@anthropic-ai/sdk";
-import { ToolSet } from "ai";
+import type { ToolSet } from "ai";
 import { AgentClient } from "./AgentClient.js";
 import { compressConversationImages } from "./utils/imageCompression.js";
 import { toJsonSchema } from "../zodCompat.js";

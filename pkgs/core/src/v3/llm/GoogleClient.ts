@@ -2,27 +2,27 @@ import {
   GoogleGenAI,
   HarmCategory,
   HarmBlockThreshold,
-  Content,
-  Part,
-  Tool,
-  FunctionCall,
-  Schema,
+  type Content,
+  type Part,
+  type Tool,
+  type FunctionCall,
+  type Schema,
   Type,
 } from "@google/genai";
 
-import { LogLine } from "../types/public/logs.js";
-import { AvailableModel, ClientOptions } from "../types/public/model.js";
+import type { LogLine } from "../types/public/logs.js";
+import type { AvailableModel, ClientOptions } from "../types/public/model.js";
 import {
   validateZodSchema,
   toGeminiSchema,
   loadApiKeyFromEnv,
 } from "../../utils.js";
 import {
-  ChatCompletionOptions,
-  ChatMessage,
-  CreateChatCompletionOptions,
+  type ChatCompletionOptions,
+  type ChatMessage,
+  type CreateChatCompletionOptions,
   LLMClient,
-  LLMResponse,
+  type LLMResponse,
   AnnotatedScreenshotText,
 } from "./LLMClient.js";
 import {
@@ -193,7 +193,7 @@ export class GoogleClient extends LLMClient {
     return [
       {
         functionDeclarations: tools.map((tool) => {
-          let parameters: Schema | undefined = undefined;
+          let parameters: Schema | undefined ;
           if (tool.parameters) {
             parameters = {
               type: Type.OBJECT,

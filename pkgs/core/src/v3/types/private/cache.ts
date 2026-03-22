@@ -7,7 +7,7 @@ import type {
   Action,
   LoadState,
 } from "../public/index.js";
-import { CacheStorage } from "../../cache/CacheStorage.js";
+import type { CacheStorage } from "../../cache/CacheStorage.js";
 import type { ActHandler } from "../../handlers/actHandler.js";
 import type { V3Context } from "../../understudy/context.js";
 import type { LLMClient } from "../../llm/LLMClient.js";

@@ -4,14 +4,14 @@ import { trimTrailingTextNode } from "../../utils.js";
 import { v3Logger } from "../logger.js";
 import { V3FunctionName } from "../types/public/methods.js";
 import { captureHybridSnapshot } from "../understudy/a11y/snapshot/index.js";
-import { LLMClient } from "../llm/LLMClient.js";
+import type { LLMClient } from "../llm/LLMClient.js";
 import {
-  ObserveHandlerParams,
+  type ObserveHandlerParams,
   SupportedUnderstudyAction,
 } from "../types/private/handlers.js";
-import { EncodedId } from "../types/private/internal.js";
-import { Action } from "../types/public/methods.js";
-import {
+import type { EncodedId } from "../types/private/internal.js";
+import type { Action } from "../types/public/methods.js";
+import type {
   AvailableModel,
   ClientOptions,
   ModelConfiguration,

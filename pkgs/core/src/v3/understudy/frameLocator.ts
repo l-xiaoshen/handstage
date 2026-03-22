@@ -1,7 +1,7 @@
 import type { Protocol } from "devtools-protocol";
-import { Locator } from "./locator.js";
+import type { Locator } from "./locator.js";
 import type { Page } from "./page.js";
-import { Frame } from "./frame.js";
+import type { Frame } from "./frame.js";
 import { executionContexts } from "./executionContextRegistry.js";
 import {
   ContentFrameNotFoundError,
