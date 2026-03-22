@@ -23,7 +23,7 @@ export type SnapshotOptions = {
 };
 
 /**
- * Hybrid snapshot payload consumed by act/extract/observe handlers.
+ * Hybrid snapshot payload for accessibility/DOM merging.
  */
 export type HybridSnapshot = {
   /** Merged outline across every frame. */

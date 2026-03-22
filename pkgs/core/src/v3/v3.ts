@@ -3,27 +3,7 @@ import os from "os";
 import path from "path";
 import process from "process";
 import { v7 as uuidv7 } from "uuid";
-import type { z } from "zod";
-import {
-  type InferStagehandSchema,
-  type StagehandZodSchema,
-  toJsonSchema,
-} from "./zodCompat";
-import { loadApiKeyFromEnv } from "../utils";
-import { extractModelName } from "../modelUtils";
-import { StagehandLogger, type LoggerOptions } from "../logger";
-import { ActCache } from "./cache/ActCache";
-import { AgentCache } from "./cache/AgentCache";
-import { CacheStorage } from "./cache/CacheStorage";
-import { ActHandler } from "./handlers/actHandler";
-import { ExtractHandler } from "./handlers/extractHandler";
-import { ObserveHandler } from "./handlers/observeHandler";
-import { V3AgentHandler } from "./handlers/v3AgentHandler";
-import { V3CuaAgentHandler } from "./handlers/v3CuaAgentHandler";
-import { CAPTCHA_CUA_SYSTEM_PROMPT_NOTE } from "./agent/utils/captchaSolver";
 import { launchLocalChrome } from "./launch/local";
-import type { LLMClient } from "./llm/LLMClient";
-import { LLMProvider } from "./llm/LLMProvider";
 import {
   bindInstanceLogger,
   unbindInstanceLogger,
@@ -31,199 +11,57 @@ import {
 } from "./logger";
 import { cleanupLocalBrowser } from "./shutdown/cleanupLocal";
 import { startShutdownSupervisor } from "./shutdown/supervisorClient";
-import { resolveTools } from "./mcp/utils";
-import type {
-  ActHandlerParams,
-  ExtractHandlerParams,
-  ObserveHandlerParams,
-  AgentReplayStep,
-  InitState,
-  AgentCacheContext,
-} from "./types/private/index";
 import type {
   ShutdownSupervisorConfig,
   ShutdownSupervisorHandle,
 } from "./types/private/shutdown";
-import {
-  type AgentConfig,
-  type AgentExecuteCallbacks,
-  type AgentExecuteOptions,
-  type AgentStreamExecuteOptions,
-  type AgentResult,
-  AVAILABLE_CUA_MODELS,
-  type LogLine,
-  type StagehandMetrics,
-  type Action,
-  type ActOptions,
-  type ActResult,
-  defaultExtractSchema,
-  type ExtractOptions,
-  type HistoryEntry,
-  type ObserveOptions,
-  type pageTextSchema,
-  V3FunctionName,
-  type AvailableModel,
-  type ClientOptions,
-  type ModelConfiguration,
-  type LocalBrowserLaunchOptions,
-  type V3Options,
-  type AnyPage,
-  type PatchrightPage,
-  type PlaywrightPage,
-  type PuppeteerPage,
-  CuaModelRequiredError,
-  StagehandInvalidArgumentError,
-  StagehandNotInitializedError,
-  StagehandInitError,
-  type AgentStreamResult,
-} from "./types/public/index";
+import type { InitState } from "./types/private/internal";
+import type { LogLine } from "./types/public/logs";
+import type { LocalBrowserLaunchOptions } from "./types/public/options";
+import type { V3Options } from "./types/public/options";
+import { StagehandNotInitializedError } from "./types/public/sdkErrors";
 import { V3Context } from "./understudy/context";
-import type { Page } from "./understudy/page";
-import { resolveModel } from "../modelUtils";
-import { validateExperimentalFeatures } from "./agent/utils/validateExperimentalFeatures";
-import { flattenVariables } from "./agent/utils/variables";
-import { FlowLogger, type FlowLoggerContext } from "./flowlogger/FlowLogger";
+import { StagehandLogger, type LoggerOptions } from "../logger";
+import {
+  FlowLogger,
+  type FlowEvent,
+  type FlowLoggerContext,
+} from "./flowlogger/FlowLogger";
 import { EventEmitterWithWildcardSupport } from "./flowlogger/EventEmitter";
 import { EventStore } from "./flowlogger/EventStore";
-import { createTimeoutGuard } from "./handlers/handlerUtils/timeoutGuard";
-import { ActTimeoutError } from "./types/public/sdkErrors";
 
-const DEFAULT_MODEL_NAME = "openai/gpt-4.1-mini";
 const DEFAULT_VIEWPORT = { width: 1288, height: 711 };
-const DEFAULT_AGENT_TOOL_TIMEOUT_MS = 45000;
-
-type ResolvedModelConfiguration = {
-  modelName: AvailableModel;
-  clientOptions?: ClientOptions;
-};
-
-function resolveModelConfiguration(
-  model?: V3Options["model"],
-): ResolvedModelConfiguration {
-  if (!model) {
-    return { modelName: DEFAULT_MODEL_NAME };
-  }
-
-  if (typeof model === "string") {
-    return { modelName: model as AvailableModel };
-  }
-
-  if (model && typeof model === "object") {
-    const { modelName, ...clientOptions } = model;
-    if (!modelName) {
-      throw new StagehandInvalidArgumentError(
-        "model.modelName is required when providing client options.",
-      );
-    }
-    return {
-      modelName,
-      clientOptions: clientOptions as ClientOptions,
-    };
-  }
-
-  return { modelName: DEFAULT_MODEL_NAME };
-}
 
 /**
  * V3
  *
- * High-level orchestrator for Stagehand V3: launches or attaches to local Chrome over CDP,
- * and exposes `act`, `extract`, and `observe` via handler classes.
+ * Launches or attaches to local Chrome over CDP and exposes the CDP-backed {@link V3Context}.
  */
 export class V3 {
   private readonly opts: V3Options;
   private state: InitState = { kind: "UNINITIALIZED" };
-  private actHandler: ActHandler | null = null;
-  private extractHandler: ExtractHandler | null = null;
-  private observeHandler: ObserveHandler | null = null;
   private ctx: V3Context | null = null;
-  public llmClient!: LLMClient;
 
   /**
-   * Event bus for internal communication.
-   * Emits events like 'screenshot' when screenshots are captured during agent execution.
+   * Event bus for internal communication (e.g. flow logging).
    */
   public readonly bus: EventEmitterWithWildcardSupport =
     new EventEmitterWithWildcardSupport();
-  private modelName: AvailableModel;
-  private modelClientOptions: ClientOptions;
-  private llmProvider: LLMProvider;
-  private overrideLlmClients: Map<string, LLMClient> = new Map();
-  private readonly domSettleTimeoutMs?: number;
   private _isClosing = false;
-
-  /** Captcha auto-solve is not available in the local-only build. */
-  public get isCaptchaAutoSolveEnabled(): boolean {
-    return false;
-  }
-
-  /** Advanced stealth presets are not used in the local-only build. */
-  public get isAdvancedStealth(): boolean {
-    return false;
-  }
-
-  /**
-   * Returns the configured viewport dimensions from launch options.
-   * Falls back to default 1288x711 if not configured.
-   */
-  public get configuredViewport(): { width: number; height: number } {
-    const defaultWidth = 1288;
-    const defaultHeight = 711;
-    const vp = this.opts.localBrowserLaunchOptions?.viewport;
-    return {
-      width: vp?.width ?? defaultWidth,
-      height: vp?.height ?? defaultHeight,
-    };
-  }
 
   private _onCdpClosed = (why: string) => {
     this._immediateShutdown(`CDP transport closed: ${why}`).catch(() => {});
   };
-  public readonly experimental: boolean = false;
-  public readonly logInferenceToFile: boolean = false;
+
   private externalLogger?: (logLine: LogLine) => void;
   public verbose: 0 | 1 | 2 = 1;
   private stagehandLogger: StagehandLogger;
-  private _history: Array<HistoryEntry> = [];
   private readonly instanceId: string;
   private readonly sessionId: string;
   public readonly eventStore: EventStore;
   public readonly flowLoggerContext: FlowLoggerContext;
-  private static _processGuardsInstalled = false;
-  private static _instances: Set<V3> = new Set();
-  private cacheStorage: CacheStorage;
-  private actCache: ActCache;
-  private agentCache: AgentCache;
   private keepAlive?: boolean;
   private shutdownSupervisor: ShutdownSupervisorHandle | null = null;
-
-  public stagehandMetrics: StagehandMetrics = {
-    actPromptTokens: 0,
-    actCompletionTokens: 0,
-    actReasoningTokens: 0,
-    actCachedInputTokens: 0,
-    actInferenceTimeMs: 0,
-    extractPromptTokens: 0,
-    extractCompletionTokens: 0,
-    extractReasoningTokens: 0,
-    extractCachedInputTokens: 0,
-    extractInferenceTimeMs: 0,
-    observePromptTokens: 0,
-    observeCompletionTokens: 0,
-    observeReasoningTokens: 0,
-    observeCachedInputTokens: 0,
-    observeInferenceTimeMs: 0,
-    agentPromptTokens: 0,
-    agentCompletionTokens: 0,
-    agentReasoningTokens: 0,
-    agentCachedInputTokens: 0,
-    agentInferenceTimeMs: 0,
-    totalPromptTokens: 0,
-    totalCompletionTokens: 0,
-    totalReasoningTokens: 0,
-    totalCachedInputTokens: 0,
-    totalInferenceTimeMs: 0,
-  };
 
   constructor(opts: V3Options) {
     this.externalLogger = opts.logger;
@@ -232,12 +70,9 @@ export class V3 {
     this.sessionId = opts.sessionId ?? this.instanceId;
     this.keepAlive = opts.keepAlive;
 
-    // Create per-instance StagehandLogger (handles usePino, verbose, externalLogger)
-    // This gives each V3 instance independent logger configuration
-    // while still sharing the underlying Pino worker thread via StagehandLogger.sharedPinoLogger
     const loggerOptions: LoggerOptions = {
       pretty: true,
-      level: "info", // Most permissive - filtering happens at instance level
+      level: "info",
     };
 
     if (opts.disablePino !== undefined) {
@@ -247,14 +82,10 @@ export class V3 {
     this.stagehandLogger = new StagehandLogger(loggerOptions, opts.logger);
     this.stagehandLogger.setVerbosity(this.verbose);
 
-    // Also bind to AsyncLocalStorage for v3Logger() calls from handlers
-    // This maintains backward compatibility with code that uses v3Logger() directly
     try {
       if (this.externalLogger) {
-        // Use external logger directly when provided
         bindInstanceLogger(this.instanceId, this.externalLogger);
       } else {
-        // Fall back to stagehandLogger when no external logger
         bindInstanceLogger(this.instanceId, (line) => {
           this.stagehandLogger.log(line);
         });
@@ -262,266 +93,14 @@ export class V3 {
     } catch {
       // ignore
     }
-    const { modelName, clientOptions } = resolveModelConfiguration(opts.model);
-    this.modelName = modelName;
-    this.experimental = opts.experimental ?? false;
-    this.logInferenceToFile = opts.logInferenceToFile ?? false;
-    this.llmProvider = new LLMProvider(this.logger);
-    this.domSettleTimeoutMs = opts.domSettleTimeout;
-
-    const baseClientOptions: ClientOptions = clientOptions
-      ? ({ ...clientOptions } as ClientOptions)
-      : ({} as ClientOptions);
-    if (opts.llmClient) {
-      this.llmClient = opts.llmClient;
-      this.modelClientOptions = baseClientOptions;
-    } else {
-      // Ensure API key is set
-      let apiKey = (baseClientOptions as { apiKey?: string }).apiKey;
-      if (!apiKey) {
-        try {
-          apiKey = loadApiKeyFromEnv(
-            this.modelName.split("/")[0], // "openai", "anthropic", etc
-            this.logger,
-          );
-        } catch (error) {
-          this.logger({
-            category: "init",
-            message: `Error loading API key for model ${this.modelName}: ${error}. Continuing without LLM client.`,
-            level: 0,
-          });
-          throw error;
-        }
-      }
-      this.modelClientOptions = {
-        ...baseClientOptions,
-        apiKey,
-      } as ClientOptions;
-
-      // Get the default client for this model
-      this.llmClient = this.llmProvider.getClient(
-        this.modelName,
-        this.modelClientOptions,
-        { experimental: this.experimental },
-      );
-    }
-
-    this.cacheStorage = CacheStorage.create(opts.cacheDir, this.logger, {
-      label: "cache directory",
-    });
-    this.actCache = new ActCache({
-      storage: this.cacheStorage,
-      logger: this.logger,
-      getActHandler: () => this.actHandler,
-      getDefaultLlmClient: () => this.resolveLlmClient(),
-      domSettleTimeoutMs: this.domSettleTimeoutMs,
-    });
-    this.agentCache = new AgentCache({
-      storage: this.cacheStorage,
-      logger: this.logger,
-      getActHandler: () => this.actHandler,
-      getContext: () => this.ctx,
-      getDefaultLlmClient: () => this.resolveLlmClient(),
-      getBaseModelName: () => this.modelName,
-      getSystemPrompt: () => opts.systemPrompt,
-      domSettleTimeoutMs: this.domSettleTimeoutMs,
-      act: this.act.bind(this),
-    });
 
     this.opts = { env: "LOCAL", ...opts };
 
-    // FlowLogger always gets a per-instance session context and shared event
-    // bus. The attached EventStore decides which sinks are active:
-    // `BROWSERBASE_FLOW_LOGS=1` enables pretty stderr output,
-    // and `BROWSERBASE_CONFIG_DIR` enables the pretty/jsonl file sinks for this session.
     this.eventStore = new EventStore(this.sessionId, opts);
     this.flowLoggerContext = FlowLogger.init(this.sessionId, this.bus);
-    // Flow event pipeline:
-    // FlowLogger -> this.bus -> this.eventStore -> configured sinks/query history.
-    // V3 owns the bus for this session. EventStore is not another bus; it just
-    // receives already-emitted FlowEvents here, then fans them out to sinks and
-    // keeps the queryable per-session history used by /v4/log, parent/ancestor lookups, and tests.
-    // `on()` stores a strong reference to the handler, so the EventStore
-    // stays alive until this bus is garbage-collected with the rest of the V3
-    // object graph.
-    this.bus.on("*", this.eventStore.emit);
-
-    // Track instance for global process guard handling
-    V3._instances.add(this);
-  }
-  /**
-   * Async property for metrics so callers can `await v3.metrics`.
-   */
-  public get metrics(): Promise<StagehandMetrics> {
-    return Promise.resolve(this.stagehandMetrics);
-  }
-
-  private resolveLlmClient(model?: ModelConfiguration): LLMClient {
-    if (!model) {
-      return this.llmClient;
-    }
-
-    let modelName: AvailableModel | string;
-    let clientOptions: ClientOptions | undefined;
-
-    if (typeof model === "string") {
-      modelName = model;
-    } else {
-      const { modelName: overrideModelName, ...rest } = model;
-      modelName = overrideModelName;
-      clientOptions = rest as ClientOptions;
-    }
-
-    if (
-      modelName === this.modelName &&
-      (!clientOptions || Object.keys(clientOptions).length === 0)
-    ) {
-      return this.llmClient;
-    }
-
-    const overrideProvider = String(modelName).split("/")[0];
-    const baseProvider = String(this.modelName).split("/")[0];
-
-    const mergedOptions = {
-      ...(overrideProvider === baseProvider ? this.modelClientOptions : {}),
-      ...(clientOptions ?? {}),
-    } as ClientOptions;
-
-    const providerKey = overrideProvider;
-    if (!(mergedOptions as { apiKey?: string }).apiKey) {
-      const apiKey = loadApiKeyFromEnv(providerKey, this.logger);
-      if (apiKey) {
-        (mergedOptions as { apiKey?: string }).apiKey = apiKey;
-      }
-    }
-
-    const cacheKey = JSON.stringify({
-      modelName,
-      clientOptions: mergedOptions,
+    this.bus.on("*", (...args: unknown[]) => {
+      void this.eventStore.emit(args[0] as FlowEvent);
     });
-
-    const cached = this.overrideLlmClients.get(cacheKey);
-    if (cached) {
-      return cached;
-    }
-
-    const client = this.llmProvider.getClient(
-      modelName as AvailableModel,
-      mergedOptions,
-      { experimental: this.experimental },
-    );
-
-    this.overrideLlmClients.set(cacheKey, client);
-    return client;
-  }
-
-  private beginAgentReplayRecording(): void {
-    this.agentCache.beginRecording();
-  }
-
-  private endAgentReplayRecording(): AgentReplayStep[] {
-    return this.agentCache.endRecording();
-  }
-
-  private discardAgentReplayRecording(): void {
-    this.agentCache.discardRecording();
-  }
-
-  private isAgentReplayRecording(): boolean {
-    return this.agentCache.isRecording();
-  }
-
-  public isAgentReplayActive(): boolean {
-    return this.agentCache.isReplayActive();
-  }
-
-  public recordAgentReplayStep(step: AgentReplayStep): void {
-    this.agentCache.recordStep(step);
-  }
-
-  /**
-   * Async property for history so callers can `await v3.history`.
-   * Returns a frozen copy to avoid external mutation.
-   */
-  public get history(): Promise<ReadonlyArray<HistoryEntry>> {
-    return Promise.resolve(Object.freeze([...this._history]));
-  }
-
-  public addToHistory(
-    method: HistoryEntry["method"],
-    parameters: unknown,
-    result?: unknown,
-  ): void {
-    this._history.push({
-      method,
-      parameters,
-      result: result ?? null,
-      timestamp: new Date().toISOString(),
-    });
-  }
-
-  public updateMetrics(
-    functionName: V3FunctionName,
-    promptTokens: number,
-    completionTokens: number,
-    reasoningTokens: number,
-    cachedInputTokens: number,
-    inferenceTimeMs: number,
-  ): void {
-    switch (functionName) {
-      case V3FunctionName.ACT:
-        this.stagehandMetrics.actPromptTokens += promptTokens;
-        this.stagehandMetrics.actCompletionTokens += completionTokens;
-        this.stagehandMetrics.actReasoningTokens += reasoningTokens;
-        this.stagehandMetrics.actCachedInputTokens += cachedInputTokens;
-        this.stagehandMetrics.actInferenceTimeMs += inferenceTimeMs;
-        break;
-
-      case V3FunctionName.EXTRACT:
-        this.stagehandMetrics.extractPromptTokens += promptTokens;
-        this.stagehandMetrics.extractCompletionTokens += completionTokens;
-        this.stagehandMetrics.extractReasoningTokens += reasoningTokens;
-        this.stagehandMetrics.extractCachedInputTokens += cachedInputTokens;
-        this.stagehandMetrics.extractInferenceTimeMs += inferenceTimeMs;
-        break;
-
-      case V3FunctionName.OBSERVE:
-        this.stagehandMetrics.observePromptTokens += promptTokens;
-        this.stagehandMetrics.observeCompletionTokens += completionTokens;
-        this.stagehandMetrics.observeReasoningTokens += reasoningTokens;
-        this.stagehandMetrics.observeCachedInputTokens += cachedInputTokens;
-        this.stagehandMetrics.observeInferenceTimeMs += inferenceTimeMs;
-        break;
-
-      case V3FunctionName.AGENT:
-        this.stagehandMetrics.agentPromptTokens += promptTokens;
-        this.stagehandMetrics.agentCompletionTokens += completionTokens;
-        this.stagehandMetrics.agentReasoningTokens += reasoningTokens;
-        this.stagehandMetrics.agentCachedInputTokens += cachedInputTokens;
-        this.stagehandMetrics.agentInferenceTimeMs += inferenceTimeMs;
-        break;
-    }
-    this.updateTotalMetrics(
-      promptTokens,
-      completionTokens,
-      reasoningTokens,
-      cachedInputTokens,
-      inferenceTimeMs,
-    );
-  }
-
-  private updateTotalMetrics(
-    promptTokens: number,
-    completionTokens: number,
-    reasoningTokens: number,
-    cachedInputTokens: number,
-    inferenceTimeMs: number,
-  ): void {
-    this.stagehandMetrics.totalPromptTokens += promptTokens;
-    this.stagehandMetrics.totalCompletionTokens += completionTokens;
-    this.stagehandMetrics.totalReasoningTokens += reasoningTokens;
-    this.stagehandMetrics.totalCachedInputTokens += cachedInputTokens;
-    this.stagehandMetrics.totalInferenceTimeMs += inferenceTimeMs;
   }
 
   private async _immediateShutdown(reason: string): Promise<void> {
@@ -586,90 +165,11 @@ export class V3 {
   }
 
   /**
-   * Entrypoint: initializes handlers, launches or attaches to local Chrome, and sets up a CDP context.
+   * Initializes the CDP context: launches or attaches to local Chrome.
    */
   async init(): Promise<void> {
     try {
       return await withInstanceLogContext(this.instanceId, async () => {
-        this.actHandler = new ActHandler(
-          this.llmClient,
-          this.modelName,
-          this.modelClientOptions,
-          (model) => this.resolveLlmClient(model),
-          this.opts.systemPrompt ?? "",
-          this.logInferenceToFile,
-          this.opts.selfHeal ?? true,
-          (
-            functionName,
-            promptTokens,
-            completionTokens,
-            reasoningTokens,
-            cachedInputTokens,
-            inferenceTimeMs,
-          ) =>
-            this.updateMetrics(
-              functionName,
-              promptTokens,
-              completionTokens,
-              reasoningTokens,
-              cachedInputTokens,
-              inferenceTimeMs,
-            ),
-          this.domSettleTimeoutMs,
-        );
-        this.extractHandler = new ExtractHandler(
-          this.llmClient,
-          this.modelName,
-          this.modelClientOptions,
-          (model) => this.resolveLlmClient(model),
-          this.opts.systemPrompt ?? "",
-          this.logInferenceToFile,
-          this.experimental,
-          (
-            functionName,
-            promptTokens,
-            completionTokens,
-            reasoningTokens,
-            cachedInputTokens,
-            inferenceTimeMs,
-          ) =>
-            this.updateMetrics(
-              functionName,
-              promptTokens,
-              completionTokens,
-              reasoningTokens,
-              cachedInputTokens,
-              inferenceTimeMs,
-            ),
-        );
-        this.observeHandler = new ObserveHandler(
-          this.llmClient,
-          this.modelName,
-          this.modelClientOptions,
-          (model) => this.resolveLlmClient(model),
-          this.opts.systemPrompt ?? "",
-          this.logInferenceToFile,
-          this.experimental,
-          (
-            functionName,
-            promptTokens,
-            completionTokens,
-            reasoningTokens,
-            cachedInputTokens,
-            inferenceTimeMs,
-          ) =>
-            this.updateMetrics(
-              functionName,
-              promptTokens,
-              completionTokens,
-              reasoningTokens,
-              cachedInputTokens,
-              inferenceTimeMs,
-            ),
-        );
-        // chrome-launcher conditionally adds --headless when the environment variable
-        // HEADLESS is set, without parsing its value.
-        // if it is not equal to true, then we delete it from the process
         const envHeadless = process.env.HEADLESS;
         if (envHeadless !== undefined) {
           const normalized = envHeadless.trim().toLowerCase();
@@ -689,7 +189,6 @@ export class V3 {
           });
         }
 
-        // If a CDP URL is provided, attach instead of launching.
         if (lbo.cdpUrl) {
           this.logger({
             category: "init",
@@ -703,7 +202,6 @@ export class V3 {
           this.ctx.conn.onTransportClosed(this._onCdpClosed);
           this.state = {
             kind: "LOCAL",
-            // no LaunchedChrome when attaching externally; create a stub kill
             chrome: {
               kill: async () => {},
             } as unknown as import("chrome-launcher").LaunchedChrome,
@@ -718,7 +216,6 @@ export class V3 {
           level: 1,
         });
 
-        // Determine or create user data dir
         let userDataDir = lbo.userDataDir;
         let createdTemp = false;
         if (!userDataDir) {
@@ -728,7 +225,6 @@ export class V3 {
           createdTemp = true;
         }
 
-        // Build chrome flags
         const defaults = [
           "--remote-allow-origins=*",
           "--no-first-run",
@@ -739,7 +235,6 @@ export class V3 {
         let chromeFlags: string[];
         const ignore = lbo.ignoreDefaultArgs;
         if (ignore === true) {
-          // drop defaults
           chromeFlags = [];
         } else if (Array.isArray(ignore)) {
           chromeFlags = defaults.filter(
@@ -749,7 +244,6 @@ export class V3 {
           chromeFlags = [...defaults];
         }
 
-        // headless handled by launchLocalChrome
         if (lbo.devtools) chromeFlags.push("--auto-open-devtools-for-tabs");
         if (lbo.locale) chromeFlags.push(`--lang=${lbo.locale}`);
         if (!lbo.viewport) {
@@ -757,7 +251,7 @@ export class V3 {
         }
         if (lbo.viewport?.width && lbo.viewport?.height) {
           chromeFlags.push(
-            `--window-size=${lbo.viewport.width},${lbo.viewport.height + 87}`, // Added pixels to the window to account for the address bar
+            `--window-size=${lbo.viewport.width},${lbo.viewport.height + 87}`,
           );
         }
         if (typeof lbo.deviceScaleFactor === "number") {
@@ -773,7 +267,6 @@ export class V3 {
         if (lbo.proxy?.bypass)
           chromeFlags.push(`--proxy-bypass-list=${lbo.proxy.bypass}`);
 
-        // add user-supplied args last
         if (Array.isArray(lbo.args)) chromeFlags.push(...lbo.args);
 
         const keepAlive = this.keepAlive === true;
@@ -790,7 +283,7 @@ export class V3 {
           try {
             chrome.process?.unref?.();
           } catch {
-            // best-effort: avoid keeping the event loop alive
+            // best-effort
           }
         }
         this.ctx = await V3Context.create(ws, {
@@ -820,7 +313,6 @@ export class V3 {
         await this._applyPostConnectLocalOptions(lbo);
       });
     } catch (error) {
-      // Cleanup instanceLoggers map on init failure to prevent memory leak
       if (this.externalLogger) {
         try {
           unbindInstanceLogger(this.instanceId);
@@ -837,7 +329,6 @@ export class V3 {
     lbo: LocalBrowserLaunchOptions,
   ): Promise<void> {
     try {
-      // Downloads behavior
       if (lbo.downloadsPath || lbo.acceptDownloads !== undefined) {
         const behavior = lbo.acceptDownloads === false ? "deny" : "allow";
         await this.ctx?.conn
@@ -853,293 +344,6 @@ export class V3 {
     }
   }
 
-  /**
-   * Run an "act" instruction through the ActHandler.
-   *
-   * New API:
-   * - act(instruction: string, options?: ActOptions)
-   * - act(action: Action, options?: ActOptions)
-   */
-  async act(instruction: string, options?: ActOptions): Promise<ActResult>;
-  async act(action: Action, options?: ActOptions): Promise<ActResult>;
-
-  @FlowLogger.wrapWithLogging({
-    eventType: "StagehandAct",
-  })
-  async act(input: string | Action, options?: ActOptions): Promise<ActResult> {
-    return await withInstanceLogContext(this.instanceId, async () => {
-      if (!this.actHandler) throw new StagehandNotInitializedError("act()");
-
-      let actResult: ActResult;
-
-      if (isObserveResult(input)) {
-        // Resolve page: use provided page if any, otherwise default active page
-        const v3Page = await this.resolvePage(options?.page);
-
-        // Use selector as provided to support XPath, CSS, and other engines
-        const selector = input.selector;
-        const ensureTimeRemaining = createTimeoutGuard(
-          options?.timeout,
-          (ms) => new ActTimeoutError(ms),
-        );
-        actResult = await this.actHandler.takeDeterministicAction(
-          { ...input, selector },
-          v3Page,
-          this.domSettleTimeoutMs,
-          this.resolveLlmClient(options?.model),
-          ensureTimeRemaining,
-          options?.variables,
-        );
-
-        // history: record ObserveResult-based act call
-        this.addToHistory(
-          "act",
-          {
-            observeResult: input,
-          },
-          actResult,
-        );
-        return actResult;
-      }
-      // instruction path
-      if (typeof input !== "string" || !input.trim()) {
-        throw new StagehandInvalidArgumentError(
-          "act(): instruction string is required unless passing an Action",
-        );
-      }
-
-      // Resolve page from options or default
-      const page = await this.resolvePage(options?.page);
-      const actCacheLlmClient = options?.model
-        ? this.resolveLlmClient(options.model)
-        : undefined;
-
-      let actCacheContext: Awaited<
-        ReturnType<typeof this.actCache.prepareContext>
-      > | null = null;
-      const canUseCache =
-        typeof input === "string" &&
-        !this.isAgentReplayRecording() &&
-        this.actCache.enabled;
-      if (canUseCache) {
-        actCacheContext = await this.actCache.prepareContext(
-          input,
-          page,
-          flattenVariables(options?.variables),
-        );
-        if (actCacheContext) {
-          const cachedResult = await this.actCache.tryReplay(
-            actCacheContext,
-            page,
-            options?.timeout,
-            actCacheLlmClient,
-          );
-          if (cachedResult) {
-            this.addToHistory(
-              "act",
-              {
-                instruction: input,
-                variables: options?.variables,
-                timeout: options?.timeout,
-                cacheHit: true,
-              },
-              cachedResult,
-            );
-            return cachedResult;
-          }
-        }
-      }
-
-      const handlerParams: ActHandlerParams = {
-        instruction: input,
-        page,
-        variables: options?.variables,
-        timeout: options?.timeout,
-        model: options?.model,
-      };
-      actResult = await this.actHandler.act(handlerParams);
-      // history: record instruction-based act call (omit page object)
-      this.addToHistory(
-        "act",
-        {
-          instruction: input,
-          variables: options?.variables,
-          timeout: options?.timeout,
-        },
-        actResult,
-      );
-
-      if (
-        actCacheContext &&
-        actResult.success &&
-        Array.isArray(actResult.actions) &&
-        actResult.actions.length > 0
-      ) {
-        await this.actCache.store(actCacheContext, actResult);
-      }
-      return actResult;
-    });
-  }
-
-  /**
-   * Run an "extract" instruction through the ExtractHandler.
-   *
-   * Accepted forms:
-   * - extract() → pageText
-   * - extract(options) → pageText
-   * - extract(instruction) → defaultExtractSchema
-   * - extract(instruction, schema) → schema-inferred
-   * - extract(instruction, schema, options)
-   */
-
-  async extract(): Promise<z.infer<typeof pageTextSchema>>;
-  async extract(
-    options: ExtractOptions,
-  ): Promise<z.infer<typeof pageTextSchema>>;
-  async extract(
-    instruction: string,
-    options?: ExtractOptions,
-  ): Promise<z.infer<typeof defaultExtractSchema>>;
-  async extract<T extends StagehandZodSchema>(
-    instruction: string,
-    schema: T,
-    options?: ExtractOptions,
-  ): Promise<InferStagehandSchema<T>>;
-
-  @FlowLogger.wrapWithLogging({
-    eventType: "StagehandExtract",
-  })
-  async extract(
-    a?: string | ExtractOptions,
-    b?: StagehandZodSchema | ExtractOptions,
-    c?: ExtractOptions,
-  ): Promise<unknown> {
-    return await withInstanceLogContext(this.instanceId, async () => {
-      if (!this.extractHandler) {
-        throw new StagehandNotInitializedError("extract()");
-      }
-
-      // Normalize args
-      let instruction: string | undefined;
-      let schema: StagehandZodSchema | undefined;
-      let options: ExtractOptions | undefined;
-
-      if (typeof a === "string") {
-        instruction = a;
-        const isZodSchema = (val: unknown): val is StagehandZodSchema =>
-          !!val &&
-          typeof val === "object" &&
-          "parse" in val &&
-          "safeParse" in val;
-        if (isZodSchema(b)) {
-          schema = b as StagehandZodSchema;
-          options = c as ExtractOptions | undefined;
-        } else {
-          options = b as ExtractOptions | undefined;
-        }
-      } else {
-        // a is options or undefined
-        options = (a as ExtractOptions) || undefined;
-      }
-
-      if (!instruction && schema) {
-        throw new StagehandInvalidArgumentError(
-          "extract(): schema provided without instruction",
-        );
-      }
-
-      // If instruction without schema → defaultExtractSchema
-      const effectiveSchema =
-        instruction && !schema ? defaultExtractSchema : schema;
-
-      // Resolve page from options or use active page
-      const page = await this.resolvePage(options?.page);
-
-      const handlerParams: ExtractHandlerParams<StagehandZodSchema> = {
-        instruction,
-        schema: effectiveSchema as StagehandZodSchema | undefined,
-        model: options?.model,
-        timeout: options?.timeout,
-        selector: options?.selector,
-        page,
-      };
-      let result: z.infer<typeof effectiveSchema> | { pageText: string };
-      result =
-        await this.extractHandler.extract<StagehandZodSchema>(handlerParams);
-      const historySchemaDescriptor = effectiveSchema
-        ? toJsonSchema(effectiveSchema)
-        : undefined;
-      this.addToHistory(
-        "extract",
-        {
-          instruction,
-          selector: options?.selector,
-          timeout: options?.timeout,
-          schema: historySchemaDescriptor,
-        },
-        result,
-      );
-      return result;
-    });
-  }
-
-  /**
-   * Run an "observe" instruction through the ObserveHandler.
-   */
-  async observe(): Promise<Action[]>;
-  async observe(options: ObserveOptions): Promise<Action[]>;
-  async observe(
-    instruction: string,
-    options?: ObserveOptions,
-  ): Promise<Action[]>;
-  @FlowLogger.wrapWithLogging({
-    eventType: "StagehandObserve",
-  })
-  async observe(
-    a?: string | ObserveOptions,
-    b?: ObserveOptions,
-  ): Promise<Action[]> {
-    return await withInstanceLogContext(this.instanceId, async () => {
-      if (!this.observeHandler) {
-        throw new StagehandNotInitializedError("observe()");
-      }
-
-      // Normalize args
-      let instruction: string | undefined;
-      let options: ObserveOptions | undefined;
-      if (typeof a === "string") {
-        instruction = a;
-        options = b;
-      } else {
-        options = a as ObserveOptions | undefined;
-      }
-
-      // Resolve to our internal Page type
-      const page = await this.resolvePage(options?.page);
-
-      const handlerParams: ObserveHandlerParams = {
-        instruction,
-        model: options?.model,
-        timeout: options?.timeout,
-        selector: options?.selector,
-        page: page!,
-      };
-
-      const results = await this.observeHandler.observe(handlerParams);
-
-      // history: record observe call (omit page object)
-      this.addToHistory(
-        "observe",
-        {
-          instruction,
-          timeout: options?.timeout,
-        },
-        results,
-      );
-      return results;
-    });
-  }
-
   /** Return the browser-level CDP WebSocket endpoint. */
   connectURL(): string {
     if (this.state.kind === "UNINITIALIZED") {
@@ -1148,14 +352,13 @@ export class V3 {
     return this.state.ws;
   }
 
-  /** Expose the current CDP-backed context. */
-  public get context(): V3Context {
+  /** Expose the current CDP-backed context (null before {@link init}). */
+  public get context(): V3Context | null {
     return this.ctx;
   }
 
   /** Best-effort cleanup of context and launched resources. */
   async close(opts?: { force?: boolean }): Promise<void> {
-    // If we're already closing and this isn't a forced close, no-op.
     if (this._isClosing && !opts?.force) return;
     this._isClosing = true;
 
@@ -1170,21 +373,18 @@ export class V3 {
     }
 
     try {
-      // Close session file logger
       try {
         await FlowLogger.close(this.flowLoggerContext);
       } catch {
         // ignore
       }
 
-      // Close CDP context
       try {
         await this.ctx?.close();
       } catch {
         // ignore
       }
 
-      // Kill local Chrome and clean up temp profile when keepAlive is not enabled
       if (!keepAlive && this.state.kind === "LOCAL") {
         const localState = this.state;
         await cleanupLocalBrowser({
@@ -1197,7 +397,6 @@ export class V3 {
     } finally {
       this.stopShutdownSupervisor();
 
-      // Reset internal state
       this.state = { kind: "UNINITIALIZED" };
       this.ctx = null;
       this._isClosing = false;
@@ -1216,559 +415,13 @@ export class V3 {
       } catch {
         // ignore
       }
-      this._history = [];
-      this.actHandler = null;
-      this.extractHandler = null;
-      this.observeHandler = null;
-      V3._instances.delete(this);
     }
   }
 
   public get logger(): (logLine: LogLine) => void {
-    // Delegate to per-instance StagehandLogger
-    // StagehandLogger handles: verbosity filtering, usePino selection, external logger routing
-    // This provides per-instance configuration while maintaining shared Pino optimization
     return (logLine: LogLine) => {
       const line = { ...logLine, level: logLine.level ?? 1 };
       this.stagehandLogger.log(line);
     };
   }
-
-  /**
-   * Normalize a Playwright/Puppeteer page object into its top frame id,
-   * so handlers can resolve it to a `Page` within our V3Context.
-   */
-  private async resolveTopFrameId(
-    page: PlaywrightPage | PuppeteerPage | PatchrightPage,
-  ): Promise<string> {
-    if (this.isPlaywrightPage(page)) {
-      const cdp = await page.context().newCDPSession(page);
-      const { frameTree } = await cdp.send("Page.getFrameTree");
-      return frameTree.frame.id;
-    }
-
-    if (this.isPatchrightPage(page)) {
-      const cdp = await page.context().newCDPSession(page);
-      const { frameTree } = await cdp.send("Page.getFrameTree");
-      return frameTree.frame.id;
-    }
-
-    if (this.isPuppeteerPage(page)) {
-      const cdp = await page.createCDPSession();
-      const { frameTree } = await cdp.send("Page.getFrameTree");
-      this.logger({
-        category: "v3",
-        message: "Puppeteer frame id",
-        level: 2,
-        auxiliary: { frameId: { value: frameTree.frame.id, type: "string" } },
-      });
-      return frameTree.frame.id;
-    }
-
-    throw new StagehandInvalidArgumentError(
-      "Unsupported page object passed to V3.act()",
-    );
-  }
-
-  private isPlaywrightPage(p: unknown): p is PlaywrightPage {
-    return (
-      typeof p === "object" &&
-      p !== null &&
-      typeof (p as PlaywrightPage).context === "function"
-    );
-  }
-
-  private isPatchrightPage(p: unknown): p is PatchrightPage {
-    return (
-      typeof p === "object" &&
-      p !== null &&
-      typeof (p as PatchrightPage).context === "function"
-    );
-  }
-
-  private isPuppeteerPage(p: unknown): p is PuppeteerPage {
-    return (
-      typeof p === "object" &&
-      p !== null &&
-      typeof (p as PuppeteerPage).target === "function"
-    );
-  }
-
-  /** Resolve an external page reference or fall back to the active V3 page. */
-  private async resolvePage(page?: AnyPage): Promise<Page> {
-    if (page) {
-      return await this.normalizeToV3Page(page);
-    }
-    const ctx = this.ctx;
-    if (!ctx) {
-      throw new StagehandNotInitializedError("resolvePage()");
-    }
-    return await ctx.awaitActivePage();
-  }
-
-  private async normalizeToV3Page(input: AnyPage): Promise<Page> {
-    if (input instanceof (await import("./understudy/page.js")).Page) {
-      return input as Page;
-    }
-    if (this.isPlaywrightPage(input)) {
-      const frameId = await this.resolveTopFrameId(input);
-      const page = this.ctx!.resolvePageByMainFrameId(frameId);
-      if (!page)
-        throw new StagehandInitError(
-          "Failed to resolve V3 Page from Playwright page.",
-        );
-      return page;
-    }
-    if (this.isPatchrightPage(input)) {
-      const frameId = await this.resolveTopFrameId(input);
-      const page = this.ctx!.resolvePageByMainFrameId(frameId);
-      if (!page)
-        throw new StagehandInitError(
-          "Failed to resolve V3 Page from Patchright page.",
-        );
-      return page;
-    }
-    if (this.isPuppeteerPage(input)) {
-      const frameId = await this.resolveTopFrameId(input);
-      const page = this.ctx!.resolvePageByMainFrameId(frameId);
-      if (!page)
-        throw new StagehandInitError(
-          "Failed to resolve V3 Page from Puppeteer page.",
-        );
-      return page;
-    }
-    throw new StagehandInvalidArgumentError("Unsupported page object.");
-  }
-
-  /**
-   * Prepares shared context for agent execution (both execute and stream).
-   * Extracts duplicated setup logic into a single helper.
-   */
-  private async prepareAgentExecution(
-    options: AgentConfig | undefined,
-    instructionOrOptions:
-      | string
-      | AgentExecuteOptions
-      | AgentStreamExecuteOptions,
-    agentConfigSignature: string,
-  ): Promise<{
-    handler: V3AgentHandler;
-    resolvedOptions: AgentExecuteOptions | AgentStreamExecuteOptions;
-    instruction: string;
-    cacheContext: AgentCacheContext | null;
-    llmClient: LLMClient;
-  }> {
-    // Note: experimental validation is done at the call site before this method
-    // Warn if mode is not explicitly set (defaults to "dom")
-    if (options?.mode === undefined) {
-      this.logger({
-        category: "agent",
-        message:
-          "Using agent in default DOM mode (legacy). Agent will default to 'hybrid' on an upcoming release for improved performance.\n  → https://docs.stagehand.dev/v3/basics/agent\n",
-        level: 0,
-      });
-    }
-
-    const tools = options?.integrations
-      ? await resolveTools(options.integrations, options.tools)
-      : (options?.tools ?? {});
-
-    const agentLlmClient = options?.model
-      ? this.resolveLlmClient(options.model)
-      : this.llmClient;
-
-    const resolvedExecutionModel = options?.executionModel ?? options?.model;
-
-    const handler = new V3AgentHandler(
-      this,
-      this.logger,
-      agentLlmClient,
-      resolvedExecutionModel,
-      options?.systemPrompt,
-      tools,
-      options?.mode,
-      this.isCaptchaAutoSolveEnabled,
-    );
-
-    const resolvedOptions: AgentExecuteOptions | AgentStreamExecuteOptions =
-      typeof instructionOrOptions === "string"
-        ? {
-            instruction: instructionOrOptions,
-            toolTimeout: DEFAULT_AGENT_TOOL_TIMEOUT_MS,
-          }
-        : {
-            ...instructionOrOptions,
-            toolTimeout:
-              instructionOrOptions.toolTimeout ?? DEFAULT_AGENT_TOOL_TIMEOUT_MS,
-          };
-
-    const callbacksWithSafety = resolvedOptions.callbacks as
-      | AgentExecuteCallbacks
-      | undefined;
-    if (callbacksWithSafety?.onSafetyConfirmation) {
-      throw new StagehandInvalidArgumentError(
-        'onSafetyConfirmation callback is only supported when using mode: "cua" agents.',
-      );
-    }
-
-    if (resolvedOptions.page) {
-      const normalizedPage = await this.normalizeToV3Page(resolvedOptions.page);
-      this.ctx!.setActivePage(normalizedPage);
-    }
-
-    const instruction = resolvedOptions.instruction.trim();
-    const sanitizedOptions =
-      this.agentCache.sanitizeExecuteOptions(resolvedOptions);
-
-    const cacheVariables = flattenVariables(resolvedOptions.variables);
-
-    const cacheContext = this.agentCache.shouldAttemptCache(instruction)
-      ? await this.agentCache.prepareContext({
-          instruction,
-          options: sanitizedOptions,
-          configSignature: agentConfigSignature,
-          page: await this.ctx!.awaitActivePage(),
-          variables: cacheVariables,
-        })
-      : null;
-
-    return {
-      handler,
-      resolvedOptions,
-      instruction,
-      cacheContext,
-      llmClient: agentLlmClient,
-    };
-  }
-
-  /**
-   * Create a v3 agent instance (AISDK tool-based) with execute().
-   * Mirrors the v2 Stagehand.agent() tool mode (no CUA provider here).
-   *
-   * @overload When stream: true, returns a streaming agent where execute() returns AgentStreamResult
-   * @overload When stream is false/undefined, returns a non-streaming agent where execute() returns AgentResult
-   */
-  agent(options: AgentConfig & { stream: true }): {
-    execute: (
-      instructionOrOptions: string | AgentStreamExecuteOptions,
-    ) => Promise<AgentStreamResult>;
-  };
-  agent(options?: AgentConfig & { stream?: false }): {
-    execute: (
-      instructionOrOptions: string | AgentExecuteOptions,
-    ) => Promise<AgentResult>;
-  };
-  agent(options?: AgentConfig): {
-    execute: (
-      instructionOrOptions:
-        | string
-        | AgentExecuteOptions
-        | AgentStreamExecuteOptions,
-    ) => Promise<AgentResult | AgentStreamResult>;
-  } {
-    // Determine if CUA mode is enabled (via mode: "cua" or deprecated cua: true)
-    const isCuaMode =
-      options?.mode !== undefined
-        ? options.mode === "cua"
-        : options?.cua === true;
-
-    // Emit deprecation warning for cua: true
-    if (options?.cua === true) {
-      this.logger({
-        category: "agent",
-        message:
-          '[DEPRECATED] The "cua: true" option is deprecated. Use "mode: \'cua\'" instead. This option will be removed in a future version.',
-        level: 0,
-      });
-      console.warn(
-        '[Stagehand] DEPRECATED: The "cua: true" option is deprecated. Use "mode: \'cua\'" instead.',
-      );
-    }
-
-    this.logger({
-      category: "agent",
-      message: "Creating v3 agent instance",
-      level: 1,
-      auxiliary: {
-        cua: { value: isCuaMode ? "true" : "false", type: "boolean" },
-        mode: { value: options?.mode ?? "dom", type: "string" },
-        model: {
-          value: extractModelName(options?.model) ?? this.llmClient.modelName,
-          type: "string",
-        },
-        systemPrompt: { value: options?.systemPrompt ?? "", type: "string" },
-        tools: { value: JSON.stringify(options?.tools ?? {}), type: "object" },
-        ...(options?.integrations && {
-          integrations: {
-            value: JSON.stringify(options.integrations),
-            type: "object",
-          },
-        }),
-      },
-    });
-
-    // If CUA mode is enabled (via mode: "cua" or deprecated cua: true), use the computer-use agent path
-    if (isCuaMode) {
-      // Validate agent config at creation time (includes CUA+streaming conflict check)
-      validateExperimentalFeatures({
-        isExperimental: this.experimental,
-        agentConfig: options,
-      });
-
-      const modelToUse = options?.model || {
-        modelName: this.modelName,
-        ...this.modelClientOptions,
-      };
-
-      const { modelName, isCua, clientOptions } = resolveModel(modelToUse);
-
-      if (!isCua) {
-        throw new CuaModelRequiredError(AVAILABLE_CUA_MODELS);
-      }
-
-      const agentConfigSignature =
-        this.agentCache.buildConfigSignature(options);
-      const execute = async (
-        instructionOrOptions: string | AgentExecuteOptions,
-      ): Promise<AgentResult> =>
-        withInstanceLogContext(
-          this.instanceId,
-          async (): Promise<AgentResult> => {
-            validateExperimentalFeatures({
-              isExperimental: this.experimental,
-              agentConfig: options,
-              executeOptions:
-                typeof instructionOrOptions === "object"
-                  ? instructionOrOptions
-                  : null,
-            });
-
-            const tools = options?.integrations
-              ? await resolveTools(options.integrations, options.tools)
-              : (options?.tools ?? {});
-
-            const handler = new V3CuaAgentHandler(
-              this,
-              this.logger,
-              {
-                modelName,
-                clientOptions,
-                userProvidedInstructions:
-                  (options.systemPrompt ??
-                    `You are a helpful assistant that can use a web browser.\nDo not ask follow up questions, the user will trust your judgement.`) +
-                  (this.isCaptchaAutoSolveEnabled
-                    ? CAPTCHA_CUA_SYSTEM_PROMPT_NOTE
-                    : ""),
-              },
-              tools,
-            );
-
-            const resolvedOptions: AgentExecuteOptions =
-              typeof instructionOrOptions === "string"
-                ? {
-                    instruction: instructionOrOptions,
-                    toolTimeout: DEFAULT_AGENT_TOOL_TIMEOUT_MS,
-                  }
-                : {
-                    ...instructionOrOptions,
-                    toolTimeout:
-                      instructionOrOptions.toolTimeout ??
-                      DEFAULT_AGENT_TOOL_TIMEOUT_MS,
-                  };
-            if (resolvedOptions.page) {
-              const normalizedPage = await this.normalizeToV3Page(
-                resolvedOptions.page,
-              );
-              this.ctx!.setActivePage(normalizedPage);
-            }
-            const instruction = resolvedOptions.instruction.trim();
-            const sanitizedOptions =
-              this.agentCache.sanitizeExecuteOptions(resolvedOptions);
-
-            const cacheVariables = flattenVariables(resolvedOptions.variables);
-
-            let cacheContext: AgentCacheContext | null = null;
-            if (this.agentCache.shouldAttemptCache(instruction)) {
-              const startPage = await this.ctx!.awaitActivePage();
-              cacheContext = await this.agentCache.prepareContext({
-                instruction,
-                options: sanitizedOptions,
-                configSignature: agentConfigSignature,
-                page: startPage,
-                variables: cacheVariables,
-              });
-              if (cacheContext) {
-                const replayed = await this.agentCache.tryReplay(cacheContext);
-                if (replayed) {
-                  return replayed;
-                }
-              }
-            }
-
-            let agentSteps: AgentReplayStep[] = [];
-            const shouldRecordLocally = !!cacheContext;
-            if (shouldRecordLocally) {
-              this.beginAgentReplayRecording();
-            }
-
-            let result: AgentResult;
-            try {
-              result = await handler.execute(instructionOrOptions);
-              if (shouldRecordLocally) {
-                agentSteps = this.endAgentReplayRecording();
-              }
-
-              if (
-                shouldRecordLocally &&
-                cacheContext &&
-                result.success &&
-                agentSteps.length > 0
-              ) {
-                await this.agentCache.store(cacheContext, agentSteps, result);
-              }
-
-              return result;
-            } catch (err) {
-              if (shouldRecordLocally) this.discardAgentReplayRecording();
-              throw err;
-            } finally {
-              if (shouldRecordLocally) {
-                this.discardAgentReplayRecording();
-              }
-            }
-          },
-        );
-      return {
-        execute: FlowLogger.wrapWithLogging({
-          eventType: "AgentExecute",
-          context: this.flowLoggerContext,
-        })(execute),
-      };
-    }
-
-    // Default: AISDK tools-based agent
-    const agentConfigSignature = this.agentCache.buildConfigSignature(options);
-    const isStreaming = options?.stream ?? false;
-    const execute = async (
-      instructionOrOptions:
-        | string
-        | AgentExecuteOptions
-        | AgentStreamExecuteOptions,
-    ): Promise<AgentResult | AgentStreamResult> =>
-      withInstanceLogContext(
-        this.instanceId,
-        async (): Promise<AgentResult | AgentStreamResult> => {
-          validateExperimentalFeatures({
-            isExperimental: this.experimental,
-            agentConfig: options,
-            executeOptions:
-              typeof instructionOrOptions === "object"
-                ? instructionOrOptions
-                : null,
-            isStreaming,
-          });
-
-          // Streaming mode
-          if (isStreaming) {
-            const { handler, resolvedOptions, cacheContext, llmClient } =
-              await this.prepareAgentExecution(
-                options,
-                instructionOrOptions,
-                agentConfigSignature,
-              );
-
-            if (cacheContext) {
-              const replayed = await this.agentCache.tryReplayAsStream(
-                cacheContext,
-                llmClient,
-              );
-              if (replayed) {
-                return replayed;
-              }
-            }
-
-            const streamResult = await handler.stream(
-              resolvedOptions as AgentStreamExecuteOptions,
-            );
-
-            if (cacheContext) {
-              const wrappedStream = this.agentCache.wrapStreamForCaching(
-                cacheContext,
-                streamResult,
-                () => this.beginAgentReplayRecording(),
-                () => this.endAgentReplayRecording(),
-                () => this.discardAgentReplayRecording(),
-              );
-              return wrappedStream;
-            }
-
-            return streamResult;
-          }
-
-          // Non-streaming mode (default)
-          const { handler, resolvedOptions, cacheContext, llmClient } =
-            await this.prepareAgentExecution(
-              options,
-              instructionOrOptions,
-              agentConfigSignature,
-            );
-
-          if (cacheContext) {
-            const replayed = await this.agentCache.tryReplay(
-              cacheContext,
-              llmClient,
-            );
-            if (replayed) {
-              return replayed;
-            }
-          }
-
-          let agentSteps: AgentReplayStep[] = [];
-          const shouldRecordLocally = !!cacheContext;
-          if (shouldRecordLocally) {
-            this.beginAgentReplayRecording();
-          }
-          let result: AgentResult;
-
-          try {
-            result = await handler.execute(
-              resolvedOptions as AgentExecuteOptions,
-            );
-            if (shouldRecordLocally) {
-              agentSteps = this.endAgentReplayRecording();
-            }
-
-            if (
-              shouldRecordLocally &&
-              cacheContext &&
-              result.success &&
-              agentSteps.length > 0
-            ) {
-              await this.agentCache.store(cacheContext, agentSteps, result);
-            }
-
-            return result;
-          } catch (err) {
-            if (shouldRecordLocally) this.discardAgentReplayRecording();
-            throw err;
-          } finally {
-            if (shouldRecordLocally) {
-              this.discardAgentReplayRecording();
-            }
-          }
-        },
-      );
-    return {
-      execute: FlowLogger.wrapWithLogging({
-        eventType: "AgentExecute",
-        context: this.flowLoggerContext,
-      })(execute),
-    };
-  }
-}
-
-function isObserveResult(v: unknown): v is Action {
-  return (
-    !!v && typeof v === "object" && "selector" in (v as Record<string, unknown>)
-  );
 }

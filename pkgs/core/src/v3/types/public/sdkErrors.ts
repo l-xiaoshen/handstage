@@ -3,7 +3,7 @@ import type { ZodError } from "zod";
 import { STAGEHAND_VERSION } from "../../../version";
 
 export class StagehandError extends Error {
-  public readonly cause?: unknown;
+  public override readonly cause?: unknown;
 
   constructor(message: string, cause?: unknown) {
     super(message);
@@ -213,32 +213,6 @@ export class XPathResolutionError extends StagehandError {
   }
 }
 
-export class ExperimentalApiConflictError extends StagehandError {
-  constructor() {
-    super(
-      "`experimental` mode conflicts with another constructor option in this build. " +
-        "Use `experimental: true` only when enabling experimental agent features.",
-    );
-  }
-}
-
-export class ExperimentalNotConfiguredError extends StagehandError {
-  constructor(featureName: string) {
-    super(
-      `Feature "${featureName}" is experimental. Set experimental: true in the Stagehand constructor to use it.`,
-    );
-  }
-}
-
-export class CuaModelRequiredError extends StagehandError {
-  constructor(availableModels: readonly string[]) {
-    super(
-      `To use the computer use agent (CUA), please provide a CUA model in the agent constructor or stagehand config. ` +
-        `Try one of our supported CUA models: ${availableModels.join(", ")}`,
-    );
-  }
-}
-
 export class ZodSchemaValidationError extends Error {
   constructor(
     public readonly received: unknown,
@@ -258,26 +232,6 @@ ${JSON.stringify(issues, null, 2)}`);
 export class StagehandInitError extends StagehandError {
   constructor(message: string) {
     super(message);
-  }
-}
-
-export class MCPConnectionError extends StagehandError {
-  public readonly serverUrl: string;
-  public readonly originalError: unknown;
-
-  constructor(serverUrl: string, originalError: unknown) {
-    const errorMessage =
-      originalError instanceof Error
-        ? originalError.message
-        : String(originalError);
-
-    super(
-      `Failed to connect to MCP server at "${serverUrl}". ${errorMessage}. ` +
-        `Please verify the server URL is correct and the server is running.`,
-    );
-
-    this.serverUrl = serverUrl;
-    this.originalError = originalError;
   }
 }
 
@@ -329,27 +283,6 @@ export class TimeoutError extends StagehandError {
   }
 }
 
-export class ActTimeoutError extends TimeoutError {
-  constructor(timeoutMs: number) {
-    super("act()", timeoutMs);
-    this.name = "ActTimeoutError";
-  }
-}
-
-export class ExtractTimeoutError extends TimeoutError {
-  constructor(timeoutMs: number) {
-    super("extract()", timeoutMs);
-    this.name = "ExtractTimeoutError";
-  }
-}
-
-export class ObserveTimeoutError extends TimeoutError {
-  constructor(timeoutMs: number) {
-    super("observe()", timeoutMs);
-    this.name = "ObserveTimeoutError";
-  }
-}
-
 export class PageNotFoundError extends StagehandError {
   constructor(identifier: string) {
     super(`No Page found for ${identifier}`);
@@ -359,30 +292,6 @@ export class PageNotFoundError extends StagehandError {
 export class ConnectionTimeoutError extends StagehandError {
   constructor(message: string) {
     super(`Connection timeout: ${message}`);
-  }
-}
-
-export class StreamingCallbacksInNonStreamingModeError extends StagehandError {
-  public readonly invalidCallbacks: string[];
-
-  constructor(invalidCallbacks: string[]) {
-    super(
-      `Streaming-only callback(s) "${invalidCallbacks.join('", "')}" cannot be used in non-streaming mode. ` +
-        `Set 'stream: true' in AgentConfig to use these callbacks.`,
-    );
-    this.invalidCallbacks = invalidCallbacks;
-  }
-}
-
-export class AgentAbortError extends StagehandError {
-  public readonly reason: string;
-
-  constructor(reason?: string) {
-    const message = reason
-      ? `Agent execution was aborted: ${reason}`
-      : "Agent execution was aborted";
-    super(message);
-    this.reason = reason || "aborted";
   }
 }
 
