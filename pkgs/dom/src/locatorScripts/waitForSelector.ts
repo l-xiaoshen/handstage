@@ -27,9 +27,7 @@ const getClosedRoot = (element: Element): ShadowRoot | null => {
 		if (backdoor && typeof backdoor.getClosedRoot === "function") {
 			return backdoor.getClosedRoot(element) ?? null
 		}
-	} catch {
-		// ignore
-	}
+	} catch {}
 	return null
 }
 
@@ -37,9 +35,7 @@ const getClosedRoot = (element: Element): ShadowRoot | null => {
  * Get shadow root (open or closed via piercer).
  */
 const getShadowRoot = (element: Element): ShadowRoot | null => {
-	// First try open shadow root
 	if (element.shadowRoot) return element.shadowRoot
-	// Then try closed shadow root via piercer
 	return getClosedRoot(element)
 }
 
@@ -51,17 +47,13 @@ const deepQuerySelector = (
 	selector: string,
 	pierceShadow: boolean,
 ): Element | null => {
-	// Try regular querySelector first
 	try {
 		const el = root.querySelector(selector)
 		if (el) return el
-	} catch {
-		// ignore query errors
-	}
+	} catch {}
 
 	if (!pierceShadow) return null
 
-	// BFS queue to search all shadow roots (open and closed)
 	const seenRoots = new WeakSet<Node>()
 	const queue: Array<Document | ShadowRoot> = [root]
 
@@ -70,15 +62,11 @@ const deepQuerySelector = (
 		if (!currentRoot || seenRoots.has(currentRoot)) continue
 		seenRoots.add(currentRoot)
 
-		// Try querySelector on this root
 		try {
 			const found = currentRoot.querySelector(selector)
 			if (found) return found
-		} catch {
-			// ignore query errors
-		}
+		} catch {}
 
-		// Walk all elements in this root to find shadow hosts
 		try {
 			const ownerDoc =
 				currentRoot instanceof Document
@@ -96,9 +84,7 @@ const deepQuerySelector = (
 					queue.push(shadowRoot)
 				}
 			}
-		} catch {
-			// ignore traversal errors
-		}
+		} catch {}
 	}
 
 	return null
@@ -154,7 +140,6 @@ const checkState = (
 		}
 	}
 
-	// state === "visible"
 	try {
 		const style = window.getComputedStyle(el)
 		const rect = el.getBoundingClientRect()
@@ -192,13 +177,11 @@ const setupShadowObservers = (
 			})
 			observers.push(shadowObserver)
 
-			// Recurse into shadow root children
 			for (const child of Array.from(shadowRoot.children)) {
 				observeShadowRoots(child)
 			}
 		}
 
-		// Recurse into regular children
 		for (const child of Array.from(node.children)) {
 			observeShadowRoots(child)
 		}
@@ -244,7 +227,6 @@ export function waitForSelector(
 			}
 		}
 
-		// Check immediately
 		const el = findElement(selector, pierceShadow)
 		if (checkState(el, state)) {
 			settled = true
@@ -275,7 +257,6 @@ export function waitForSelector(
 			}
 		}
 
-		// Handle case where document.body is not ready yet
 		const observeRoot = document.body || document.documentElement
 		if (!observeRoot) {
 			domReadyHandler = (): void => {
@@ -303,7 +284,6 @@ export function waitForSelector(
 			const root = document.body || document.documentElement
 			if (!root) return
 
-			// Main document observer
 			const mainObserver = new MutationObserver(check)
 			mainObserver.observe(root, {
 				childList: true,
@@ -313,7 +293,6 @@ export function waitForSelector(
 			})
 			observers.push(mainObserver)
 
-			// Shadow DOM observers (if piercing)
 			if (pierceShadow) {
 				setupShadowObservers(check, observers)
 			}
@@ -321,7 +300,6 @@ export function waitForSelector(
 
 		setupObservers()
 
-		// Set up timeout
 		timeoutId = setTimeout(() => {
 			if (settled) return
 			settled = true

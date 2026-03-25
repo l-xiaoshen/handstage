@@ -97,9 +97,7 @@ export function dispatchDomClick(
 		try {
 			// Fallback to native click if MouseEvent construction fails.
 			;(this as HTMLElement).click()
-		} catch {
-			/* ignore */
-		}
+		} catch {}
 	}
 }
 
@@ -197,9 +195,7 @@ export function prepareElementForTyping(this: Element): boolean {
 			if (typeof element.focus === "function") {
 				element.focus()
 			}
-		} catch {
-			/* ignore */
-		}
+		} catch {}
 
 		if (
 			element instanceof win.HTMLInputElement ||
@@ -210,9 +206,7 @@ export function prepareElementForTyping(this: Element): boolean {
 					element.select()
 					return true
 				}
-			} catch {
-				/* ignore */
-			}
+			} catch {}
 
 			try {
 				const length = (element.value ?? "").length
@@ -220,9 +214,7 @@ export function prepareElementForTyping(this: Element): boolean {
 					element.setSelectionRange(0, length)
 					return true
 				}
-			} catch {
-				/* ignore */
-			}
+			} catch {}
 
 			return true
 		}
@@ -235,9 +227,7 @@ export function prepareElementForTyping(this: Element): boolean {
 					range.selectNodeContents(element)
 					selection.removeAllRanges()
 					selection.addRange(range)
-				} catch {
-					/* ignore */
-				}
+				} catch {}
 			}
 			return true
 		}
@@ -376,9 +366,7 @@ export function focusElement(this: Element): void {
 		if (typeof (this as HTMLElement).focus === "function") {
 			;(this as HTMLElement).focus()
 		}
-	} catch {
-		/* ignore */
-	}
+	} catch {}
 }
 
 export function selectElementOptions(
