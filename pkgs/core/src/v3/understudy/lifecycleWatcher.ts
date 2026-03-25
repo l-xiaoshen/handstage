@@ -135,9 +135,7 @@ export class LifecycleWatcher {
 		for (const fn of this.cleanupCallbacks) {
 			try {
 				fn()
-			} catch {
-				// ignore listener cleanup errors
-			}
+			} catch {}
 		}
 		this.cleanupCallbacks = []
 		this.abortReject = null

@@ -17,9 +17,7 @@ export async function cleanupLocalBrowser(opts: {
 	if (opts.killChrome) {
 		try {
 			await opts.killChrome()
-		} catch {
-			// best-effort
-		}
+		} catch {}
 	}
 	if (
 		opts.createdTempProfile &&
@@ -28,8 +26,6 @@ export async function cleanupLocalBrowser(opts: {
 	) {
 		try {
 			fs.rmSync(opts.userDataDir, { recursive: true, force: true })
-		} catch {
-			// ignore cleanup errors
-		}
+		} catch {}
 	}
 }

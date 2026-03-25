@@ -111,9 +111,7 @@ export function decorateRoles(
 		if (typeof n.backendDOMNodeId === "number") {
 			try {
 				encodedId = opts.encode(n.backendDOMNodeId)
-			} catch {
-				//
-			}
+			} catch {}
 		}
 
 		let role = asRole(n)

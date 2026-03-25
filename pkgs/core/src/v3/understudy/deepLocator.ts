@@ -74,7 +74,6 @@ export async function resolveLocatorTarget(
 		.filter(Boolean)
 
 	if (parts.length > 1) {
-		// Build a FrameLocator chain for all but the last segment
 		let fl = frameLocatorFromFrame(page, root, parts[0]!)
 		for (let i = 1; i < parts.length - 1; i++) {
 			fl = fl.frameLocator(parts[i]!)
@@ -83,7 +82,6 @@ export async function resolveLocatorTarget(
 		return { frame: targetFrame, selector: parts[parts.length - 1]! }
 	}
 
-	// No hops — delegate to XPath-aware deep resolver when needed
 	const isXPath = sel.startsWith("xpath=") || sel.startsWith("/")
 	if (isXPath) {
 		return resolveDeepXPathTarget(page, root, sel)
@@ -124,7 +122,6 @@ export class DeepLocatorDelegate {
 		return base.nth(this.nthIndex)
 	}
 
-	// Locator API delegates
 	async click(options?: {
 		button?: "left" | "right" | "middle"
 		clickCount?: number

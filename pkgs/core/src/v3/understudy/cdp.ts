@@ -1,5 +1,3 @@
-// lib/v3/understudy/cdp.ts
-
 import type { Protocol } from "devtools-protocol"
 import WebSocket from "ws"
 import { STAGEHAND_VERSION } from "../../version"
@@ -75,9 +73,7 @@ export class CdpConnection implements CDPSessionLike {
 		for (const h of this.transportCloseHandlers) {
 			try {
 				h(why)
-			} catch {
-				//
-			}
+			} catch {}
 		}
 	}
 

@@ -115,9 +115,7 @@ export function startShutdownSupervisor(
 		// Normal close path: terminate supervisor directly.
 		try {
 			child.kill("SIGTERM")
-		} catch {
-			// ignore
-		}
+		} catch {}
 	}
 
 	return { stop }

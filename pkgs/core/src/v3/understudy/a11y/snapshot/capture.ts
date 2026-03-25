@@ -295,9 +295,7 @@ export async function collectPerFrameMaps(
 					const cdBe = idx.contentDocRootByIframe.get(backendNodeId)
 					if (typeof cdBe === "number") docRootBe = cdBe
 				}
-			} catch {
-				//
-			}
+			} catch {}
 		}
 
 		const tagNameMap: Record<string, string> = {}

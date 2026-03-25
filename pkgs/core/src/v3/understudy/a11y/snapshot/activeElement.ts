@@ -1,5 +1,5 @@
-import type { Protocol } from "devtools-protocol"
 import { a11yScriptSources } from "@handstage/dom/build/a11yScripts.generated"
+import type { Protocol } from "devtools-protocol"
 import { buildA11yInvocation } from "../../a11yInvocation"
 import { executionContexts } from "../../executionContextRegistry"
 import type { Page } from "../../page"
@@ -50,9 +50,7 @@ export async function computeActiveElementXpath(
 				focusedFrameId = fid
 				break
 			}
-		} catch {
-			//
-		}
+		} catch {}
 	}
 	if (!focusedFrameId) focusedFrameId = page.mainFrameId()
 	const focusedSession = page.getSessionForFrame(focusedFrameId)
@@ -93,17 +91,13 @@ export async function computeActiveElementXpath(
 			})
 			try {
 				await focusedSession.send("Runtime.releaseObject", { objectId })
-			} catch {
-				//
-			}
+			} catch {}
 			const xp = result?.value || ""
 			return typeof xp === "string" && xp ? xp : null
 		} catch {
 			try {
 				await focusedSession.send("Runtime.releaseObject", { objectId })
-			} catch {
-				//
-			}
+			} catch {}
 			return null
 		}
 	})()
@@ -113,7 +107,7 @@ export async function computeActiveElementXpath(
 	let prefix = ""
 	let cur: string | null | undefined = focusedFrameId
 	while (cur) {
-		const parent = parentByFrame.get(cur) ?? null
+		const parent: string | null = parentByFrame.get(cur) ?? null
 		if (!parent) break
 		const parentSess = page.getSessionForFrame(parent)
 		try {
@@ -124,9 +118,7 @@ export async function computeActiveElementXpath(
 				const xp = await absoluteXPathForBackendNode(parentSess, backendNodeId)
 				if (xp) prefix = prefix ? prefixXPath(prefix, xp) : normalizeXPath(xp)
 			}
-		} catch {
-			//
-		}
+		} catch {}
 		cur = parent
 	}
 

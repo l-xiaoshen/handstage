@@ -21,9 +21,7 @@ let localPidKnownGone = false
 const exit = (code = 0): void => {
 	try {
 		process.exit(code)
-	} catch {
-		// ignore
-	}
+	} catch {}
 }
 
 // Best-effort two-phase kill: SIGTERM first, then SIGKILL after timeout.
@@ -56,9 +54,7 @@ const politeKill = async (pid: number): Promise<void> => {
 	}
 	try {
 		process.kill(pid, "SIGKILL")
-	} catch {
-		// best-effort
-	}
+	} catch {}
 }
 
 let pidPollTimer: NodeJS.Timeout | null = null
@@ -164,9 +160,7 @@ export const runShutdownSupervisor = (
 		process.stdin.on("error", () =>
 			onLifelineClosed("Stagehand process crashed or was killed"),
 		)
-	} catch {
-		// ignore
-	}
+	} catch {}
 }
 
 export const maybeRunShutdownSupervisorFromArgv = (

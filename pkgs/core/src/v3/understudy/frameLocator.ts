@@ -41,7 +41,6 @@ export class FrameLocator {
 			? await this.parent.resolveFrame()
 			: (this.root ?? this.page.mainFrame())
 
-		// Resolve the iframe element inside the parent frame
 		const tmp = parentFrame.locator(this.selector)
 		const parentSession = parentFrame.session
 		const { objectId } = await tmp.resolveNode()
@@ -54,7 +53,6 @@ export class FrameLocator {
 			)
 			const iframeBackendNodeId = desc.node.backendNodeId
 
-			// Find direct child frames under the parent by consulting the Page's registry
 			const childIds = await listDirectChildFrameIdsFromRegistry(
 				this.page,
 				parentFrame.frameId,
@@ -68,13 +66,10 @@ export class FrameLocator {
 						nodeId?: Protocol.DOM.NodeId
 					}>("DOM.getFrameOwner", { frameId: fid as Protocol.Page.FrameId })
 					if (owner.backendNodeId === iframeBackendNodeId) {
-						// Ensure child frame is ready (handles OOPIF adoption or same-process)
 						await ensureChildFrameReady(this.page, parentFrame, fid, 1200)
 						return this.page.frameForId(fid)
 					}
-				} catch {
-					// ignore and try next
-				}
+				} catch {}
 			}
 			throw new ContentFrameNotFoundError(this.selector)
 		} finally {
@@ -105,7 +100,6 @@ class LocatorDelegate {
 		return locator.nth(this.nthIndex)
 	}
 
-	// Locator API delegates
 	async click(options?: {
 		button?: "left" | "right" | "middle"
 		clickCount?: number
@@ -187,9 +181,7 @@ async function listDirectChildFrameIdsFromRegistry(
 			const node = findFrameNode(tree, parentFrameId)
 			const ids = node?.childFrames?.map((c) => c.frame.id as string) ?? []
 			if (ids.length > 0 || Date.now() >= deadline) return ids
-		} catch {
-			// ignore
-		}
+		} catch {}
 		await new Promise((r) => setTimeout(r, 50))
 	}
 }
@@ -220,14 +212,11 @@ async function ensureChildFrameReady(
 	const parentSession = parentFrame.session
 	const deadline = Date.now() + Math.max(0, budgetMs)
 
-	// If already owned by a different session (OOPIF adopted), wait briefly there.
 	const owner = page.getSessionForFrame(childFrameId)
 	if (owner && owner !== parentSession) {
 		try {
 			await executionContexts.waitForMainWorld(owner, childFrameId, 600)
-		} catch {
-			// best effort
-		}
+		} catch {}
 		return
 	}
 
@@ -275,9 +264,7 @@ async function ensureChildFrameReady(
 						.waitForMainWorld(nowOwner, childFrameId, left)
 						.finally(finish)
 				}
-			} catch {
-				// ignore
-			}
+			} catch {}
 		}
 		parentSession.on("Page.lifecycleEvent", onLifecycle)
 
@@ -293,9 +280,7 @@ async function ensureChildFrameReady(
 						.finally(finish)
 					return
 				}
-			} catch {
-				// ignore
-			}
+			} catch {}
 			if (Date.now() >= deadline) return finish()
 			setTimeout(tick, 50)
 		}
