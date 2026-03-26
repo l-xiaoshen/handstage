@@ -1,5 +1,5 @@
-import type { Protocol } from "devtools-protocol"
 import { a11yScriptSources } from "@handstage/dom/build/a11yScripts.generated"
+import type { Protocol } from "devtools-protocol"
 import type { ResolvedLocation } from "../../../types/private/snapshot"
 import { buildA11yInvocation } from "../../a11yInvocation"
 import type { CDPSessionLike } from "../../cdp"
@@ -58,9 +58,7 @@ export async function resolveXpathForLocation(
 				}>("Runtime.evaluate", evalParams)
 				sx = Number(result?.value?.sx ?? 0)
 				sy = Number(result?.value?.sy ?? 0)
-			} catch {
-				//
-			}
+			} catch {}
 			const xi = Math.max(0, Math.floor(curX + sx))
 			const yi = Math.max(0, Math.floor(curY + sy))
 
@@ -148,9 +146,7 @@ export async function resolveXpathForLocation(
 						.send("Runtime.releaseObject", { objectId })
 						.catch(() => {})
 				}
-			} catch {
-				//
-			}
+			} catch {}
 			curX = Math.max(0, curX - left)
 			curY = Math.max(0, curY - top)
 			curFrameId = matchedChild

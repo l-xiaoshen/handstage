@@ -84,9 +84,7 @@ export class V3 {
 				message: `initiating shutdown → ${reason}`,
 				level: LogLevel.Error,
 			})
-		} catch {
-			//
-		}
+		} catch {}
 
 		try {
 			this.logger({
@@ -95,9 +93,7 @@ export class V3 {
 				level: LogLevel.Error,
 			})
 			await this.close({ force: true })
-		} catch {
-			// swallow — already shutting down
-		}
+		} catch {}
 	}
 
 	/** Spawn a crash-only supervisor that cleans up when this process dies. */
@@ -119,9 +115,7 @@ export class V3 {
 							error: error.message,
 						},
 					})
-				} catch {
-					// ignore logging failures
-				}
+				} catch {}
 			},
 		})
 		return this.shutdownSupervisor
@@ -132,9 +126,7 @@ export class V3 {
 		if (!this.shutdownSupervisor) return
 		try {
 			this.shutdownSupervisor.stop()
-		} catch {
-			// best-effort
-		}
+		} catch {}
 		this.shutdownSupervisor = null
 	}
 
@@ -255,9 +247,7 @@ export class V3 {
 				if (keepAlive) {
 					try {
 						chrome.process?.unref?.()
-					} catch {
-						// best-effort
-					}
+					} catch {}
 				}
 				this.ctx = await V3Context.create(ws, {
 					localBrowserLaunchOptions: lbo,
@@ -287,9 +277,7 @@ export class V3 {
 		} catch (error) {
 			try {
 				unbindInstanceLogger(this.instanceId)
-			} catch {
-				// ignore cleanup errors
-			}
+			} catch {}
 			throw error
 		}
 	}
@@ -309,9 +297,7 @@ export class V3 {
 					})
 					.catch(() => {})
 			}
-		} catch {
-			// best-effort only
-		}
+		} catch {}
 	}
 
 	/** Return the browser-level CDP WebSocket endpoint. */
@@ -338,16 +324,12 @@ export class V3 {
 			if (this.ctx?.conn && this._onCdpClosed) {
 				this.ctx.conn.offTransportClosed?.(this._onCdpClosed)
 			}
-		} catch {
-			// ignore
-		}
+		} catch {}
 
 		try {
 			try {
 				await this.ctx?.close()
-			} catch {
-				// ignore
-			}
+			} catch {}
 
 			if (!keepAlive && this.state.kind === "LOCAL") {
 				const localState = this.state
@@ -366,9 +348,7 @@ export class V3 {
 			this._isClosing = false
 			try {
 				unbindInstanceLogger(this.instanceId)
-			} catch {
-				// ignore
-			}
+			} catch {}
 		}
 	}
 

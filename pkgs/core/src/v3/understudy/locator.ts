@@ -1,13 +1,12 @@
-// lib/v3/understudy/locator.ts
-import type { Protocol } from "devtools-protocol"
-import * as fs from "fs"
-import * as os from "os"
-import * as path from "path"
 import {
 	locatorScriptBootstrap,
 	locatorScriptGlobalRefs,
 	locatorScriptSources,
 } from "@handstage/dom/build/locatorScripts.generated"
+import type { Protocol } from "devtools-protocol"
+import * as fs from "fs"
+import * as os from "os"
+import * as path from "path"
 import type { NormalizedFilePayload } from "../types/private/locator"
 import type {
 	MouseButton,
@@ -85,7 +84,6 @@ export class Locator {
 		const tempFiles: string[] = []
 
 		try {
-			// Validate element is an <input type="file">
 			try {
 				const res = await session.send<Protocol.Runtime.CallFunctionOnResponse>(
 					"Runtime.callFunctionOn",
@@ -144,16 +142,13 @@ export class Locator {
 				files: filePaths,
 			})
 		} finally {
-			// Cleanup: release element and remove any temporary files we created
 			await session
 				.send<never>("Runtime.releaseObject", { objectId })
 				.catch(() => {})
 			for (const p of tempFiles) {
 				try {
 					await fs.promises.unlink(p)
-				} catch {
-					// ignore
-				}
+				} catch {}
 			}
 		}
 	}
@@ -288,7 +283,6 @@ export class Locator {
 				.send("DOM.scrollIntoViewIfNeeded", { objectId })
 				.catch(() => {})
 
-			// Prefer backendNodeId to keep highlight stable even if objectId is released.
 			await session.send("DOM.enable").catch(() => {})
 			let backendNodeId: Protocol.DOM.BackendNodeId | undefined
 			try {
@@ -317,10 +311,8 @@ export class Locator {
 				})
 			}
 
-			// Initial draw
 			await highlightOnce()
 
-			// Keep alive until duration elapses to resist overlay clears on mouse move/repaints
 			if (duration > 0) {
 				const start = Date.now()
 				const tick = Math.min(300, Math.max(100, Math.floor(duration / 50)))
@@ -328,14 +320,11 @@ export class Locator {
 					await new Promise((r) => setTimeout(r, tick))
 					try {
 						await highlightOnce()
-					} catch {
-						// ignore transient errors
-					}
+					} catch {}
 				}
 				await session.send<never>("Overlay.hideHighlight").catch(() => {})
 			}
 		} finally {
-			// Releasing objectId should not affect highlight when using backendNodeId.
 			await session
 				.send<never>("Runtime.releaseObject", { objectId })
 				.catch(() => {})
@@ -393,10 +382,8 @@ export class Locator {
 		const clickCount = options?.clickCount ?? 1
 
 		try {
-			// Scroll into view using objectId (avoids frontend nodeId dependence)
 			await session.send("DOM.scrollIntoViewIfNeeded", { objectId })
 
-			// Get geometry using objectId
 			const box = await session.send<Protocol.DOM.GetBoxModelResponse>(
 				"DOM.getBoxModel",
 				{ objectId },
@@ -404,8 +391,6 @@ export class Locator {
 			if (!box.model) throw new ElementNotVisibleError(this.selector)
 			const { cx, cy } = this.centerFromBoxContent(box.model.content)
 
-			// Dispatch click events in a pipelined burst to reduce inter-click delay
-			// from network/CPU jitter between round trips.
 			const dispatches: Array<Promise<unknown>> = []
 			dispatches.push(
 				session.send<never>("Input.dispatchMouseEvent", {
@@ -438,7 +423,6 @@ export class Locator {
 			}
 			await Promise.all(dispatches)
 		} finally {
-			// release the element handle
 			try {
 				await session.send<never>("Runtime.releaseObject", { objectId })
 			} catch {
@@ -522,7 +506,6 @@ export class Locator {
 	 */
 	async fill(value: string): Promise<void> {
 		const session = this.frame.session
-		// Use the bundled locator globals; the raw fill snippet depends on helper symbols.
 		const fillDeclaration = `function(value) { ${locatorScriptBootstrap}; return ${locatorScriptGlobalRefs.fillElementValue}.call(this, value); }`
 		const { objectId } = await this.resolveNode()
 
@@ -539,7 +522,6 @@ export class Locator {
 				},
 			)
 			if (res.exceptionDetails) {
-				// prefer exception.description over text (eg "Uncaught")
 				const message =
 					res.exceptionDetails.exception?.description ??
 					res.exceptionDetails.text ??
@@ -559,7 +541,6 @@ export class Locator {
 			}
 
 			if (status === "needsinput") {
-				// Release the current handle before synthesizing keyboard input to avoid leaking it.
 				await session
 					.send<never>("Runtime.releaseObject", { objectId })
 					.catch(() => {})
@@ -598,7 +579,6 @@ export class Locator {
 				}
 
 				if (valueToType.length === 0) {
-					// Simulate deleting the currently selected text to clear the field.
 					await session.send<never>("Input.dispatchKeyEvent", {
 						type: "keyDown",
 						key: "Backspace",
@@ -630,7 +610,6 @@ export class Locator {
 				)
 			}
 
-			// Backward compatibility: if no status is returned (older bundle), fall back to setter logic.
 			if (!status) {
 				await this.type(value)
 			}
@@ -654,7 +633,6 @@ export class Locator {
 		const { objectId } = await this.resolveNode()
 
 		try {
-			// Focus using JS (avoids DOM.focus(nodeId))
 			await session.send<Protocol.Runtime.CallFunctionOnResponse>(
 				"Runtime.callFunctionOn",
 				{
@@ -866,8 +844,6 @@ export class Locator {
 		return new Locator(this.frame, this.selector, this.options, nextIndex)
 	}
 
-	// ---------- helpers ----------
-
 	/**
 	 * Resolve `this.selector` within the frame to `{ objectId, nodeId? }`:
 	 * Delegates to a shared selector resolver so all selector logic stays in sync.
@@ -928,7 +904,6 @@ export class Locator {
 
 	/** Compute a center point from a BoxModel content quad */
 	private centerFromBoxContent(content: number[]): { cx: number; cy: number } {
-		// content is [x1,y1, x2,y2, x3,y3, x4,y4]
 		if (!content || content.length < 8) {
 			throw new StagehandInvalidArgumentError("Invalid box model content quad")
 		}

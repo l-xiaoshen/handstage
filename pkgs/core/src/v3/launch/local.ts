@@ -111,9 +111,7 @@ function probeWebSocket(wsUrl: string, timeoutMs: number): Promise<void> {
 			clearTimeout(timer)
 			try {
 				ws.terminate()
-			} catch {
-				// best-effort cleanup
-			}
+			} catch {}
 			if (error) {
 				reject(error)
 				return

@@ -1,4 +1,3 @@
-// lib/v3/understudy/frameRegistry.ts
 import type { Protocol } from "devtools-protocol"
 
 /**
@@ -74,8 +73,6 @@ export class FrameRegistry {
 		this.ensureNode(mainFrameId)
 	}
 
-	// ---------------------- Mutators (called by Context/Page bridges) ----------------------
-
 	/**
 	 * Record that a frame attached. If `parentId` is null and `frameId` differs from the current
 	 * root, this is a root swap and we rename the root id.
@@ -87,16 +84,13 @@ export class FrameRegistry {
 		parentId: FrameId | null,
 		sessionId: SessionId,
 	): void {
-		// Root swap (parentId === null for main frames).
 		if (!parentId && frameId !== this.rootFrameId) {
 			this.renameNodeId(this.rootFrameId, frameId)
 			this.rootFrameId = frameId
-			// ownership moves to this session as well
 			this.setOwnerSessionIdInternal(frameId, sessionId)
 			return
 		}
 
-		// Normal attach
 		this.ensureNode(frameId)
 		if (parentId) this.ensureNode(parentId)
 
@@ -107,7 +101,6 @@ export class FrameRegistry {
 			this.frames.get(parentId)!.children.add(frameId)
 		}
 
-		// Ownership: the session that emitted frameAttached owns this frame.
 		this.setOwnerSessionIdInternal(frameId, sessionId)
 	}
 
@@ -120,13 +113,10 @@ export class FrameRegistry {
 		const info = this.frames.get(frame.id)!
 		info.lastSeen = frame
 
-		// Ownership follows the session that reported the navigation
 		this.setOwnerSessionIdInternal(frame.id, sessionId)
 
-		// If this frame has no parent, it might be the (new) main/root
 		if (!("parentId" in frame) || !frame.parentId) {
 			if (frame.id !== this.rootFrameId) {
-				// carry ordinal semantics by renaming the root id
 				this.renameNodeId(this.rootFrameId, frame.id)
 				this.rootFrameId = frame.id
 			}
@@ -155,7 +145,6 @@ export class FrameRegistry {
 	): void {
 		if (reason === "swap") return
 
-		// Collect subtree starting from frameId.
 		const toRemove: FrameId[] = []
 		const collect = (fid: FrameId) => {
 			toRemove.push(fid)
@@ -164,18 +153,15 @@ export class FrameRegistry {
 		}
 		collect(frameId)
 
-		// Remove nodes, fix parents and inverse maps
 		for (const fid of toRemove) {
 			const info = this.frames.get(fid)
 			if (!info) continue
 
-			// unlink from parent
 			if (info.parentId) {
 				const p = this.frames.get(info.parentId)
 				p?.children.delete(fid)
 			}
 
-			// unlink inverse session map
 			if (info.ownerSessionId) {
 				const bag = this.framesBySession.get(info.ownerSessionId)
 				bag?.delete(fid)
@@ -186,9 +172,7 @@ export class FrameRegistry {
 			this.frames.delete(fid)
 		}
 
-		// Guard root if we removed it; assign a placeholder root if needed
 		if (!this.frames.has(this.rootFrameId)) {
-			// Choose an arbitrary remaining node as root
 			const iter = this.frames.keys().next()
 			if (!iter.done) this.rootFrameId = iter.value
 		}
@@ -203,8 +187,6 @@ export class FrameRegistry {
 		childSessionId: SessionId,
 		childMainFrameId: FrameId,
 	): void {
-		// The child session will emit its own navigations/attachments; as a seed,
-		// mark the root frame as owned by the child session.
 		this.setOwnerSessionIdInternal(childMainFrameId, childSessionId)
 	}
 
@@ -219,12 +201,9 @@ export class FrameRegistry {
 	): void {
 		const walk = (tree: Protocol.Page.FrameTree, parent: FrameId | null) => {
 			this.ensureNode(tree.frame.id)
-			// topology
 			this.frames.get(tree.frame.id)!.parentId = parent
 			if (parent) this.frames.get(parent)!.children.add(tree.frame.id)
-			// last-seen frame
 			this.frames.get(tree.frame.id)!.lastSeen = tree.frame
-			// ownership (only if unknown)
 			if (!this.frames.get(tree.frame.id)!.ownerSessionId) {
 				this.setOwnerSessionIdInternal(tree.frame.id, sessionId)
 			}
@@ -241,8 +220,6 @@ export class FrameRegistry {
 		this.ensureNode(childFrameId)
 		this.frames.get(childFrameId)!.ownerBackendNodeId = backendNodeId
 	}
-
-	// ---------------------- Readers (consumed by Page/snapshot/locators) ----------------------
 
 	mainFrameId(): FrameId {
 		return this.rootFrameId
@@ -317,8 +294,6 @@ export class FrameRegistry {
 		return [...(this.framesBySession.get(sessionId) ?? new Set())]
 	}
 
-	// ---------------------- Internal helpers ----------------------
-
 	private ensureNode(fid: FrameId): void {
 		if (this.frames.has(fid)) return
 		this.frames.set(fid, {
@@ -336,11 +311,9 @@ export class FrameRegistry {
 
 		const info = this.frames.get(oldId)!
 
-		// Move info under new id
 		this.frames.delete(oldId)
 		this.frames.set(newId, { ...info })
 
-		// Fix parent’s children set
 		if (info.parentId) {
 			const p = this.frames.get(info.parentId)
 			if (p) {
@@ -349,13 +322,11 @@ export class FrameRegistry {
 			}
 		}
 
-		// Fix children’s parent pointers
 		for (const c of info.children) {
 			const ci = this.frames.get(c)
 			if (ci) ci.parentId = newId
 		}
 
-		// Fix inverse map (session -> frames)
 		if (info.ownerSessionId) {
 			const bag = this.framesBySession.get(info.ownerSessionId)
 			if (bag) {
@@ -363,8 +334,6 @@ export class FrameRegistry {
 				bag.add(newId)
 			}
 		}
-
-		// If root moved, keep the root id updated is handled by caller
 	}
 
 	private setOwnerSessionIdInternal(
@@ -374,10 +343,8 @@ export class FrameRegistry {
 		this.ensureNode(frameId)
 		const info = this.frames.get(frameId)!
 
-		// If the owner is unchanged, do nothing
 		if (info.ownerSessionId === sessionId) return
 
-		// Remove from previous owner bag
 		if (info.ownerSessionId) {
 			const prev = this.framesBySession.get(info.ownerSessionId)
 			prev?.delete(frameId)
@@ -385,7 +352,6 @@ export class FrameRegistry {
 				this.framesBySession.delete(info.ownerSessionId)
 		}
 
-		// Set new owner and update bag
 		info.ownerSessionId = sessionId
 		const bag = this.framesBySession.get(sessionId) ?? new Set<FrameId>()
 		bag.add(frameId)

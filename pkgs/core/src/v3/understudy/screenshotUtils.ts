@@ -1,5 +1,5 @@
-import type { Protocol } from "devtools-protocol"
 import { screenshotScriptSources } from "@handstage/dom/build/screenshotScripts.generated"
+import type { Protocol } from "devtools-protocol"
 import type {
 	ScreenshotClip,
 	ScreenshotScaleOption,
@@ -105,9 +105,7 @@ export async function applyStyleToFrames(
 							style.textContent = css
 							const parent = doc.head || doc.documentElement || doc.body
 							parent?.appendChild(style)
-						} catch {
-							// ignore
-						}
+						} catch {}
 					},
 					{ css: trimmed, token },
 				)
@@ -127,9 +125,7 @@ export async function applyStyleToFrames(
 								`[data-stagehand-style="${token}"]`,
 							)
 							nodes.forEach((node) => node.remove())
-						} catch {
-							// ignore
-						}
+						} catch {}
 					}, token)
 					.catch(() => {}),
 			),
@@ -176,9 +172,7 @@ export async function disableAnimations(
 								animation.cancel?.()
 							}
 						}
-					} catch {
-						// ignore
-					}
+					} catch {}
 				})
 				.catch(() => {}),
 		),
@@ -227,9 +221,7 @@ export async function applyMaskOverlays(
 				if (rect.rootToken) entry.rootTokens.add(rect.rootToken)
 			}
 			rectsByFrame.set(info.frame, entry)
-		} catch {
-			// ignore individual locator failures
-		}
+		} catch {}
 	}
 
 	if (rectsByFrame.size === 0) {
@@ -268,9 +260,7 @@ export async function applyMaskOverlays(
 											}
 											rootEl.style.position = "relative"
 										}
-									} catch {
-										// ignore
-									}
+									} catch {}
 								}
 								const el = doc.createElement("div")
 								el.setAttribute("data-stagehand-mask", token)
@@ -286,9 +276,7 @@ export async function applyMaskOverlays(
 								el.style.mixBlendMode = "normal"
 								;(root as Element).appendChild(el)
 							}
-						} catch {
-							// ignore
-						}
+						} catch {}
 					},
 					{ rects, color, token },
 				)
@@ -321,9 +309,7 @@ export async function applyMaskOverlays(
 									}
 									root.removeAttribute("data-stagehand-mask-root")
 								}
-							} catch {
-								// ignore
-							}
+							} catch {}
 						},
 						{ token, rootTokens: Array.from(rootTokens) },
 					)
@@ -358,7 +344,6 @@ async function resolveMaskRects(
 				)
 				if (rect) rects.push(rect)
 			} catch {
-				// ignore individual element failures
 			} finally {
 				await session
 					.send<never>("Runtime.releaseObject", { objectId })
@@ -433,8 +418,6 @@ export async function runScreenshotCleanups(
 			if (result && typeof (result as Promise<void>).then === "function") {
 				await result
 			}
-		} catch {
-			// ignore cleanup errors
-		}
+		} catch {}
 	}
 }

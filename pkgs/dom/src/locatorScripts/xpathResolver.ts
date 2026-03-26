@@ -145,9 +145,7 @@ function getShadowContext(): ShadowContext {
 			const stats = backdoor.stats()
 			hasShadow = (stats?.open ?? 0) > 0 || (stats?.closed ?? 0) > 0
 		}
-	} catch {
-		// ignore stats errors
-	}
+	} catch {}
 
 	if (!hasShadow) {
 		try {
@@ -162,9 +160,7 @@ function getShadowContext(): ShadowContext {
 					break
 				}
 			}
-		} catch {
-			// ignore scan errors
-		}
+		} catch {}
 	}
 
 	return { getClosedRoot, hasShadow }

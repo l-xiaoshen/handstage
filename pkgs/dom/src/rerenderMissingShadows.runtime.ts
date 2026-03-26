@@ -21,9 +21,7 @@ export function rerenderMissingShadowHosts(): void {
 			try {
 				const clone = host.cloneNode(true)
 				host.replaceWith(clone)
-			} catch {
-				// ignore individual failures
-			}
+			} catch {}
 		}
 
 		if (piercer.stats && needsReset.length) {

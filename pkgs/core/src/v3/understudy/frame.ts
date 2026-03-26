@@ -1,4 +1,3 @@
-// lib/v3/understudy/frame.ts
 import type { Protocol } from "devtools-protocol"
 import { StagehandEvalError } from "../types/public/sdkErrors"
 import type { CDPSessionLike } from "./cdp"

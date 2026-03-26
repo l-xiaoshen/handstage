@@ -266,9 +266,7 @@ export class Page {
 			await this.mainSession.send("Runtime.evaluate", {
 				expression: `typeof window.__v3Cursor!=="undefined"&&window.__v3Cursor.move(${Math.round(x)}, ${Math.round(y)})`,
 			})
-		} catch {
-			//
-		}
+		} catch {}
 	}
 
 	public async addInitScript<Arg>(
@@ -319,9 +317,7 @@ export class Page {
 					},
 				)
 			}
-		} catch {
-			// ignore
-		}
+		} catch {}
 
 		// Seed topology + ownership for nodes known at creation time.
 		page.registry.seedFromFrameTree(session.id ?? "root", frameTree)
@@ -384,13 +380,10 @@ export class Page {
 		// Update cached URL if this navigation pertains to the current main frame
 		if (frame.id === this.mainFrameId()) {
 			try {
-				// Prefer frame.url; fallback keeps previous value
 				this._currentUrl = String(
 					(frame as { url?: string })?.url ?? this._currentUrl,
 				)
-			} catch {
-				// ignore
-			}
+			} catch {}
 		}
 
 		// Invalidate the cached Frame for this id (session may have changed)
@@ -617,9 +610,7 @@ export class Page {
 			const normalized = String(url).trim()
 			if (!normalized) return
 			this._currentUrl = normalized
-		} catch {
-			// ignore invalid url seeds
-		}
+		} catch {}
 	}
 
 	public mainFrameId(): string {
@@ -636,9 +627,7 @@ export class Page {
 	public async close(): Promise<void> {
 		try {
 			await this.conn.send("Target.closeTarget", { targetId: this._targetId })
-		} catch {
-			// ignore
-		}
+		} catch {}
 		const deadline = Date.now() + 2000
 		while (Date.now() < deadline) {
 			try {
@@ -647,9 +636,7 @@ export class Page {
 					this.networkManager.dispose()
 					return
 				}
-			} catch {
-				// ignore and retry
-			}
+			} catch {}
 			await new Promise((r) => setTimeout(r, 25))
 		}
 		this.networkManager.dispose()
@@ -1406,15 +1393,10 @@ export class Page {
 						},
 					})
 				}
-			} catch {
-				// best-effort; fall through if any step fails
-			}
+			} catch {}
 		}
 
-		// Synthesize a simple mouse move + press + release sequence.
 		await this.updateCursor(x, y)
-		// Dispatch click events in a pipelined burst to reduce inter-click delay
-		// from network/CPU jitter between round trips.
 		const dispatches: Array<Promise<unknown>> = []
 		dispatches.push(
 			this.mainSession.send<never>("Input.dispatchMouseEvent", {
@@ -1511,9 +1493,7 @@ export class Page {
 			try {
 				const hit = await resolveXpathForLocation(this, x, y)
 				if (hit) xpathResult = hit.absoluteXPath
-			} catch {
-				// best-effort
-			}
+			} catch {}
 		}
 
 		await this.updateCursor(x, y)
@@ -1524,7 +1504,6 @@ export class Page {
 			button: "none",
 		} as Protocol.Input.DispatchMouseEventRequest)
 
-		// Synthesize a simple mouse move + press + release sequence
 		await this.mainSession.send<never>("Input.dispatchMouseEvent", {
 			type: "mouseWheel",
 			x,
@@ -1579,15 +1558,11 @@ export class Page {
 			try {
 				const start = await resolveXpathForLocation(this, fromX, fromY)
 				if (start) fromXpath = start.absoluteXPath
-			} catch {
-				//
-			}
+			} catch {}
 			try {
 				const end = await resolveXpathForLocation(this, toX, toY)
 				if (end) toXpath = end.absoluteXPath
-			} catch {
-				//
-			}
+			} catch {}
 		}
 
 		// Move to start

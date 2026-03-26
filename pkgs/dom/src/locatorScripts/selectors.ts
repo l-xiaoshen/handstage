@@ -25,9 +25,7 @@ const collectCssMatches = (selector: string, limit: number): Element[] => {
 				results.push(element)
 				if (results.length >= limit) return
 			}
-		} catch {
-			// ignore querySelectorAll issues
-		}
+		} catch {}
 
 		try {
 			const ownerDocument =
@@ -42,9 +40,7 @@ const collectCssMatches = (selector: string, limit: number): Element[] => {
 				const open = node.shadowRoot
 				if (open) queue.push(open)
 			}
-		} catch {
-			// ignore traversal issues
-		}
+		} catch {}
 	}
 
 	while (queue.length && results.length < limit) {
@@ -109,9 +105,7 @@ export function resolveCssSelectorPierce(
 				results.push(element)
 				if (results.length >= targetIndex + 1) return
 			}
-		} catch {
-			// ignore query errors
-		}
+		} catch {}
 
 		try {
 			const ownerDocument =
@@ -128,9 +122,7 @@ export function resolveCssSelectorPierce(
 				const closed = getClosedRoot(node)
 				if (closed) queue.push(closed)
 			}
-		} catch {
-			// ignore traversal issues
-		}
+		} catch {}
 	}
 
 	while (queue.length && results.length < targetIndex + 1) {
@@ -174,15 +166,11 @@ export function resolveTextSelector(
 			if (shouldSkip(node)) return ""
 			const inner = (node as HTMLElement).innerText
 			if (typeof inner === "string" && inner.trim()) return inner.trim()
-		} catch {
-			// ignore
-		}
+		} catch {}
 		try {
 			const text = node.textContent
 			if (typeof text === "string") return text.trim()
-		} catch {
-			// ignore
-		}
+		} catch {}
 		return ""
 	}
 
@@ -286,9 +274,7 @@ export function resolveTextSelector(
 					skip = true
 					break
 				}
-			} catch {
-				// ignore containment errors
-			}
+			} catch {}
 		}
 		if (!skip) {
 			innermost.push(item)

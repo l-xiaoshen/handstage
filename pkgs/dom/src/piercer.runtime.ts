@@ -31,7 +31,6 @@ declare global {
 }
 
 export function installV3ShadowPiercer(opts: V3ShadowPatchOptions = {}): void {
-	// hardcoded debug (remove later if desired)
 	const DEBUG = true
 
 	type PatchedFn = Element["attachShadow"] & {
@@ -54,17 +53,13 @@ export function installV3ShadowPiercer(opts: V3ShadowPatchOptions = {}): void {
 		} satisfies StagehandV3Backdoor
 	}
 
-	// Look at the *current* function on the prototype. If it's already our patched
-	// function, reuse its shared state and rebind the backdoor (no new WeakMap).
 	const currentFn = Element.prototype.attachShadow as PatchedFn
 	if (currentFn.__v3Patched && currentFn.__v3State) {
-		currentFn.__v3State.debug = DEBUG // keep debug toggle consistent
+		currentFn.__v3State.debug = DEBUG
 		bindBackdoor(currentFn.__v3State)
-		// idempotent: do not log "installed" again
 		return
 	}
 
-	// First-time install: create shared state and replace the prototype method
 	const state: V3InternalState = {
 		hostToRoot: new WeakMap<Element, ShadowRoot>(),
 		openCount: 0,
@@ -72,7 +67,7 @@ export function installV3ShadowPiercer(opts: V3ShadowPatchOptions = {}): void {
 		debug: DEBUG,
 	}
 
-	const original = currentFn // keep a reference to call through
+	const original = currentFn
 	const patched: PatchedFn = function (
 		this: Element,
 		init: ShadowRootInit,
@@ -90,13 +85,10 @@ export function installV3ShadowPiercer(opts: V3ShadowPatchOptions = {}): void {
 					url: location.href,
 				})
 			}
-		} catch {
-			//
-		}
+		} catch {}
 		return root
 	} as PatchedFn
 
-	// Mark the *patched* function with metadata so re-entry sees it
 	patched.__v3Patched = true
 	patched.__v3State = state
 
@@ -106,7 +98,6 @@ export function installV3ShadowPiercer(opts: V3ShadowPatchOptions = {}): void {
 		value: patched,
 	})
 
-	// Optionally tag existing open roots (closed cannot be discovered post-hoc)
 	if (opts.tagExisting) {
 		try {
 			const walker = document.createTreeWalker(
@@ -120,9 +111,7 @@ export function installV3ShadowPiercer(opts: V3ShadowPatchOptions = {}): void {
 					state.openCount++
 				}
 			}
-		} catch {
-			//
-		}
+		} catch {}
 	}
 
 	window.__stagehandV3Injected = true

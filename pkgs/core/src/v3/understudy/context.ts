@@ -1,6 +1,5 @@
-// lib/v3/understudy/context.ts
-import type { Protocol } from "devtools-protocol"
 import { v3ScriptContent } from "@handstage/dom/build/scriptV3Content"
+import type { Protocol } from "devtools-protocol"
 import { v3Logger } from "../logger"
 import { getEnvTimeoutMs } from "../timeoutConfig"
 import type { InitScriptSource } from "../types/private/index"
@@ -520,9 +519,7 @@ export class V3Context {
 			if (t.attached) continue // auto-attach already handled this target
 			try {
 				await this.conn.attachToTarget(t.targetId)
-			} catch {
-				// ignore attach race
-			}
+			} catch {}
 		}
 
 		const topLevelTargetIds = targets
