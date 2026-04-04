@@ -19,7 +19,7 @@ export interface V3Options {
 	env?: V3Env
 	/**
 	 * Optional external session identifier.
-	 * When omitted, Stagehand falls back to its internal instance id.
+	 * When omitted, Handstages falls back to its internal instance id.
 	 */
 	sessionId?: string
 	/**

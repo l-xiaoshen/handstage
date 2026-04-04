@@ -3,7 +3,7 @@
  * -------------------------
  *
  * Tracks DevTools Protocol network events for a single navigation command so
- * Stagehand can surface a Playwright-like response object from `Page.goto` and
+ * Handstages can surface a Playwright-like response object from `Page.goto` and
  * related APIs. The tracker listens for `Network.responseReceived` events that
  * correspond to the targeted document navigation, handles loader-id churn that
  * arises from redirects or preloading, and enriches the resulting

@@ -12,8 +12,8 @@ import type { LocalBrowserLaunchOptions } from "../types/public/index"
 import { LogLevel } from "../types/public/logs"
 import {
 	CookieSetError,
+	HandstagesSetExtraHTTPHeadersError,
 	PageNotFoundError,
-	StagehandSetExtraHTTPHeadersError,
 	TimeoutError,
 } from "../types/public/sdkErrors"
 import { type CDPSessionLike, CdpConnection } from "./cdp"
@@ -73,7 +73,7 @@ function isTopLevelPage(info: Protocol.Target.TargetInfo): boolean {
 const DEFAULT_FIRST_TOP_LEVEL_PAGE_TIMEOUT_MS = 5000
 const CI_FIRST_TOP_LEVEL_PAGE_TIMEOUT_MS = 30000
 const FIRST_TOP_LEVEL_PAGE_TIMEOUT_ENV =
-	"STAGEHAND_FIRST_TOP_LEVEL_PAGE_TIMEOUT_MS"
+	"HANDSTAGES_FIRST_TOP_LEVEL_PAGE_TIMEOUT_MS"
 const WAIT_FOR_FIRST_TOP_LEVEL_PAGE_OPERATION =
 	"waitForFirstTopLevelPage (no top-level Page)"
 
@@ -367,7 +367,7 @@ export class V3Context {
 			})
 
 		if (failures.length) {
-			throw new StagehandSetExtraHTTPHeadersError(failures)
+			throw new HandstagesSetExtraHTTPHeadersError(failures)
 		}
 	}
 

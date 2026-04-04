@@ -6,7 +6,7 @@ import type {
 	SetInputFilePayload,
 	SetInputFilesArgument,
 } from "../types/public/locator"
-import { StagehandInvalidArgumentError } from "../types/public/sdkErrors"
+import { HandstagesInvalidArgumentError } from "../types/public/sdkErrors"
 
 const DEFAULT_MIME_TYPE = "application/octet-stream"
 
@@ -37,7 +37,7 @@ export async function normalizeInputFiles(
 				: path.resolve(baseDir, entry)
 			const stat = await statFile(absolutePath)
 			if (!stat.isFile()) {
-				throw new StagehandInvalidArgumentError(
+				throw new HandstagesInvalidArgumentError(
 					`setInputFiles(): expected a file but received directory or special entry at ${absolutePath}`,
 				)
 			}
@@ -67,7 +67,7 @@ export async function normalizeInputFiles(
 			continue
 		}
 
-		throw new StagehandInvalidArgumentError(
+		throw new HandstagesInvalidArgumentError(
 			"setInputFiles(): expected file path(s) or payload object(s)",
 		)
 	}
@@ -81,7 +81,7 @@ async function statFile(absolutePath: string): Promise<Stats> {
 	} catch (error) {
 		const code = (error as NodeJS.ErrnoException)?.code
 		if (code === "ENOENT") {
-			throw new StagehandInvalidArgumentError(
+			throw new HandstagesInvalidArgumentError(
 				`setInputFiles(): file not found at ${absolutePath}`,
 			)
 		}
@@ -96,7 +96,7 @@ export function toBuffer(
 	if (data instanceof Uint8Array) return Buffer.from(data)
 	if (typeof data === "string") return Buffer.from(data)
 	if (data instanceof ArrayBuffer) return Buffer.from(new Uint8Array(data))
-	throw new StagehandInvalidArgumentError(
+	throw new HandstagesInvalidArgumentError(
 		"Unsupported file payload buffer type",
 	)
 }

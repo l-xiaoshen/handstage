@@ -9,7 +9,7 @@
 		}
 	},
 	"bin": {
-		"stagehand": "./dist/v3/cli.js"
+		"handstages": "./dist/v3/cli.js"
 	},
 	"files": [
 		"dist",

@@ -14,9 +14,9 @@ import type {
 } from "../types/public/locator"
 import {
 	ElementNotVisibleError,
-	StagehandElementNotFoundError,
-	StagehandInvalidArgumentError,
-	StagehandLocatorError,
+	HandstagesElementNotFoundError,
+	HandstagesInvalidArgumentError,
+	HandstagesLocatorError,
 } from "../types/public/sdkErrors"
 import { normalizeInputFiles } from "./fileUploadUtils"
 import type { Frame } from "./frame"
@@ -95,11 +95,11 @@ export class Locator {
 				)
 				const ok = Boolean(res.result.value)
 				if (!ok)
-					throw new StagehandInvalidArgumentError(
+					throw new HandstagesInvalidArgumentError(
 						'Target is not an <input type="file"> element',
 					)
 			} catch (e) {
-				throw new StagehandInvalidArgumentError(
+				throw new HandstagesInvalidArgumentError(
 					e instanceof Error
 						? e.message
 						: "Unable to verify file input element",
@@ -130,7 +130,7 @@ export class Locator {
 				const ext = path.extname(payload.name)
 				const tmp = path.join(
 					os.tmpdir(),
-					`stagehand-upload-${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`,
+					`handstages-upload-${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`,
 				)
 				await fs.promises.writeFile(tmp, payload.buffer)
 				tempFiles.push(tmp)
@@ -156,7 +156,7 @@ export class Locator {
 	/**
 	 * Remote browser fallback: build File objects inside the page and attach them via JS.
 	 *
-	 * When Stagehand is driving a browser that cannot see the local filesystem (e.g. remote
+	 * When Handstages is driving a browser that cannot see the local filesystem (e.g. remote
 	 * CDP), CDP's DOM.setFileInputFiles would fail because Chrome can't reach
 	 * our temp files. Instead we base64-encode the payloads, send them into the page, and
 	 * let a DOM helper create File objects + dispatch change/input events.
@@ -169,7 +169,7 @@ export class Locator {
 
 		for (const payload of files) {
 			if (payload.buffer.length > MAX_REMOTE_UPLOAD_BYTES) {
-				throw new StagehandInvalidArgumentError(
+				throw new HandstagesInvalidArgumentError(
 					`setInputFiles(): file "${payload.name}" is larger than the 50MB limit for remote uploads`,
 				)
 			}
@@ -199,7 +199,7 @@ export class Locator {
 
 		const ok = Boolean(res.result?.value)
 		if (!ok) {
-			throw new StagehandInvalidArgumentError(
+			throw new HandstagesInvalidArgumentError(
 				"Unable to assign file payloads to remote input element",
 			)
 		}
@@ -526,7 +526,7 @@ export class Locator {
 					res.exceptionDetails.exception?.description ??
 					res.exceptionDetails.text ??
 					"Unknown exception during locator().fill()"
-				throw new StagehandLocatorError("Filling", this.selector, message)
+				throw new HandstagesLocatorError("Filling", this.selector, message)
 			}
 
 			const result = res.result.value as
@@ -605,7 +605,7 @@ export class Locator {
 					typeof result?.reason === "string" && result.reason.length > 0
 						? result.reason
 						: "Failed to fill element"
-				throw new StagehandInvalidArgumentError(
+				throw new HandstagesInvalidArgumentError(
 					`Failed to fill element (${reason})`,
 				)
 			}
@@ -831,7 +831,7 @@ export class Locator {
 	nth(index: number): Locator {
 		const value = Number(index)
 		if (!Number.isFinite(value) || value < 0) {
-			throw new StagehandInvalidArgumentError(
+			throw new HandstagesInvalidArgumentError(
 				"locator().nth() expects a non-negative index",
 			)
 		}
@@ -863,7 +863,7 @@ export class Locator {
 			index,
 		)
 		if (!resolved) {
-			throw new StagehandElementNotFoundError([this.selector])
+			throw new HandstagesElementNotFoundError([this.selector])
 		}
 
 		return resolved
@@ -890,14 +890,14 @@ export class Locator {
 				this.nthIndex,
 			)
 			if (!resolved) {
-				throw new StagehandElementNotFoundError([this.selector])
+				throw new HandstagesElementNotFoundError([this.selector])
 			}
 			return [resolved]
 		}
 
 		const resolved = await this.selectorResolver.resolveAll(this.selectorQuery)
 		if (!resolved.length) {
-			throw new StagehandElementNotFoundError([this.selector])
+			throw new HandstagesElementNotFoundError([this.selector])
 		}
 		return resolved
 	}
@@ -905,7 +905,7 @@ export class Locator {
 	/** Compute a center point from a BoxModel content quad */
 	private centerFromBoxContent(content: number[]): { cx: number; cy: number } {
 		if (!content || content.length < 8) {
-			throw new StagehandInvalidArgumentError("Invalid box model content quad")
+			throw new HandstagesInvalidArgumentError("Invalid box model content quad")
 		}
 		const xs = [content[0], content[2], content[4], content[6]]
 		const ys = [content[1], content[3], content[5], content[7]]

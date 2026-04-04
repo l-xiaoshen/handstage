@@ -1,3 +1,3 @@
-# stagehand
+# handstages
 
-A stagehand fork.
+A handstages fork.

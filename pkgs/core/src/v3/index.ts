@@ -4,14 +4,14 @@ import { V3 } from "./v3"
 
 export { maybeRunShutdownSupervisorFromArgv as __internalMaybeRunShutdownSupervisorFromArgv } from "./shutdown/supervisor"
 export * from "./types/public/index"
-export { V3, V3 as Stagehand } from "./v3"
+export { V3, V3 as Handstages } from "./v3"
 
-const StagehandDefault = {
+const HandstagesDefault = {
 	...PublicApi,
 	V3,
-	Stagehand: V3,
+	Handstages: V3,
 	__internalMaybeRunShutdownSupervisorFromArgv:
 		maybeRunShutdownSupervisorFromArgv,
 }
 
-export default StagehandDefault
+export default HandstagesDefault

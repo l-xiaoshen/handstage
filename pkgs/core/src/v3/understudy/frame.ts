@@ -1,5 +1,5 @@
 import type { Protocol } from "devtools-protocol"
-import { StagehandEvalError } from "../types/public/sdkErrors"
+import { HandstagesEvalError } from "../types/public/sdkErrors"
 import type { CDPSessionLike } from "./cdp"
 import { executionContexts } from "./executionContextRegistry"
 import { Locator } from "./locator"
@@ -176,7 +176,7 @@ export class Frame implements FrameManager {
 			)
 		}
 		if (res.exceptionDetails) {
-			throw new StagehandEvalError(
+			throw new HandstagesEvalError(
 				res.exceptionDetails.text ?? "Evaluation failed",
 			)
 		}

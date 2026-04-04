@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "stagehand",
+      "name": "handstages",
       "devDependencies": {
         "@biomejs/biome": "^2.4.8",
         "@types/bun": "latest",
@@ -30,7 +30,7 @@
       "name": "@handstage/core",
       "version": "0.0.2",
       "bin": {
-        "stagehand": "./dist/v3/cli.js",
+        "handstages": "./dist/v3/cli.js",
       },
       "dependencies": {
         "@handstage/dom": "workspace:*",

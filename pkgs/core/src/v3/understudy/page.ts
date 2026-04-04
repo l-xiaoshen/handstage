@@ -4,9 +4,9 @@ import { v3Logger } from "../logger"
 import { withTimeout } from "../timeoutConfig"
 import type { InitScriptSource } from "../types/private/index"
 import {
+	HandstagesSetExtraHTTPHeadersError,
+	HandstagesSnapshotError,
 	type LocalBrowserLaunchOptions,
-	StagehandSetExtraHTTPHeadersError,
-	StagehandSnapshotError,
 } from "../types/public/index"
 import { LogLevel } from "../types/public/logs"
 import type {
@@ -21,8 +21,8 @@ import type {
 	ScreenshotScaleOption,
 } from "../types/public/screenshotTypes"
 import {
-	StagehandEvalError,
-	StagehandInvalidArgumentError,
+	HandstagesEvalError,
+	HandstagesInvalidArgumentError,
 } from "../types/public/sdkErrors"
 import {
 	captureHybridSnapshot,
@@ -534,7 +534,7 @@ export class Page {
 
 	public on(event: "console", listener: ConsoleListener): Page {
 		if (event !== "console") {
-			throw new StagehandInvalidArgumentError(`Unsupported event: ${event}`)
+			throw new HandstagesInvalidArgumentError(`Unsupported event: ${event}`)
 		}
 
 		const firstListener = this.consoleListeners.size === 0
@@ -549,7 +549,7 @@ export class Page {
 
 	public once(event: "console", listener: ConsoleListener): Page {
 		if (event !== "console") {
-			throw new StagehandInvalidArgumentError(`Unsupported event: ${event}`)
+			throw new HandstagesInvalidArgumentError(`Unsupported event: ${event}`)
 		}
 
 		const wrapper: ConsoleListener = (message) => {
@@ -562,7 +562,7 @@ export class Page {
 
 	public off(event: "console", listener: ConsoleListener): Page {
 		if (event !== "console") {
-			throw new StagehandInvalidArgumentError(`Unsupported event: ${event}`)
+			throw new HandstagesInvalidArgumentError(`Unsupported event: ${event}`)
 		}
 
 		this.consoleListeners.delete(listener)
@@ -1041,19 +1041,19 @@ export class Page {
 		const type = opts.type ?? "png"
 
 		if (type !== "png" && type !== "jpeg") {
-			throw new StagehandInvalidArgumentError(
+			throw new HandstagesInvalidArgumentError(
 				`screenshot: unsupported image type "${type}"`,
 			)
 		}
 
 		if (opts.fullPage && opts.clip) {
-			throw new StagehandInvalidArgumentError(
+			throw new HandstagesInvalidArgumentError(
 				"screenshot: clip and fullPage cannot be used together",
 			)
 		}
 
 		if (type === "png" && typeof opts.quality === "number") {
-			throw new StagehandInvalidArgumentError(
+			throw new HandstagesInvalidArgumentError(
 				'screenshot: quality option is only valid for type="jpeg"',
 			)
 		}
@@ -1123,7 +1123,7 @@ export class Page {
 	 * the root CDP session of the page, and all of its child CDP sessions.
 	 *
 	 * @param headers - the headers to be set.
-	 * @throws {StagehandSetExtraHTTPHeadersError}
+	 * @throws {HandstagesSetExtraHTTPHeadersError}
 	 * Thrown when one or more CDP sessions fail to enable the Network domain or fail
 	 * to apply the headers (i.e. `Network.enable` and/or `Network.setExtraHTTPHeaders` rejects).
 	 * @return void
@@ -1164,7 +1164,7 @@ export class Page {
 		})
 
 		if (errors.length > 0) {
-			throw new StagehandSetExtraHTTPHeadersError(errors)
+			throw new HandstagesSetExtraHTTPHeadersError(errors)
 		}
 	}
 
@@ -1312,7 +1312,7 @@ export class Page {
 				exceptionDetails.text ||
 				exceptionDetails.exception?.description ||
 				"Evaluation failed"
-			throw new StagehandEvalError(msg)
+			throw new HandstagesEvalError(msg)
 		}
 
 		return result?.value as R
@@ -1811,7 +1811,7 @@ export class Page {
 				urlMap: combinedUrlMap,
 			}
 		} catch (err) {
-			throw new StagehandSnapshotError(err)
+			throw new HandstagesSnapshotError(err)
 		}
 	}
 
