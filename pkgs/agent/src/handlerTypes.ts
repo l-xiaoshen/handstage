@@ -1,23 +1,60 @@
 import type { Page } from "@handstage/core"
-import type {
-	ClickInput,
-	ClickOnInput,
-	FillOnInput,
-	GoBackInput,
-	GoForwardInput,
-	GotoInput,
-	HoverInput,
-	HoverOnInput,
-	NewPageInput,
-	PageInfoInput,
-	PagesInput,
-	ReloadInput,
-	ScrollInput,
-	SetActivePageInput,
-	SnapshotInput,
-	TypeInput,
-	TypeOnInput,
-} from "./schemas"
+import type { InferToolInput, InferToolOutput } from "ai"
+import type { handstagesAgentTools } from "./definitions"
+
+export type HandstagesAgentToolName = keyof typeof handstagesAgentTools
+
+export type HandstagesAgentPagesInput = InferToolInput<
+	(typeof handstagesAgentTools)["pages"]
+>
+export type HandstagesAgentNewPageInput = InferToolInput<
+	(typeof handstagesAgentTools)["newPage"]
+>
+export type HandstagesAgentSetActivePageInput = InferToolInput<
+	(typeof handstagesAgentTools)["setActivePage"]
+>
+export type HandstagesAgentGotoInput = InferToolInput<
+	(typeof handstagesAgentTools)["goto"]
+>
+export type HandstagesAgentReloadInput = InferToolInput<
+	(typeof handstagesAgentTools)["reload"]
+>
+export type HandstagesAgentGoBackInput = InferToolInput<
+	(typeof handstagesAgentTools)["goBack"]
+>
+export type HandstagesAgentGoForwardInput = InferToolInput<
+	(typeof handstagesAgentTools)["goForward"]
+>
+export type HandstagesAgentSnapshotInput = InferToolInput<
+	(typeof handstagesAgentTools)["snapshot"]
+>
+export type HandstagesAgentPageInfoInput = InferToolInput<
+	(typeof handstagesAgentTools)["pageInfo"]
+>
+export type HandstagesAgentClickInput = InferToolInput<
+	(typeof handstagesAgentTools)["click"]
+>
+export type HandstagesAgentHoverInput = InferToolInput<
+	(typeof handstagesAgentTools)["hover"]
+>
+export type HandstagesAgentScrollInput = InferToolInput<
+	(typeof handstagesAgentTools)["scroll"]
+>
+export type HandstagesAgentTypeInput = InferToolInput<
+	(typeof handstagesAgentTools)["type"]
+>
+export type HandstagesAgentClickOnInput = InferToolInput<
+	(typeof handstagesAgentTools)["click_on"]
+>
+export type HandstagesAgentFillOnInput = InferToolInput<
+	(typeof handstagesAgentTools)["fill_on"]
+>
+export type HandstagesAgentTypeOnInput = InferToolInput<
+	(typeof handstagesAgentTools)["type_on"]
+>
+export type HandstagesAgentHoverOnInput = InferToolInput<
+	(typeof handstagesAgentTools)["hover_on"]
+>
 
 /**
  * Browser context exposed by Handstages (`V3.context` after init). Implementations
@@ -30,83 +67,96 @@ export interface HandstagesAgentContext {
 	newPage(url?: string): Promise<Page>
 }
 
-export type HandstagesAgentPageEntry = {
-	pageId: string
-	url: string
-	title: string
-	activated: boolean
-}
+export type HandstagesAgentPagesOutput = InferToolOutput<
+	(typeof handstagesAgentTools)["pages"]
+>
+export type HandstagesAgentNewPageOutput = InferToolOutput<
+	(typeof handstagesAgentTools)["newPage"]
+>
+export type HandstagesAgentSetActivePageOutput = InferToolOutput<
+	(typeof handstagesAgentTools)["setActivePage"]
+>
+export type HandstagesAgentGotoOutput = InferToolOutput<
+	(typeof handstagesAgentTools)["goto"]
+>
+export type HandstagesAgentReloadOutput = InferToolOutput<
+	(typeof handstagesAgentTools)["reload"]
+>
+export type HandstagesAgentHistoryNavOutput = InferToolOutput<
+	(typeof handstagesAgentTools)["goBack"]
+>
+export type HandstagesAgentSnapshotOutput = InferToolOutput<
+	(typeof handstagesAgentTools)["snapshot"]
+>
+export type HandstagesAgentPageInfoOutput = InferToolOutput<
+	(typeof handstagesAgentTools)["pageInfo"]
+>
+export type HandstagesAgentPointerOutput = InferToolOutput<
+	(typeof handstagesAgentTools)["click"]
+>
+export type HandstagesAgentTypeOutput = InferToolOutput<
+	(typeof handstagesAgentTools)["type"]
+>
+export type HandstagesAgentElementActionOutput = InferToolOutput<
+	(typeof handstagesAgentTools)["click_on"]
+>
 
-export type HandstagesAgentPagesOutput = { pages: HandstagesAgentPageEntry[] }
+export type HandstagesAgentPageEntry =
+	HandstagesAgentPagesOutput["pages"][number]
 
-export type HandstagesAgentNewPageOutput = { pageId: string }
-
-export type HandstagesAgentOkResult = { ok: true }
-export type HandstagesAgentErrResult = { ok: false; error: string }
-
-export type HandstagesAgentSetActivePageOutput =
-	| HandstagesAgentOkResult
-	| HandstagesAgentErrResult
-
-export type HandstagesAgentGotoOutput =
-	| { ok: true; url: string }
-	| HandstagesAgentErrResult
-
-export type HandstagesAgentReloadOutput =
-	| { ok: true; url: string }
-	| HandstagesAgentErrResult
-
-export type HandstagesAgentHistoryNavOutput =
-	| { ok: true; navigated: boolean; url: string }
-	| HandstagesAgentErrResult
-
-export type HandstagesAgentSnapshotOutput =
-	| {
-			ok: true
-			tree: string
-			xpathMap: Record<string, string>
-			urlMap: Record<string, string>
-	  }
-	| HandstagesAgentErrResult
-
-export type HandstagesAgentPageInfoOutput =
-	| { ok: true; url: string; title: string }
-	| HandstagesAgentErrResult
-
-export type HandstagesAgentPointerOutput =
-	| { ok: true; xpathAtPoint?: string }
-	| HandstagesAgentErrResult
-
-export type HandstagesAgentTypeOutput =
-	| HandstagesAgentOkResult
-	| HandstagesAgentErrResult
-
-export type HandstagesAgentElementActionOutput =
-	| HandstagesAgentOkResult
-	| HandstagesAgentErrResult
+export type HandstagesAgentOkResult = Extract<
+	HandstagesAgentSetActivePageOutput,
+	{ ok: true }
+>
+export type HandstagesAgentErrResult = Extract<
+	HandstagesAgentSetActivePageOutput,
+	{ ok: false }
+>
 
 /**
- * Implementations perform Handstages actions for each tool. Inputs match the Zod
- * schemas in `./schemas`; outputs match the tool’s intended results.
+ * Implementations perform Handstages actions for each tool. Inputs and outputs are
+ * inferred from {@link handstagesAgentTools} via the AI SDK.
  */
 export interface HandstagesAgentToolHandlers {
-	pages(input: PagesInput): Promise<HandstagesAgentPagesOutput>
-	newPage(input: NewPageInput): Promise<HandstagesAgentNewPageOutput>
+	pages(input: HandstagesAgentPagesInput): Promise<HandstagesAgentPagesOutput>
+	newPage(
+		input: HandstagesAgentNewPageInput,
+	): Promise<HandstagesAgentNewPageOutput>
 	setActivePage(
-		input: SetActivePageInput,
+		input: HandstagesAgentSetActivePageInput,
 	): Promise<HandstagesAgentSetActivePageOutput>
-	goto(input: GotoInput): Promise<HandstagesAgentGotoOutput>
-	reload(input: ReloadInput): Promise<HandstagesAgentReloadOutput>
-	goBack(input: GoBackInput): Promise<HandstagesAgentHistoryNavOutput>
-	goForward(input: GoForwardInput): Promise<HandstagesAgentHistoryNavOutput>
-	snapshot(input: SnapshotInput): Promise<HandstagesAgentSnapshotOutput>
-	pageInfo(input: PageInfoInput): Promise<HandstagesAgentPageInfoOutput>
-	click(input: ClickInput): Promise<HandstagesAgentPointerOutput>
-	hover(input: HoverInput): Promise<HandstagesAgentPointerOutput>
-	scroll(input: ScrollInput): Promise<HandstagesAgentPointerOutput>
-	type(input: TypeInput): Promise<HandstagesAgentTypeOutput>
-	click_on(input: ClickOnInput): Promise<HandstagesAgentElementActionOutput>
-	fill_on(input: FillOnInput): Promise<HandstagesAgentElementActionOutput>
-	type_on(input: TypeOnInput): Promise<HandstagesAgentElementActionOutput>
-	hover_on(input: HoverOnInput): Promise<HandstagesAgentElementActionOutput>
+	goto(input: HandstagesAgentGotoInput): Promise<HandstagesAgentGotoOutput>
+	reload(
+		input: HandstagesAgentReloadInput,
+	): Promise<HandstagesAgentReloadOutput>
+	goBack(
+		input: HandstagesAgentGoBackInput,
+	): Promise<HandstagesAgentHistoryNavOutput>
+	goForward(
+		input: HandstagesAgentGoForwardInput,
+	): Promise<HandstagesAgentHistoryNavOutput>
+	snapshot(
+		input: HandstagesAgentSnapshotInput,
+	): Promise<HandstagesAgentSnapshotOutput>
+	pageInfo(
+		input: HandstagesAgentPageInfoInput,
+	): Promise<HandstagesAgentPageInfoOutput>
+	click(input: HandstagesAgentClickInput): Promise<HandstagesAgentPointerOutput>
+	hover(input: HandstagesAgentHoverInput): Promise<HandstagesAgentPointerOutput>
+	scroll(
+		input: HandstagesAgentScrollInput,
+	): Promise<HandstagesAgentPointerOutput>
+	type(input: HandstagesAgentTypeInput): Promise<HandstagesAgentTypeOutput>
+	click_on(
+		input: HandstagesAgentClickOnInput,
+	): Promise<HandstagesAgentElementActionOutput>
+	fill_on(
+		input: HandstagesAgentFillOnInput,
+	): Promise<HandstagesAgentElementActionOutput>
+	type_on(
+		input: HandstagesAgentTypeOnInput,
+	): Promise<HandstagesAgentElementActionOutput>
+	hover_on(
+		input: HandstagesAgentHoverOnInput,
+	): Promise<HandstagesAgentElementActionOutput>
 }
