@@ -5,54 +5,66 @@ import type { handstagesAgentTools } from "./definitions"
 type Tools = typeof handstagesAgentTools
 
 /**
- * Inferred tool input/output types for the Handstages browser agent, grouped by
- * namespace so call sites can use e.g. `HandstagesAgent.Input.NewPage` instead of
- * long prefixed type names.
+ * Inferred tool input/output types for the Handstages browser agent, e.g.
+ * `HandstagesAgent.NewPageInput` / `HandstagesAgent.NewPageOutput`.
  */
 export namespace HandstagesAgent {
 	export type ToolName = keyof Tools
 
-	export namespace Input {
-		export type Pages = InferToolInput<Tools["pages"]>
-		export type NewPage = InferToolInput<Tools["newPage"]>
-		export type SetActivePage = InferToolInput<Tools["setActivePage"]>
-		export type Goto = InferToolInput<Tools["goto"]>
-		export type Reload = InferToolInput<Tools["reload"]>
-		export type GoBack = InferToolInput<Tools["goBack"]>
-		export type GoForward = InferToolInput<Tools["goForward"]>
-		export type Snapshot = InferToolInput<Tools["snapshot"]>
-		export type PageInfo = InferToolInput<Tools["pageInfo"]>
-		export type Click = InferToolInput<Tools["click"]>
-		export type Hover = InferToolInput<Tools["hover"]>
-		export type Scroll = InferToolInput<Tools["scroll"]>
-		/** Input for the `type` tool (keyboard text entry). */
-		export type Type = InferToolInput<Tools["type"]>
-		export type ClickOn = InferToolInput<Tools["click_on"]>
-		export type FillOn = InferToolInput<Tools["fill_on"]>
-		export type TypeOn = InferToolInput<Tools["type_on"]>
-		export type HoverOn = InferToolInput<Tools["hover_on"]>
-	}
+	export type PagesInput = InferToolInput<Tools["pages"]>
+	export type PagesOutput = InferToolOutput<Tools["pages"]>
+	export type PageEntry = PagesOutput["pages"][number]
 
-	export namespace Output {
-		export type Pages = InferToolOutput<Tools["pages"]>
-		export type PageEntry = Pages["pages"][number]
-		export type NewPage = InferToolOutput<Tools["newPage"]>
-		export type SetActivePage = InferToolOutput<Tools["setActivePage"]>
-		export type Goto = InferToolOutput<Tools["goto"]>
-		export type Reload = InferToolOutput<Tools["reload"]>
-		export type HistoryNav = InferToolOutput<Tools["goBack"]>
-		export type Snapshot = InferToolOutput<Tools["snapshot"]>
-		export type PageInfo = InferToolOutput<Tools["pageInfo"]>
-		/** Result for click, hover, and scroll pointer tools. */
-		export type Pointer = InferToolOutput<Tools["click"]>
-		/** Result for the `type` tool. */
-		export type Type = InferToolOutput<Tools["type"]>
-		/** Result for click_on, fill_on, type_on, hover_on. */
-		export type ElementAction = InferToolOutput<Tools["click_on"]>
-	}
+	export type NewPageInput = InferToolInput<Tools["newPage"]>
+	export type NewPageOutput = InferToolOutput<Tools["newPage"]>
 
-	export type OkResult = Extract<Output.SetActivePage, { ok: true }>
-	export type ErrResult = Extract<Output.SetActivePage, { ok: false }>
+	export type SetActivePageInput = InferToolInput<Tools["setActivePage"]>
+	export type SetActivePageOutput = InferToolOutput<Tools["setActivePage"]>
+
+	export type GotoInput = InferToolInput<Tools["goto"]>
+	export type GotoOutput = InferToolOutput<Tools["goto"]>
+
+	export type ReloadInput = InferToolInput<Tools["reload"]>
+	export type ReloadOutput = InferToolOutput<Tools["reload"]>
+
+	export type GoBackInput = InferToolInput<Tools["goBack"]>
+	export type GoBackOutput = InferToolOutput<Tools["goBack"]>
+
+	export type GoForwardInput = InferToolInput<Tools["goForward"]>
+	export type GoForwardOutput = InferToolOutput<Tools["goForward"]>
+
+	export type SnapshotInput = InferToolInput<Tools["snapshot"]>
+	export type SnapshotOutput = InferToolOutput<Tools["snapshot"]>
+
+	export type PageInfoInput = InferToolInput<Tools["pageInfo"]>
+	export type PageInfoOutput = InferToolOutput<Tools["pageInfo"]>
+
+	export type ClickInput = InferToolInput<Tools["click"]>
+	export type ClickOutput = InferToolOutput<Tools["click"]>
+
+	export type HoverInput = InferToolInput<Tools["hover"]>
+	export type HoverOutput = InferToolOutput<Tools["hover"]>
+
+	export type ScrollInput = InferToolInput<Tools["scroll"]>
+	export type ScrollOutput = InferToolOutput<Tools["scroll"]>
+
+	export type TypeInput = InferToolInput<Tools["type"]>
+	export type TypeOutput = InferToolOutput<Tools["type"]>
+
+	export type ClickOnInput = InferToolInput<Tools["click_on"]>
+	export type ClickOnOutput = InferToolOutput<Tools["click_on"]>
+
+	export type FillOnInput = InferToolInput<Tools["fill_on"]>
+	export type FillOnOutput = InferToolOutput<Tools["fill_on"]>
+
+	export type TypeOnInput = InferToolInput<Tools["type_on"]>
+	export type TypeOnOutput = InferToolOutput<Tools["type_on"]>
+
+	export type HoverOnInput = InferToolInput<Tools["hover_on"]>
+	export type HoverOnOutput = InferToolOutput<Tools["hover_on"]>
+
+	export type OkResult = Extract<SetActivePageOutput, { ok: true }>
+	export type ErrResult = Extract<SetActivePageOutput, { ok: false }>
 }
 
 /**
@@ -71,51 +83,45 @@ export interface HandstagesAgentContext {
  * inferred from {@link handstagesAgentTools} via the AI SDK.
  */
 export interface HandstagesAgentToolHandlers {
-	pages(
-		input: HandstagesAgent.Input.Pages,
-	): Promise<HandstagesAgent.Output.Pages>
+	pages(input: HandstagesAgent.PagesInput): Promise<HandstagesAgent.PagesOutput>
 	newPage(
-		input: HandstagesAgent.Input.NewPage,
-	): Promise<HandstagesAgent.Output.NewPage>
+		input: HandstagesAgent.NewPageInput,
+	): Promise<HandstagesAgent.NewPageOutput>
 	setActivePage(
-		input: HandstagesAgent.Input.SetActivePage,
-	): Promise<HandstagesAgent.Output.SetActivePage>
-	goto(input: HandstagesAgent.Input.Goto): Promise<HandstagesAgent.Output.Goto>
+		input: HandstagesAgent.SetActivePageInput,
+	): Promise<HandstagesAgent.SetActivePageOutput>
+	goto(input: HandstagesAgent.GotoInput): Promise<HandstagesAgent.GotoOutput>
 	reload(
-		input: HandstagesAgent.Input.Reload,
-	): Promise<HandstagesAgent.Output.Reload>
+		input: HandstagesAgent.ReloadInput,
+	): Promise<HandstagesAgent.ReloadOutput>
 	goBack(
-		input: HandstagesAgent.Input.GoBack,
-	): Promise<HandstagesAgent.Output.HistoryNav>
+		input: HandstagesAgent.GoBackInput,
+	): Promise<HandstagesAgent.GoBackOutput>
 	goForward(
-		input: HandstagesAgent.Input.GoForward,
-	): Promise<HandstagesAgent.Output.HistoryNav>
+		input: HandstagesAgent.GoForwardInput,
+	): Promise<HandstagesAgent.GoForwardOutput>
 	snapshot(
-		input: HandstagesAgent.Input.Snapshot,
-	): Promise<HandstagesAgent.Output.Snapshot>
+		input: HandstagesAgent.SnapshotInput,
+	): Promise<HandstagesAgent.SnapshotOutput>
 	pageInfo(
-		input: HandstagesAgent.Input.PageInfo,
-	): Promise<HandstagesAgent.Output.PageInfo>
-	click(
-		input: HandstagesAgent.Input.Click,
-	): Promise<HandstagesAgent.Output.Pointer>
-	hover(
-		input: HandstagesAgent.Input.Hover,
-	): Promise<HandstagesAgent.Output.Pointer>
+		input: HandstagesAgent.PageInfoInput,
+	): Promise<HandstagesAgent.PageInfoOutput>
+	click(input: HandstagesAgent.ClickInput): Promise<HandstagesAgent.ClickOutput>
+	hover(input: HandstagesAgent.HoverInput): Promise<HandstagesAgent.HoverOutput>
 	scroll(
-		input: HandstagesAgent.Input.Scroll,
-	): Promise<HandstagesAgent.Output.Pointer>
-	type(input: HandstagesAgent.Input.Type): Promise<HandstagesAgent.Output.Type>
+		input: HandstagesAgent.ScrollInput,
+	): Promise<HandstagesAgent.ScrollOutput>
+	type(input: HandstagesAgent.TypeInput): Promise<HandstagesAgent.TypeOutput>
 	click_on(
-		input: HandstagesAgent.Input.ClickOn,
-	): Promise<HandstagesAgent.Output.ElementAction>
+		input: HandstagesAgent.ClickOnInput,
+	): Promise<HandstagesAgent.ClickOnOutput>
 	fill_on(
-		input: HandstagesAgent.Input.FillOn,
-	): Promise<HandstagesAgent.Output.ElementAction>
+		input: HandstagesAgent.FillOnInput,
+	): Promise<HandstagesAgent.FillOnOutput>
 	type_on(
-		input: HandstagesAgent.Input.TypeOn,
-	): Promise<HandstagesAgent.Output.ElementAction>
+		input: HandstagesAgent.TypeOnInput,
+	): Promise<HandstagesAgent.TypeOnOutput>
 	hover_on(
-		input: HandstagesAgent.Input.HoverOn,
-	): Promise<HandstagesAgent.Output.ElementAction>
+		input: HandstagesAgent.HoverOnInput,
+	): Promise<HandstagesAgent.HoverOnOutput>
 }
