@@ -186,7 +186,7 @@ export class Response {
 		return status >= 200 && status <= 299
 	}
 
-	/** Returns the Stagehand frame object that initiated the navigation. */
+	/** Returns the Handstages frame object that initiated the navigation. */
 	frame(): Frame | null {
 		if (!this.frameId) return null
 		try {
@@ -355,7 +355,7 @@ export class Response {
 
 	/**
 	 * Internal helper for creating a Response object from a Serializable
-	 * goto response from the Stagehand API
+	 * goto response from the Handstages API
 	 */
 	public static fromSerializable(
 		serialized: SerializableResponse,

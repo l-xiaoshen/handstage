@@ -1,7 +1,7 @@
 import type { Protocol } from "devtools-protocol"
 import {
 	ContentFrameNotFoundError,
-	StagehandInvalidArgumentError,
+	HandstagesInvalidArgumentError,
 } from "../types/public/sdkErrors"
 import { executionContexts } from "./executionContextRegistry"
 import type { Frame } from "./frame"
@@ -148,7 +148,7 @@ class LocatorDelegate {
 	nth(index: number): LocatorDelegate {
 		const value = Number(index)
 		if (!Number.isFinite(value) || value < 0) {
-			throw new StagehandInvalidArgumentError(
+			throw new HandstagesInvalidArgumentError(
 				"locator().nth() expects a non-negative index",
 			)
 		}

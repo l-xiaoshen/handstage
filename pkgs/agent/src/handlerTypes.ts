@@ -20,93 +20,93 @@ import type {
 } from "./schemas"
 
 /**
- * Browser context exposed by Stagehand (`V3.context` after init). Implementations
- * of {@link StagehandAgentToolHandlers} typically hold this.
+ * Browser context exposed by Handstages (`V3.context` after init). Implementations
+ * of {@link HandstagesAgentToolHandlers} typically hold this.
  */
-export interface StagehandAgentContext {
+export interface HandstagesAgentContext {
 	pages(): Page[]
 	activePage(): Page | undefined
 	setActivePage(page: Page): void
 	newPage(url?: string): Promise<Page>
 }
 
-export type StagehandAgentPageEntry = {
+export type HandstagesAgentPageEntry = {
 	pageId: string
 	url: string
 	title: string
 	activated: boolean
 }
 
-export type StagehandAgentPagesOutput = { pages: StagehandAgentPageEntry[] }
+export type HandstagesAgentPagesOutput = { pages: HandstagesAgentPageEntry[] }
 
-export type StagehandAgentNewPageOutput = { pageId: string }
+export type HandstagesAgentNewPageOutput = { pageId: string }
 
-export type StagehandAgentOkResult = { ok: true }
-export type StagehandAgentErrResult = { ok: false; error: string }
+export type HandstagesAgentOkResult = { ok: true }
+export type HandstagesAgentErrResult = { ok: false; error: string }
 
-export type StagehandAgentSetActivePageOutput =
-	| StagehandAgentOkResult
-	| StagehandAgentErrResult
+export type HandstagesAgentSetActivePageOutput =
+	| HandstagesAgentOkResult
+	| HandstagesAgentErrResult
 
-export type StagehandAgentGotoOutput =
+export type HandstagesAgentGotoOutput =
 	| { ok: true; url: string }
-	| StagehandAgentErrResult
+	| HandstagesAgentErrResult
 
-export type StagehandAgentReloadOutput =
+export type HandstagesAgentReloadOutput =
 	| { ok: true; url: string }
-	| StagehandAgentErrResult
+	| HandstagesAgentErrResult
 
-export type StagehandAgentHistoryNavOutput =
+export type HandstagesAgentHistoryNavOutput =
 	| { ok: true; navigated: boolean; url: string }
-	| StagehandAgentErrResult
+	| HandstagesAgentErrResult
 
-export type StagehandAgentSnapshotOutput =
+export type HandstagesAgentSnapshotOutput =
 	| {
 			ok: true
 			tree: string
 			xpathMap: Record<string, string>
 			urlMap: Record<string, string>
 	  }
-	| StagehandAgentErrResult
+	| HandstagesAgentErrResult
 
-export type StagehandAgentPageInfoOutput =
+export type HandstagesAgentPageInfoOutput =
 	| { ok: true; url: string; title: string }
-	| StagehandAgentErrResult
+	| HandstagesAgentErrResult
 
-export type StagehandAgentPointerOutput =
+export type HandstagesAgentPointerOutput =
 	| { ok: true; xpathAtPoint?: string }
-	| StagehandAgentErrResult
+	| HandstagesAgentErrResult
 
-export type StagehandAgentTypeOutput =
-	| StagehandAgentOkResult
-	| StagehandAgentErrResult
+export type HandstagesAgentTypeOutput =
+	| HandstagesAgentOkResult
+	| HandstagesAgentErrResult
 
-export type StagehandAgentElementActionOutput =
-	| StagehandAgentOkResult
-	| StagehandAgentErrResult
+export type HandstagesAgentElementActionOutput =
+	| HandstagesAgentOkResult
+	| HandstagesAgentErrResult
 
 /**
- * Implementations perform Stagehand actions for each tool. Inputs match the Zod
+ * Implementations perform Handstages actions for each tool. Inputs match the Zod
  * schemas in `./schemas`; outputs match the tool’s intended results.
  */
-export interface StagehandAgentToolHandlers {
-	pages(input: PagesInput): Promise<StagehandAgentPagesOutput>
-	newPage(input: NewPageInput): Promise<StagehandAgentNewPageOutput>
+export interface HandstagesAgentToolHandlers {
+	pages(input: PagesInput): Promise<HandstagesAgentPagesOutput>
+	newPage(input: NewPageInput): Promise<HandstagesAgentNewPageOutput>
 	setActivePage(
 		input: SetActivePageInput,
-	): Promise<StagehandAgentSetActivePageOutput>
-	goto(input: GotoInput): Promise<StagehandAgentGotoOutput>
-	reload(input: ReloadInput): Promise<StagehandAgentReloadOutput>
-	goBack(input: GoBackInput): Promise<StagehandAgentHistoryNavOutput>
-	goForward(input: GoForwardInput): Promise<StagehandAgentHistoryNavOutput>
-	snapshot(input: SnapshotInput): Promise<StagehandAgentSnapshotOutput>
-	pageInfo(input: PageInfoInput): Promise<StagehandAgentPageInfoOutput>
-	click(input: ClickInput): Promise<StagehandAgentPointerOutput>
-	hover(input: HoverInput): Promise<StagehandAgentPointerOutput>
-	scroll(input: ScrollInput): Promise<StagehandAgentPointerOutput>
-	type(input: TypeInput): Promise<StagehandAgentTypeOutput>
-	click_on(input: ClickOnInput): Promise<StagehandAgentElementActionOutput>
-	fill_on(input: FillOnInput): Promise<StagehandAgentElementActionOutput>
-	type_on(input: TypeOnInput): Promise<StagehandAgentElementActionOutput>
-	hover_on(input: HoverOnInput): Promise<StagehandAgentElementActionOutput>
+	): Promise<HandstagesAgentSetActivePageOutput>
+	goto(input: GotoInput): Promise<HandstagesAgentGotoOutput>
+	reload(input: ReloadInput): Promise<HandstagesAgentReloadOutput>
+	goBack(input: GoBackInput): Promise<HandstagesAgentHistoryNavOutput>
+	goForward(input: GoForwardInput): Promise<HandstagesAgentHistoryNavOutput>
+	snapshot(input: SnapshotInput): Promise<HandstagesAgentSnapshotOutput>
+	pageInfo(input: PageInfoInput): Promise<HandstagesAgentPageInfoOutput>
+	click(input: ClickInput): Promise<HandstagesAgentPointerOutput>
+	hover(input: HoverInput): Promise<HandstagesAgentPointerOutput>
+	scroll(input: ScrollInput): Promise<HandstagesAgentPointerOutput>
+	type(input: TypeInput): Promise<HandstagesAgentTypeOutput>
+	click_on(input: ClickOnInput): Promise<HandstagesAgentElementActionOutput>
+	fill_on(input: FillOnInput): Promise<HandstagesAgentElementActionOutput>
+	type_on(input: TypeOnInput): Promise<HandstagesAgentElementActionOutput>
+	hover_on(input: HoverOnInput): Promise<HandstagesAgentElementActionOutput>
 }

@@ -1,8 +1,8 @@
 import type { $ZodFormattedError } from "zod/v4/core"
 // Avoid .js extension so bundlers resolve TS source
-import { STAGEHAND_VERSION } from "../../../version"
+import { HANDSTAGES_VERSION } from "../../../version"
 
-export class StagehandError extends Error {
+export class HandstagesError extends Error {
 	public override readonly cause?: unknown
 
 	constructor(message: string, cause?: unknown) {
@@ -14,17 +14,17 @@ export class StagehandError extends Error {
 	}
 }
 
-export class StagehandDefaultError extends StagehandError {
+export class HandstagesDefaultError extends HandstagesError {
 	constructor(error?: unknown) {
-		if (error instanceof Error || error instanceof StagehandError) {
+		if (error instanceof Error || error instanceof HandstagesError) {
 			super(
-				`\nHey! We're sorry you ran into an error. \nStagehand version: ${STAGEHAND_VERSION} \nIf you need help, please open a Github issue or reach out to us on Discord: https://stagehand.dev/discord\n\nFull error:\n${error.message}`,
+				`\nHey! We're sorry you ran into an error. \nHandstages version: ${HANDSTAGES_VERSION} \nIf you need help, please open a Github issue or reach out to us on Discord: https://handstages.dev/discord\n\nFull error:\n${error.message}`,
 			)
 		}
 	}
 }
 
-export class StagehandEnvironmentError extends StagehandError {
+export class HandstagesEnvironmentError extends HandstagesError {
 	constructor(
 		currentEnvironment: string,
 		requiredEnvironment: string,
@@ -37,7 +37,7 @@ export class StagehandEnvironmentError extends StagehandError {
 	}
 }
 
-export class MissingEnvironmentVariableError extends StagehandError {
+export class MissingEnvironmentVariableError extends HandstagesError {
 	constructor(missingEnvironmentVariable: string, feature: string) {
 		super(
 			`${missingEnvironmentVariable} is required to use ${feature}.` +
@@ -46,7 +46,7 @@ export class MissingEnvironmentVariableError extends StagehandError {
 	}
 }
 
-export class UnsupportedModelError extends StagehandError {
+export class UnsupportedModelError extends HandstagesError {
 	constructor(supportedModels: string[], feature?: string) {
 		const message = feature
 			? `${feature} requires a valid model.`
@@ -54,13 +54,13 @@ export class UnsupportedModelError extends StagehandError {
 
 		const guidance =
 			`\n\nPlease use the provider/model format (e.g., "openai/gpt-4o", "anthropic/claude-sonnet-4-5", "google/gemini-3-flash-preview").` +
-			`\n\nFor a complete list of supported models and providers, see: https://docs.stagehand.dev/v3/configuration/models#configuration-setup`
+			`\n\nFor a complete list of supported models and providers, see: https://docs.handstages.dev/v3/configuration/models#configuration-setup`
 
 		super(`${message}${guidance}`)
 	}
 }
 
-export class UnsupportedModelProviderError extends StagehandError {
+export class UnsupportedModelProviderError extends HandstagesError {
 	constructor(supportedProviders: string[], feature?: string) {
 		super(
 			feature
@@ -70,7 +70,7 @@ export class UnsupportedModelProviderError extends StagehandError {
 	}
 }
 
-export class UnsupportedAISDKModelProviderError extends StagehandError {
+export class UnsupportedAISDKModelProviderError extends HandstagesError {
 	constructor(provider: string, supportedProviders: string[]) {
 		super(
 			`${provider} is not currently supported for aiSDK. please use one of the supported model providers: ${supportedProviders}`,
@@ -78,7 +78,7 @@ export class UnsupportedAISDKModelProviderError extends StagehandError {
 	}
 }
 
-export class InvalidAISDKModelFormatError extends StagehandError {
+export class InvalidAISDKModelFormatError extends HandstagesError {
 	constructor(modelName: string) {
 		super(
 			`${modelName} does not follow correct format for specifying aiSDK models. Please define your model as 'provider/model-name'. For example: \`model: 'openai/gpt-4o-mini'\``,
@@ -86,23 +86,23 @@ export class InvalidAISDKModelFormatError extends StagehandError {
 	}
 }
 
-export class StagehandNotInitializedError extends StagehandError {
+export class HandstagesNotInitializedError extends HandstagesError {
 	constructor(prop: string) {
 		super(
-			`You seem to be calling \`${prop}\` on a page in an uninitialized \`Stagehand\` object. ` +
-				`Ensure you are running \`await stagehand.init()\` on the Stagehand object before ` +
+			`You seem to be calling \`${prop}\` on a page in an uninitialized \`Handstages\` object. ` +
+				`Ensure you are running \`await handstages.init()\` on the Handstages object before ` +
 				`referencing the \`page\` object.`,
 		)
 	}
 }
 
-export class CaptchaTimeoutError extends StagehandError {
+export class CaptchaTimeoutError extends HandstagesError {
 	constructor() {
 		super("Captcha timeout")
 	}
 }
 
-export class MissingLLMConfigurationError extends StagehandError {
+export class MissingLLMConfigurationError extends HandstagesError {
 	constructor() {
 		super(
 			"No LLM API key or LLM Client configured. An LLM API key or a custom LLM Client " +
@@ -111,67 +111,67 @@ export class MissingLLMConfigurationError extends StagehandError {
 	}
 }
 
-export class HandlerNotInitializedError extends StagehandError {
+export class HandlerNotInitializedError extends HandstagesError {
 	constructor(handlerType: string) {
 		super(`${handlerType} handler not initialized`)
 	}
 }
 
-export class StagehandInvalidArgumentError extends StagehandError {
+export class HandstagesInvalidArgumentError extends HandstagesError {
 	constructor(message: string) {
 		super(`InvalidArgumentError: ${message}`)
 	}
 }
 
-export class CookieValidationError extends StagehandError {
+export class CookieValidationError extends HandstagesError {
 	constructor(message: string) {
 		super(message)
 	}
 }
 
-export class CookieSetError extends StagehandError {
+export class CookieSetError extends HandstagesError {
 	constructor(message: string) {
 		super(message)
 	}
 }
 
-export class StagehandElementNotFoundError extends StagehandError {
+export class HandstagesElementNotFoundError extends HandstagesError {
 	constructor(xpaths: string[]) {
 		super(`Could not find an element for the given xPath(s): ${xpaths}`)
 	}
 }
 
-export class AgentScreenshotProviderError extends StagehandError {
+export class AgentScreenshotProviderError extends HandstagesError {
 	constructor(message: string) {
 		super(`ScreenshotProviderError: ${message}`)
 	}
 }
 
-export class StagehandMissingArgumentError extends StagehandError {
+export class HandstagesMissingArgumentError extends HandstagesError {
 	constructor(message: string) {
 		super(`MissingArgumentError: ${message}`)
 	}
 }
 
-export class CreateChatCompletionResponseError extends StagehandError {
+export class CreateChatCompletionResponseError extends HandstagesError {
 	constructor(message: string) {
 		super(`CreateChatCompletionResponseError: ${message}`)
 	}
 }
 
-export class StagehandEvalError extends StagehandError {
+export class HandstagesEvalError extends HandstagesError {
 	constructor(message: string) {
-		super(`StagehandEvalError: ${message}`)
+		super(`HandstagesEvalError: ${message}`)
 	}
 }
 
-export class StagehandDomProcessError extends StagehandError {
+export class HandstagesDomProcessError extends HandstagesError {
 	constructor(message: string) {
 		super(`Error Processing Dom: ${message}`)
 	}
 }
 
-export class StagehandLocatorError extends StagehandError {
+export class HandstagesLocatorError extends HandstagesError {
 	constructor(action: string, selector: string, message: string) {
 		super(
 			`Error ${action} Element with selector: ${selector} Reason: ${message}`,
@@ -179,7 +179,7 @@ export class StagehandLocatorError extends StagehandError {
 	}
 }
 
-export class StagehandClickError extends StagehandError {
+export class HandstagesClickError extends HandstagesError {
 	constructor(message: string, selector: string) {
 		super(
 			`Error Clicking Element with selector: ${selector} Reason: ${message}`,
@@ -187,13 +187,13 @@ export class StagehandClickError extends StagehandError {
 	}
 }
 
-export class LLMResponseError extends StagehandError {
+export class LLMResponseError extends HandstagesError {
 	constructor(primitive: string, message: string) {
 		super(`${primitive} LLM response error: ${message}`)
 	}
 }
 
-export class StagehandIframeError extends StagehandError {
+export class HandstagesIframeError extends HandstagesError {
 	constructor(frameUrl: string, message: string) {
 		super(
 			`Unable to resolve frameId for iframe with URL: ${frameUrl} Full error: ${message}`,
@@ -201,13 +201,13 @@ export class StagehandIframeError extends StagehandError {
 	}
 }
 
-export class ContentFrameNotFoundError extends StagehandError {
+export class ContentFrameNotFoundError extends HandstagesError {
 	constructor(selector: string) {
 		super(`Unable to obtain a content frame for selector: ${selector}`)
 	}
 }
 
-export class XPathResolutionError extends StagehandError {
+export class XPathResolutionError extends HandstagesError {
 	constructor(xpath: string) {
 		super(`XPath "${xpath}" does not resolve in the current page or frames`)
 	}
@@ -229,13 +229,13 @@ ${JSON.stringify(issues, null, 2)}`)
 	}
 }
 
-export class StagehandInitError extends StagehandError {
+export class HandstagesInitError extends HandstagesError {
 	constructor(message: string) {
 		super(message)
 	}
 }
 
-export class StagehandShadowRootMissingError extends StagehandError {
+export class HandstagesShadowRootMissingError extends HandstagesError {
 	constructor(detail?: string) {
 		super(
 			`No shadow root present on the resolved host` +
@@ -244,13 +244,13 @@ export class StagehandShadowRootMissingError extends StagehandError {
 	}
 }
 
-export class StagehandShadowSegmentEmptyError extends StagehandError {
+export class HandstagesShadowSegmentEmptyError extends HandstagesError {
 	constructor() {
 		super(`Empty selector segment after shadow-DOM hop ("//")`)
 	}
 }
 
-export class StagehandShadowSegmentNotFoundError extends StagehandError {
+export class HandstagesShadowSegmentNotFoundError extends HandstagesError {
 	constructor(segment: string, hint?: string) {
 		super(
 			`Shadow segment '${segment}' matched no element inside shadow root` +
@@ -259,55 +259,55 @@ export class StagehandShadowSegmentNotFoundError extends StagehandError {
 	}
 }
 
-export class ElementNotVisibleError extends StagehandError {
+export class ElementNotVisibleError extends HandstagesError {
 	constructor(selector: string) {
 		super(`Element not visible (no box model): ${selector}`)
 	}
 }
 
-export class ResponseBodyError extends StagehandError {
+export class ResponseBodyError extends HandstagesError {
 	constructor(message: string) {
 		super(`Failed to retrieve response body: ${message}`)
 	}
 }
 
-export class ResponseParseError extends StagehandError {
+export class ResponseParseError extends HandstagesError {
 	constructor(message: string) {
 		super(`Failed to parse response: ${message}`)
 	}
 }
 
-export class TimeoutError extends StagehandError {
+export class TimeoutError extends HandstagesError {
 	constructor(operation: string, timeoutMs: number) {
 		super(`${operation} timed out after ${timeoutMs}ms`)
 	}
 }
 
-export class PageNotFoundError extends StagehandError {
+export class PageNotFoundError extends HandstagesError {
 	constructor(identifier: string) {
 		super(`No Page found for ${identifier}`)
 	}
 }
 
-export class ConnectionTimeoutError extends StagehandError {
+export class ConnectionTimeoutError extends HandstagesError {
 	constructor(message: string) {
 		super(`Connection timeout: ${message}`)
 	}
 }
 
-export class StagehandClosedError extends StagehandError {
+export class HandstagesClosedError extends HandstagesError {
 	constructor() {
-		super("Stagehand session was closed")
+		super("Handstages session was closed")
 	}
 }
 
-export class CdpConnectionClosedError extends StagehandError {
+export class CdpConnectionClosedError extends HandstagesError {
 	constructor(reason: string) {
 		super(`CDP connection closed: ${reason}`)
 	}
 }
 
-export class StagehandSetExtraHTTPHeadersError extends StagehandError {
+export class HandstagesSetExtraHTTPHeadersError extends HandstagesError {
 	public readonly failures: string[]
 
 	constructor(failures: string[]) {
@@ -318,7 +318,7 @@ export class StagehandSetExtraHTTPHeadersError extends StagehandError {
 	}
 }
 
-export class StagehandSnapshotError extends StagehandError {
+export class HandstagesSnapshotError extends HandstagesError {
 	constructor(cause?: unknown) {
 		const suffix =
 			cause instanceof Error
@@ -330,7 +330,7 @@ export class StagehandSnapshotError extends StagehandError {
 	}
 }
 
-export class UnderstudyCommandException extends StagehandError {
+export class UnderstudyCommandException extends HandstagesError {
 	constructor(message: string, cause?: unknown) {
 		super(message, cause)
 		this.name = "UnderstudyCommandException"

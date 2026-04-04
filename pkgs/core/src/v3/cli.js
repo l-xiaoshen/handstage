@@ -7,7 +7,7 @@ import { maybeRunShutdownSupervisorFromArgv } from "./shutdown/supervisor"
 // in the future, we may want to add more CLI commands here
 if (!maybeRunShutdownSupervisorFromArgv(process.argv.slice(2))) {
 	console.error(
-		"Unsupported stagehand CLI invocation. Expected --supervisor with valid args.",
+		"Unsupported handstages CLI invocation. Expected --supervisor with valid args.",
 	)
 	process.exit(1)
 }

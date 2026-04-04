@@ -4,7 +4,7 @@ import type {
 	ScreenshotClip,
 	ScreenshotScaleOption,
 } from "../types/public/screenshotTypes"
-import { StagehandInvalidArgumentError } from "../types/public/sdkErrors"
+import { HandstagesInvalidArgumentError } from "../types/public/sdkErrors"
 import type { CDPSessionLike } from "./cdp"
 import type { Frame } from "./frame"
 import type { Locator } from "./locator"
@@ -30,14 +30,14 @@ export function normalizeScreenshotClip(clip: ScreenshotClip): ScreenshotClip {
 
 	for (const [key, value] of Object.entries({ x, y, width, height })) {
 		if (!Number.isFinite(value)) {
-			throw new StagehandInvalidArgumentError(
+			throw new HandstagesInvalidArgumentError(
 				`screenshot: clip.${key} must be a finite number`,
 			)
 		}
 	}
 
 	if (width <= 0 || height <= 0) {
-		throw new StagehandInvalidArgumentError(
+		throw new HandstagesInvalidArgumentError(
 			"screenshot: clip width/height must be positive",
 		)
 	}
@@ -101,7 +101,7 @@ export async function applyStyleToFrames(
 							const doc = document
 							if (!doc) return
 							const style = doc.createElement("style")
-							style.setAttribute("data-stagehand-style", token)
+							style.setAttribute("data-handstages-style", token)
 							style.textContent = css
 							const parent = doc.head || doc.documentElement || doc.body
 							parent?.appendChild(style)
@@ -122,7 +122,7 @@ export async function applyStyleToFrames(
 							const doc = document
 							if (!doc) return
 							const nodes = doc.querySelectorAll(
-								`[data-stagehand-style="${token}"]`,
+								`[data-handstages-style="${token}"]`,
 							)
 							nodes.forEach((node) => node.remove())
 						} catch {}
@@ -241,7 +241,7 @@ export async function applyMaskOverlays(
 								if (!defaultRoot) return
 								const root = rect.rootToken
 									? doc.querySelector(
-											`[data-stagehand-mask-root="${rect.rootToken}"]`,
+											`[data-handstages-mask-root="${rect.rootToken}"]`,
 										) || defaultRoot
 									: defaultRoot
 								if (!root) continue
@@ -251,10 +251,10 @@ export async function applyMaskOverlays(
 										if (style && style.position === "static") {
 											const rootEl = root as HTMLElement
 											if (
-												!rootEl.hasAttribute("data-stagehand-mask-root-pos")
+												!rootEl.hasAttribute("data-handstages-mask-root-pos")
 											) {
 												rootEl.setAttribute(
-													"data-stagehand-mask-root-pos",
+													"data-handstages-mask-root-pos",
 													rootEl.style.position || "",
 												)
 											}
@@ -263,7 +263,7 @@ export async function applyMaskOverlays(
 									} catch {}
 								}
 								const el = doc.createElement("div")
-								el.setAttribute("data-stagehand-mask", token)
+								el.setAttribute("data-handstages-mask", token)
 								el.style.position = "absolute"
 								el.style.left = `${rect.x}px`
 								el.style.top = `${rect.y}px`
@@ -294,20 +294,22 @@ export async function applyMaskOverlays(
 								const doc = document
 								if (!doc) return
 								const nodes = doc.querySelectorAll(
-									`[data-stagehand-mask="${token}"]`,
+									`[data-handstages-mask="${token}"]`,
 								)
 								nodes.forEach((node) => node.remove())
 								for (const rootToken of rootTokens) {
 									const root = doc.querySelector(
-										`[data-stagehand-mask-root="${rootToken}"]`,
+										`[data-handstages-mask-root="${rootToken}"]`,
 									) as HTMLElement | null
 									if (!root) continue
-									const prev = root.getAttribute("data-stagehand-mask-root-pos")
+									const prev = root.getAttribute(
+										"data-handstages-mask-root-pos",
+									)
 									if (prev !== null) {
 										root.style.position = prev
-										root.removeAttribute("data-stagehand-mask-root-pos")
+										root.removeAttribute("data-handstages-mask-root-pos")
 									}
-									root.removeAttribute("data-stagehand-mask-root")
+									root.removeAttribute("data-handstages-mask-root")
 								}
 							} catch {}
 						},

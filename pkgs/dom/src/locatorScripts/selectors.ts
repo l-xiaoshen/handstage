@@ -71,7 +71,7 @@ export function resolveCssSelectorPierce(
 	if (!selector) return null
 
 	const targetIndex = parseTargetIndex(targetIndexRaw)
-	const backdoor = window.__stagehandV3__
+	const backdoor = window.__handstagesV3__
 	if (!backdoor || typeof backdoor.getClosedRoot !== "function") {
 		const matches = collectCssMatches(selector, targetIndex + 1)
 		return matches[targetIndex] ?? null
@@ -179,7 +179,7 @@ export function resolveTextSelector(
 		return !!text && text.toLowerCase().includes(needleLc)
 	}
 
-	const backdoor = window.__stagehandV3__
+	const backdoor = window.__handstagesV3__
 	const getClosedRoot: (host: Element) => ShadowRoot | null =
 		backdoor && typeof backdoor.getClosedRoot === "function"
 			? (host: Element): ShadowRoot | null => {

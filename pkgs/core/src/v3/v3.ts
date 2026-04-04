@@ -27,7 +27,7 @@ import type {
 	LocalBrowserLaunchOptions,
 	V3Options,
 } from "./types/public/options"
-import { StagehandNotInitializedError } from "./types/public/sdkErrors"
+import { HandstagesNotInitializedError } from "./types/public/sdkErrors"
 import { V3Context } from "./understudy/context"
 
 const DEFAULT_VIEWPORT = { width: 1288, height: 711 }
@@ -184,7 +184,7 @@ export class V3 {
 				let userDataDir = lbo.userDataDir
 				let createdTemp = false
 				if (!userDataDir) {
-					const base = path.join(os.tmpdir(), "stagehand-v3")
+					const base = path.join(os.tmpdir(), "handstages-v3")
 					fs.mkdirSync(base, { recursive: true })
 					userDataDir = fs.mkdtempSync(path.join(base, "profile-"))
 					createdTemp = true
@@ -303,7 +303,7 @@ export class V3 {
 	/** Return the browser-level CDP WebSocket endpoint. */
 	connectURL(): string {
 		if (this.state.kind === "UNINITIALIZED") {
-			throw new StagehandNotInitializedError("connectURL()")
+			throw new HandstagesNotInitializedError("connectURL()")
 		}
 		return this.state.ws
 	}

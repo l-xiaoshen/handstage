@@ -1,6 +1,6 @@
 export function rerenderMissingShadowHosts(): void {
 	try {
-		const piercer = window.__stagehandV3__
+		const piercer = window.__handstagesV3__
 		if (!piercer || typeof piercer.getClosedRoot !== "function") return
 
 		const needsReset: Element[] = []

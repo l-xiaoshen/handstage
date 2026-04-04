@@ -6,7 +6,7 @@ import type {
 	ResolvedFocusFrame,
 	Step,
 } from "../../../types/private/snapshot"
-import { StagehandIframeError } from "../../../types/public/sdkErrors"
+import { HandstagesIframeError } from "../../../types/public/sdkErrors"
 import type { CDPSessionLike } from "../../cdp"
 import { executionContexts } from "../../executionContextRegistry"
 import { buildLocatorInvocation } from "../../locatorInvocation"
@@ -80,7 +80,7 @@ export async function resolveFocusFrameAndTail(
 			ctxFrameId,
 		)
 		if (!objectId)
-			throw new StagehandIframeError(
+			throw new HandstagesIframeError(
 				selectorForIframe,
 				"Failed to resolve iframe element by XPath",
 			)
@@ -106,7 +106,7 @@ export async function resolveFocusFrameAndTail(
 				} catch {}
 			}
 			if (!childFrameId)
-				throw new StagehandIframeError(
+				throw new HandstagesIframeError(
 					selectorForIframe,
 					"Could not map iframe to child frameId",
 				)
@@ -155,7 +155,7 @@ export async function resolveCssFocusFrameAndTail(
 			ctxFrameId,
 		)
 		if (!objectId)
-			throw new StagehandIframeError(
+			throw new HandstagesIframeError(
 				parts[i]!,
 				"Failed to resolve iframe via CSS hop",
 			)
@@ -179,7 +179,7 @@ export async function resolveCssFocusFrameAndTail(
 				} catch {}
 			}
 			if (!childFrameId)
-				throw new StagehandIframeError(
+				throw new HandstagesIframeError(
 					parts[i]!,
 					"Could not map CSS iframe hop to child frameId",
 				)

@@ -1,5 +1,5 @@
 /**
- * Severity for Stagehand log lines. Maps 1:1 to `console.error` / `console.info` / `console.debug`.
+ * Severity for Handstages log lines. Maps 1:1 to `console.error` / `console.info` / `console.debug`.
  */
 export enum LogLevel {
 	Error = "error",

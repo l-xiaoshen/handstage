@@ -65,7 +65,7 @@ export function countCssMatchesPierce(selectorRaw: string): number {
 	const selector = String(selectorRaw ?? "").trim()
 	if (!selector) return 0
 
-	const backdoor = window.__stagehandV3__
+	const backdoor = window.__handstagesV3__
 	if (!backdoor || typeof backdoor.getClosedRoot !== "function") {
 		try {
 			return document.querySelectorAll(selector).length
@@ -172,7 +172,7 @@ export function countTextMatches(rawNeedle: string): TextMatchResult {
 		return !!text && text.toLowerCase().includes(needleLc)
 	}
 
-	const backdoor = window.__stagehandV3__
+	const backdoor = window.__handstagesV3__
 	const getClosedRoot: (host: Element) => ShadowRoot | null =
 		backdoor && typeof backdoor.getClosedRoot === "function"
 			? (host: Element): ShadowRoot | null => {

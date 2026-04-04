@@ -34,7 +34,7 @@ const isSeaRuntime = (): boolean => {
 }
 
 // SEA: re-exec current binary with supervisor args.
-// Non-SEA: execute Stagehand CLI entrypoint with supervisor args.
+// Non-SEA: execute Handstages CLI entrypoint with supervisor args.
 const resolveCliPath = (): string => `${moduleDir}/../cli.js`
 
 const resolveSupervisorCommand = (
@@ -81,7 +81,7 @@ export function startShutdownSupervisor(
 	if (!resolved) {
 		opts?.onError?.(
 			new ShutdownSupervisorResolveError(
-				"Shutdown supervisor entry missing (expected Stagehand CLI entrypoint).",
+				"Shutdown supervisor entry missing (expected Handstages CLI entrypoint).",
 			),
 			"resolve",
 		)

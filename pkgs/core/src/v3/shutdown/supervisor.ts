@@ -152,13 +152,13 @@ export const runShutdownSupervisor = (
 	try {
 		process.stdin.resume()
 		process.stdin.on("end", () =>
-			onLifelineClosed("Stagehand process completed"),
+			onLifelineClosed("Handstages process completed"),
 		)
 		process.stdin.on("close", () =>
-			onLifelineClosed("Stagehand process completed"),
+			onLifelineClosed("Handstages process completed"),
 		)
 		process.stdin.on("error", () =>
-			onLifelineClosed("Stagehand process crashed or was killed"),
+			onLifelineClosed("Handstages process crashed or was killed"),
 		)
 	} catch {}
 }

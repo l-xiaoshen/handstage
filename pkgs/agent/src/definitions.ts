@@ -21,10 +21,10 @@ import {
 
 /**
  * AI SDK tool definitions (description + `inputSchema` only). Execution is supplied
- * separately by implementing {@link StagehandAgentToolHandlers} and wiring it in
+ * separately by implementing {@link HandstagesAgentToolHandlers} and wiring it in
  * your agent loop (or a future `bind*` helper).
  */
-export function createStagehandAgentToolDefinitions(): ToolSet {
+export function createHandstagesAgentToolDefinitions(): ToolSet {
 	return {
 		pages: tool({
 			description:

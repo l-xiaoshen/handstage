@@ -1,6 +1,6 @@
 import type { Protocol } from "devtools-protocol"
 import type { SessionDomIndex } from "../../../types/private/snapshot"
-import { StagehandDomProcessError } from "../../../types/public/sdkErrors"
+import { HandstagesDomProcessError } from "../../../types/public/sdkErrors"
 import type { CDPSessionLike } from "../../cdp"
 import {
 	buildChildXPathSegments,
@@ -52,7 +52,7 @@ export function collectDomTraversalTargets(
 
 /**
  * Rehydrate a truncated DOM tree by repeatedly calling DOM.describeNode with
- * decreasing depths. Any non-CBOR failure is surfaced as a StagehandDomProcessError.
+ * decreasing depths. Any non-CBOR failure is surfaced as a HandstagesDomProcessError.
  */
 export async function hydrateDomTree(
 	session: CDPSessionLike,
@@ -111,14 +111,14 @@ export async function hydrateDomTree(
 						continue
 					}
 					const identifier = nodeId ?? backendId ?? "unknown"
-					throw new StagehandDomProcessError(
+					throw new HandstagesDomProcessError(
 						`Failed to expand DOM node ${identifier}: ${String(err)}`,
 					)
 				}
 			}
 			if (!expanded) {
 				const identifier = nodeId ?? backendId ?? "unknown"
-				throw new StagehandDomProcessError(
+				throw new HandstagesDomProcessError(
 					`Unable to expand DOM node ${identifier} after describeNode depth retries`,
 				)
 			}
@@ -163,7 +163,7 @@ export async function getDomTreeWithFallback(
 		}
 	}
 
-	throw new StagehandDomProcessError(
+	throw new HandstagesDomProcessError(
 		lastCborMessage
 			? `CDP DOM.getDocument failed after adaptive depth retries: ${lastCborMessage}`
 			: "CDP DOM.getDocument failed after adaptive depth retries.",
