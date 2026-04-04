@@ -105,20 +105,70 @@ export const HoverOnInputSchema = z.object({
 	select: z.string().min(1).describe("CSS selector or XPath"),
 })
 
-export type PagesInput = z.infer<typeof PagesInputSchema>
-export type NewPageInput = z.infer<typeof NewPageInputSchema>
-export type SetActivePageInput = z.infer<typeof SetActivePageInputSchema>
-export type GotoInput = z.infer<typeof GotoInputSchema>
-export type ReloadInput = z.infer<typeof ReloadInputSchema>
-export type GoBackInput = z.infer<typeof GoBackInputSchema>
-export type GoForwardInput = z.infer<typeof GoForwardInputSchema>
-export type SnapshotInput = z.infer<typeof SnapshotInputSchema>
-export type PageInfoInput = z.infer<typeof PageInfoInputSchema>
-export type ClickInput = z.infer<typeof ClickInputSchema>
-export type HoverInput = z.infer<typeof HoverInputSchema>
-export type ScrollInput = z.infer<typeof ScrollInputSchema>
-export type TypeInput = z.infer<typeof TypeInputSchema>
-export type ClickOnInput = z.infer<typeof ClickOnInputSchema>
-export type FillOnInput = z.infer<typeof FillOnInputSchema>
-export type TypeOnInput = z.infer<typeof TypeOnInputSchema>
-export type HoverOnInput = z.infer<typeof HoverOnInputSchema>
+/** Shared `{ ok: true } | { ok: false; error }` tool result shape */
+export const HandstagesAgentOkOrErrOutputSchema = z.discriminatedUnion("ok", [
+	z.object({ ok: z.literal(true) }),
+	z.object({ ok: z.literal(false), error: z.string() }),
+])
+
+export const HandstagesAgentPageEntrySchema = z.object({
+	pageId: z.string(),
+	url: z.string(),
+	title: z.string(),
+	activated: z.boolean(),
+})
+
+export const PagesOutputSchema = z.object({
+	pages: z.array(HandstagesAgentPageEntrySchema),
+})
+
+export const NewPageOutputSchema = z.object({ pageId: z.string() })
+
+export const SetActivePageOutputSchema = HandstagesAgentOkOrErrOutputSchema
+
+export const GotoOutputSchema = z.discriminatedUnion("ok", [
+	z.object({ ok: z.literal(true), url: z.string() }),
+	z.object({ ok: z.literal(false), error: z.string() }),
+])
+
+export const ReloadOutputSchema = GotoOutputSchema
+
+export const HistoryNavOutputSchema = z.discriminatedUnion("ok", [
+	z.object({
+		ok: z.literal(true),
+		navigated: z.boolean(),
+		url: z.string(),
+	}),
+	z.object({ ok: z.literal(false), error: z.string() }),
+])
+
+export const SnapshotOutputSchema = z.discriminatedUnion("ok", [
+	z.object({
+		ok: z.literal(true),
+		tree: z.string(),
+		xpathMap: z.record(z.string(), z.string()),
+		urlMap: z.record(z.string(), z.string()),
+	}),
+	z.object({ ok: z.literal(false), error: z.string() }),
+])
+
+export const PageInfoOutputSchema = z.discriminatedUnion("ok", [
+	z.object({
+		ok: z.literal(true),
+		url: z.string(),
+		title: z.string(),
+	}),
+	z.object({ ok: z.literal(false), error: z.string() }),
+])
+
+export const PointerOutputSchema = z.discriminatedUnion("ok", [
+	z.object({
+		ok: z.literal(true),
+		xpathAtPoint: z.string().optional(),
+	}),
+	z.object({ ok: z.literal(false), error: z.string() }),
+])
+
+export const TypeOutputSchema = HandstagesAgentOkOrErrOutputSchema
+
+export const ElementActionOutputSchema = HandstagesAgentOkOrErrOutputSchema
