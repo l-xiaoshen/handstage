@@ -389,6 +389,9 @@ export class V3 {
 
 	/** Expose the current CDP-backed context. */
 	public get context(): V3Context {
+		if (!this.ctx) {
+			throw new Error("Cannot access context: V3 instance is closed")
+		}
 		return this.ctx
 	}
 
@@ -400,14 +403,14 @@ export class V3 {
 		const keepAlive = this.keepAlive === true
 
 		try {
-			if (this.ctx.conn && this._onCdpClosed) {
+			if (this.ctx?.conn && this._onCdpClosed) {
 				this.ctx.conn.offTransportClosed?.(this._onCdpClosed)
 			}
 		} catch {}
 
 		try {
 			try {
-				await this.ctx.close()
+				await this.ctx?.close()
 			} catch {}
 
 			if (!keepAlive && this.state.kind === "LOCAL") {
