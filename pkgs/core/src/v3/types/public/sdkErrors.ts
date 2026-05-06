@@ -86,16 +86,6 @@ export class InvalidAISDKModelFormatError extends HandstagesError {
 	}
 }
 
-export class HandstagesNotInitializedError extends HandstagesError {
-	constructor(prop: string) {
-		super(
-			`You seem to be calling \`${prop}\` on a page in an uninitialized \`Handstages\` object. ` +
-				`Ensure you are running \`await handstages.init()\` on the Handstages object before ` +
-				`referencing the \`page\` object.`,
-		)
-	}
-}
-
 export class CaptchaTimeoutError extends HandstagesError {
 	constructor() {
 		super("Captcha timeout")
