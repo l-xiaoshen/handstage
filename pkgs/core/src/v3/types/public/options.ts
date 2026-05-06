@@ -32,6 +32,13 @@ export interface HandstagesSharedOptions {
 	logger?: (line: LogLine) => void
 }
 
+export interface HandstagesConnectOptions extends HandstagesSharedOptions {
+	viewport?: { width: number; height: number }
+	deviceScaleFactor?: number
+	downloadsPath?: string
+	acceptDownloads?: boolean
+}
+
 export interface HandstagesLocalOptions extends HandstagesSharedOptions {
 	localBrowserLaunchOptions?: LocalBrowserLaunchOptions
 }

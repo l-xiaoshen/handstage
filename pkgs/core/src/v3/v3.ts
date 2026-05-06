@@ -27,6 +27,7 @@ import type {
 	LocalBrowserLaunchOptions,
 	HandstagesLocalOptions,
 	HandstagesSharedOptions,
+	HandstagesConnectOptions,
 } from "./types/public/options"
 import { CdpConnection, type CDPTransport, type ExternalCDPSession, ExternalConnectionAdapter } from "./understudy/cdp"
 import { V3Context } from "./understudy/context"
@@ -54,10 +55,9 @@ export class V3 {
 
 	private constructor(
 		private state: InitState,
-		private ctx: V3Context,
+		private ctx: V3Context | undefined,
 		opts: HandstagesSharedOptions,
 		instanceId: string,
-		emitLog: (line: LogLine) => void,
 		logSink: Logger
 	) {
 		this.logSink = logSink
@@ -68,25 +68,25 @@ export class V3 {
 
 		bindInstanceLogger(this.instanceId, (line) => this.emitLog(line))
 
-		this.ctx.conn.onTransportClosed(this._onCdpClosed)
+		this.ctx?.conn.onTransportClosed(this._onCdpClosed)
 	}
 
-	private static setupLogging(opts: HandstagesSharedOptions, instanceId: string) {
-		const verbose = opts.verbose ?? LogLevel.Info
-		const logSink = opts.logger ?? createConsoleLogger()
+	private static setupContext(opts?: HandstagesSharedOptions) {
+		const instanceId = uuidv7()
+		const sharedOpts = opts ?? {}
+		const verbose = sharedOpts.verbose ?? LogLevel.Info
+		const logSink = sharedOpts.logger ?? createConsoleLogger()
 		const emitLog = (line: LogLine) => {
 			if (!shouldEmitLogLine(line.level, verbose)) return
 			logSink({ ...line, level: line.level ?? LogLevel.Info })
 		}
 		bindInstanceLogger(instanceId, emitLog)
-		return { emitLog, logSink }
+		const logger = (line: LogLine) => emitLog(line)
+		return { instanceId, sharedOpts, logSink, logger }
 	}
 
 	static async connectLocal(opts?: HandstagesLocalOptions): Promise<V3> {
-		const instanceId = uuidv7()
-		const sharedOpts = opts ?? {}
-		const { emitLog, logSink } = this.setupLogging(sharedOpts, instanceId)
-		const logger = (line: LogLine) => emitLog(line)
+		const { instanceId, sharedOpts, logSink, logger } = V3.setupContext(opts)
 
 		try {
 			return await withInstanceLogContext(instanceId, async () => {
@@ -124,7 +124,7 @@ export class V3 {
 						} as unknown as import("chrome-launcher").LaunchedChrome,
 						ws: lbo.cdpUrl,
 					}
-					const v3 = new V3(state, ctx, sharedOpts, instanceId, emitLog, logSink)
+					const v3 = new V3(state, ctx, sharedOpts, instanceId, logSink)
 					await v3._applyPostConnectLocalOptions(lbo)
 					return v3
 				}
@@ -215,7 +215,7 @@ export class V3 {
 					preserveUserDataDir: !!lbo.preserveUserDataDir,
 				}
 				
-				const v3 = new V3(state, ctx, sharedOpts, instanceId, emitLog, logSink)
+				const v3 = new V3(state, ctx, sharedOpts, instanceId, logSink)
 
 				const chromePid = chrome.process?.pid ?? chrome.pid
 				if (!keepAlive && chromePid) {
@@ -239,11 +239,8 @@ export class V3 {
 		}
 	}
 
-	static async connectTransport(transport: CDPTransport, opts?: HandstagesSharedOptions): Promise<V3> {
-		const instanceId = uuidv7()
-		const sharedOpts = opts ?? {}
-		const { emitLog, logSink } = this.setupLogging(sharedOpts, instanceId)
-		const logger = (line: LogLine) => emitLog(line)
+	static async connectTransport(transport: CDPTransport, opts?: HandstagesConnectOptions): Promise<V3> {
+		const { instanceId, sharedOpts, logSink, logger } = V3.setupContext(opts)
 
 		try {
 			return await withInstanceLogContext(instanceId, async () => {
@@ -253,12 +250,22 @@ export class V3 {
 					level: LogLevel.Info,
 				})
 				const conn = new CdpConnection(transport)
-				const ctx = await V3Context.createFromConnection(conn)
+				const lbo: LocalBrowserLaunchOptions = opts ? {
+					viewport: opts.viewport,
+					deviceScaleFactor: opts.deviceScaleFactor,
+					downloadsPath: opts.downloadsPath,
+					acceptDownloads: opts.acceptDownloads,
+				} : {}
+				const ctx = await V3Context.createFromConnection(conn, {
+					localBrowserLaunchOptions: lbo,
+				})
 				const state: InitState = {
 					kind: "CUSTOM_TRANSPORT",
 					transport,
 				}
-				return new V3(state, ctx, sharedOpts, instanceId, emitLog, logSink)
+				const v3 = new V3(state, ctx, sharedOpts, instanceId, logSink)
+				await v3._applyPostConnectLocalOptions(lbo)
+				return v3
 			})
 		} catch (error) {
 			try {
@@ -268,11 +275,8 @@ export class V3 {
 		}
 	}
 
-	static async connectSession(session: ExternalCDPSession, opts?: HandstagesSharedOptions): Promise<V3> {
-		const instanceId = uuidv7()
-		const sharedOpts = opts ?? {}
-		const { emitLog, logSink } = this.setupLogging(sharedOpts, instanceId)
-		const logger = (line: LogLine) => emitLog(line)
+	static async connectSession(session: ExternalCDPSession, opts?: HandstagesConnectOptions): Promise<V3> {
+		const { instanceId, sharedOpts, logSink, logger } = V3.setupContext(opts)
 
 		try {
 			return await withInstanceLogContext(instanceId, async () => {
@@ -282,12 +286,22 @@ export class V3 {
 					level: LogLevel.Info,
 				})
 				const adapter = new ExternalConnectionAdapter(session)
-				const ctx = await V3Context.createFromConnection(adapter)
+				const lbo: LocalBrowserLaunchOptions = opts ? {
+					viewport: opts.viewport,
+					deviceScaleFactor: opts.deviceScaleFactor,
+					downloadsPath: opts.downloadsPath,
+					acceptDownloads: opts.acceptDownloads,
+				} : {}
+				const ctx = await V3Context.createFromConnection(adapter, {
+					localBrowserLaunchOptions: lbo,
+				})
 				const state: InitState = {
 					kind: "CUSTOM_CONNECTION",
 					connection: session,
 				}
-				return new V3(state, ctx, sharedOpts, instanceId, emitLog, logSink)
+				const v3 = new V3(state, ctx, sharedOpts, instanceId, logSink)
+				await v3._applyPostConnectLocalOptions(lbo)
+				return v3
 			})
 		} catch (error) {
 			try {
@@ -381,6 +395,9 @@ export class V3 {
 
 	/** Return the browser-level CDP WebSocket endpoint. Returns empty string for custom transports/connections. */
 	connectURL(): string {
+		if (this.state.kind === "UNINITIALIZED") {
+			throw new Error("Cannot access connectURL: V3 instance is closed")
+		}
 		if (this.state.kind === "LOCAL") {
 			return this.state.ws
 		}
