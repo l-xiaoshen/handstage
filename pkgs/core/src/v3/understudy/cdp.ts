@@ -34,6 +34,7 @@ export interface ExternalCDPSession {
 	send<R = unknown>(method: string, params?: object, sessionId?: string): Promise<R>
 	on<P = unknown>(event: string, handler: (params: P, sessionId?: string) => void): void
 	off<P = unknown>(event: string, handler: (params: P, sessionId?: string) => void): void
+	onclose?: (reason: string) => void
 	readonly id: string | null
 }
 
@@ -420,6 +421,18 @@ export class ExternalConnectionAdapter implements CdpConnectionLike {
 				this.sessions.delete(params.sessionId)
 			}
 		})
+
+		this.externalSession.onclose = (reason: string) => {
+			this.emitTransportClosed(`external-session-close reason=${reason}`)
+		}
+	}
+
+	private emitTransportClosed(why: string) {
+		for (const h of this.transportCloseHandlers) {
+			try {
+				h(why)
+			} catch {}
+		}
 	}
 
 	get id() { return this.externalSession.id }
