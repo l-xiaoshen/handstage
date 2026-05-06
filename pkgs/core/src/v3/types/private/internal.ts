@@ -19,6 +19,9 @@ export type InitState =
 			kind: "CUSTOM_TRANSPORT"
 			transport: CDPTransport
 	  }
+	| {
+			kind: "UNINITIALIZED"
+	  }
 
 export type EncodedId = `${number}-${number}`
 
