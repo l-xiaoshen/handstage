@@ -66,6 +66,8 @@ export class V3 {
 		this.sessionId = opts.sessionId ?? this.instanceId
 		this.keepAlive = opts.keepAlive
 
+		bindInstanceLogger(this.instanceId, (line) => this.emitLog(line))
+
 		this.ctx.conn.onTransportClosed(this._onCdpClosed)
 	}
 
@@ -417,11 +419,10 @@ export class V3 {
 					preserveUserDataDir: localState.preserveUserDataDir,
 				})
 			}
-		} finally {
+		} 		finally {
 			this.stopShutdownSupervisor()
 
-			// @ts-expect-error Reset state for cleanup
-			this.state = undefined
+			this.state = { kind: "UNINITIALIZED" }
 			// @ts-expect-error Reset context for cleanup
 			this.ctx = undefined
 			this._isClosing = false
