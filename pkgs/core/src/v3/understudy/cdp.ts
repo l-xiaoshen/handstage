@@ -22,6 +22,28 @@ export interface CDPSessionLike {
 	readonly id: string | null
 }
 
+export interface CDPTransport {
+	send(message: string): void
+	close(): void
+	onmessage?: (message: string) => void
+	onclose?: (reason: string) => void
+	onerror?: (error: Error) => void
+}
+
+export interface CdpConnectionLike extends CDPSessionLike {
+	getSession(sessionId: string): CDPSessionLike | undefined
+	enableAutoAttach(): Promise<void>
+	attachToTarget(targetId: string): Promise<CDPSessionLike>
+	getTargets(): Promise<Protocol.Target.TargetInfo[]>
+	onTransportClosed(handler: (why: string) => void): void
+	offTransportClosed(handler: (why: string) => void): void
+	waitForSessionDispatch(
+		sessionId: string,
+		method: string,
+		match?: (params?: object) => boolean,
+	): Promise<void>
+}
+
 type Inflight = {
 	resolve: (value: unknown) => void
 	reject: (e: Error) => void
@@ -50,8 +72,8 @@ type RawMessage =
 	  }
 	| { method: string; params?: unknown; sessionId?: string }
 
-export class CdpConnection implements CDPSessionLike {
-	private ws: WebSocket
+export class CdpConnection implements CdpConnectionLike {
+	private transport: CDPTransport
 	private nextId = 1
 	private inflight = new Map<number, Inflight>() // Outstanding request records; `_sendViaSession()` inserts and `onMessage()` removes/resolves them.
 	private eventHandlers = new Map<string, Set<EventHandler>>()
@@ -77,21 +99,20 @@ export class CdpConnection implements CDPSessionLike {
 		}
 	}
 
-	private constructor(ws: WebSocket) {
-		this.ws = ws
-		this.ws.on("close", (code, reason) => {
-			// Reason is a Buffer in ws; stringify defensively
-			const why = `socket-close code=${code} reason=${String(reason || "")}`
+	constructor(transport: CDPTransport) {
+		this.transport = transport
+		this.transport.onclose = (reason) => {
+			const why = `transport-close reason=${String(reason || "")}`
 			this.rejectAllInflight(why)
 			this.emitTransportClosed(why)
-		})
+		}
 
-		this.ws.on("error", (err) => {
-			const why = `socket-error ${err?.message ?? String(err)}`
+		this.transport.onerror = (err) => {
+			const why = `transport-error ${err?.message ?? String(err)}`
 			this.rejectAllInflight(why)
 			this.emitTransportClosed(why)
-		})
-		this.ws.on("message", (data) => this.onMessage(data.toString()))
+		}
+		this.transport.onmessage = (data) => this.onMessage(data)
 	}
 
 	static async connect(
@@ -109,7 +130,20 @@ export class CdpConnection implements CDPSessionLike {
 			ws.once("open", () => resolve())
 			ws.once("error", (e) => reject(e))
 		})
-		return new CdpConnection(ws)
+		const transport: CDPTransport = {
+			send: (message) => ws.send(message),
+			close: () => ws.close(),
+		}
+		ws.on("message", (data) => {
+			if (transport.onmessage) transport.onmessage(data.toString())
+		})
+		ws.on("close", (code, reason) => {
+			if (transport.onclose) transport.onclose(`code=${code} reason=${reason}`)
+		})
+		ws.on("error", (error) => {
+			if (transport.onerror) transport.onerror(error)
+		})
+		return new CdpConnection(transport)
 	}
 
 	async enableAutoAttach(): Promise<void> {
@@ -138,7 +172,7 @@ export class CdpConnection implements CDPSessionLike {
 		})
 		// Prevent unhandledRejection if a session detaches before the caller awaits.
 		void p.catch(() => {})
-		this.ws.send(JSON.stringify(payload))
+		this.transport.send(JSON.stringify(payload))
 		return p
 	}
 
@@ -154,11 +188,7 @@ export class CdpConnection implements CDPSessionLike {
 	}
 
 	async close(): Promise<void> {
-		if (this.ws.readyState === WebSocket.CLOSED) return
-		await new Promise<void>((resolve) => {
-			this.ws.once("close", () => resolve())
-			this.ws.close()
-		})
+		this.transport.close()
 	}
 
 	private rejectAllInflight(why: string): void {
@@ -333,7 +363,7 @@ export class CdpConnection implements CDPSessionLike {
 			waiter.resolve()
 			break
 		}
-		this.ws.send(JSON.stringify(payload))
+		this.transport.send(JSON.stringify(payload))
 		return p
 	}
 

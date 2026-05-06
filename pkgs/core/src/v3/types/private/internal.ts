@@ -1,5 +1,7 @@
 import type { LaunchedChrome } from "chrome-launcher"
 
+import type { CdpConnectionLike, CDPTransport } from "../../understudy/cdp"
+
 export type InitState =
 	| { kind: "UNINITIALIZED" }
 	| {
@@ -9,6 +11,14 @@ export type InitState =
 			userDataDir?: string
 			createdTempProfile?: boolean
 			preserveUserDataDir?: boolean
+	  }
+	| {
+			kind: "CUSTOM_CONNECTION"
+			connection: CdpConnectionLike
+	  }
+	| {
+			kind: "CUSTOM_TRANSPORT"
+			transport: CDPTransport
 	  }
 
 export type EncodedId = `${number}-${number}`

@@ -16,7 +16,7 @@ import {
 	PageNotFoundError,
 	TimeoutError,
 } from "../types/public/sdkErrors"
-import { type CDPSessionLike, CdpConnection } from "./cdp"
+import { type CDPSessionLike, type CdpConnectionLike, CdpConnection } from "./cdp"
 import {
 	cookieMatchesFilter,
 	filterCookies,
@@ -99,7 +99,7 @@ function getFirstTopLevelPageTimeoutMs(): number {
  */
 export class V3Context {
 	private constructor(
-		readonly conn: CdpConnection,
+		readonly conn: CdpConnectionLike,
 		private readonly localBrowserLaunchOptions: LocalBrowserLaunchOptions | null = null,
 	) {}
 
@@ -160,6 +160,18 @@ export class V3Context {
 		const conn = await CdpConnection.connect(wsUrl, {
 			headers: opts?.cdpHeaders,
 		})
+		return V3Context.createFromConnection(conn, opts)
+	}
+
+	/**
+	 * Create a Context from an existing CdpConnectionLike.
+	 */
+	static async createFromConnection(
+		conn: CdpConnectionLike,
+		opts?: {
+			localBrowserLaunchOptions?: LocalBrowserLaunchOptions | null
+		},
+	): Promise<V3Context> {
 		const ctx = new V3Context(conn, opts?.localBrowserLaunchOptions ?? null)
 		await ctx.bootstrap()
 		await ctx.ensureFirstTopLevelPage(getFirstTopLevelPageTimeoutMs())
