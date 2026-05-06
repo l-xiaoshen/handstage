@@ -1,5 +1,6 @@
 import type { z } from "zod"
 import { LocalBrowserLaunchOptionsSchema } from "./api"
+import type { CDPTransport, CdpConnectionLike } from "../../understudy/cdp"
 import type { LogLevel, LogLine } from "./logs"
 
 export type V3Env = "LOCAL"
@@ -29,6 +30,16 @@ export interface V3Options {
 	keepAlive?: boolean
 
 	localBrowserLaunchOptions?: LocalBrowserLaunchOptions
+
+	/**
+	 * Optional custom CDP transport.
+	 */
+	transport?: CDPTransport
+
+	/**
+	 * Optional custom CDP connection.
+	 */
+	connection?: CdpConnectionLike
 
 	/**
 	 * Minimum log level to emit: {@link LogLevel.Error} is quietest (errors only),

@@ -28,6 +28,7 @@ import type {
 	V3Options,
 } from "./types/public/options"
 import { HandstagesNotInitializedError } from "./types/public/sdkErrors"
+import { CdpConnection } from "./understudy/cdp"
 import { V3Context } from "./understudy/context"
 
 const DEFAULT_VIEWPORT = { width: 1288, height: 711 }
@@ -153,6 +154,43 @@ export class V3 {
 							"`cdpHeaders` was provided but `cdpUrl` is not set — cdpHeaders will be ignored. Set `cdpUrl` to connect to an existing browser via CDP.",
 						level: LogLevel.Debug,
 					})
+				}
+
+				if (this.opts.connection) {
+					this.logger({
+						category: "init",
+						message: "Connecting via custom connection",
+						level: LogLevel.Info,
+					})
+					this.ctx = await V3Context.createFromConnection(this.opts.connection, {
+						localBrowserLaunchOptions: lbo,
+					})
+					this.ctx.conn.onTransportClosed(this._onCdpClosed)
+					this.state = {
+						kind: "CUSTOM_CONNECTION",
+						connection: this.opts.connection,
+					}
+					await this._applyPostConnectLocalOptions(lbo)
+					return
+				}
+
+				if (this.opts.transport) {
+					this.logger({
+						category: "init",
+						message: "Connecting via custom transport",
+						level: LogLevel.Info,
+					})
+					const conn = new CdpConnection(this.opts.transport)
+					this.ctx = await V3Context.createFromConnection(conn, {
+						localBrowserLaunchOptions: lbo,
+					})
+					this.ctx.conn.onTransportClosed(this._onCdpClosed)
+					this.state = {
+						kind: "CUSTOM_TRANSPORT",
+						transport: this.opts.transport,
+					}
+					await this._applyPostConnectLocalOptions(lbo)
+					return
 				}
 
 				if (lbo.cdpUrl) {
@@ -300,12 +338,15 @@ export class V3 {
 		} catch {}
 	}
 
-	/** Return the browser-level CDP WebSocket endpoint. */
+	/** Return the browser-level CDP WebSocket endpoint. Returns empty string for custom transports/connections. */
 	connectURL(): string {
 		if (this.state.kind === "UNINITIALIZED") {
 			throw new HandstagesNotInitializedError("connectURL()")
 		}
-		return this.state.ws
+		if (this.state.kind === "LOCAL") {
+			return this.state.ws
+		}
+		return ""
 	}
 
 	/** Expose the current CDP-backed context (null before {@link init}). */
