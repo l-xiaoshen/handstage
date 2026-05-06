@@ -31,10 +31,21 @@ export interface CDPTransport {
 }
 
 export interface ExternalCDPSession {
-	send<R = unknown>(method: string, params?: object, sessionId?: string): Promise<R>
-	on<P = unknown>(event: string, handler: (params: P, sessionId?: string) => void): void
-	off<P = unknown>(event: string, handler: (params: P, sessionId?: string) => void): void
+	send<R = unknown>(
+		method: string,
+		params?: object,
+		sessionId?: string,
+	): Promise<R>
+	on<P = unknown>(
+		event: string,
+		handler: (params: P, sessionId?: string) => void,
+	): void
+	off<P = unknown>(
+		event: string,
+		handler: (params: P, sessionId?: string) => void,
+	): void
 	onclose?: (reason: string) => void
+	close?(): Promise<void>
 	readonly id: string | null
 }
 
@@ -80,7 +91,61 @@ type RawMessage =
 	  }
 	| { method: string; params?: unknown; sessionId?: string }
 
-export class CdpConnection implements CdpConnectionLike {
+export abstract class BaseCdpConnection implements CdpConnectionLike {
+	abstract send<R = unknown>(method: string, params?: object): Promise<R>
+	abstract on<P = unknown>(event: string, handler: (params: P) => void): void
+	abstract off<P = unknown>(event: string, handler: (params: P) => void): void
+	abstract close(): Promise<void>
+	abstract get id(): string | null
+	abstract getSession(sessionId: string): CDPSessionLike | undefined
+	abstract onTransportClosed(handler: (why: string) => void): void
+	abstract offTransportClosed(handler: (why: string) => void): void
+	abstract waitForSessionDispatch(
+		sessionId: string,
+		method: string,
+		match?: (params?: object) => boolean,
+	): Promise<void>
+
+	async enableAutoAttach(): Promise<void> {
+		await this.send("Target.setAutoAttach", {
+			autoAttach: true,
+			flatten: true,
+			waitForDebuggerOnStart: true,
+		})
+		await this.send("Target.setDiscoverTargets", { discover: true })
+	}
+
+	async attachToTarget(targetId: string): Promise<CDPSessionLike> {
+		const { sessionId } = (await this.send<{ sessionId: string }>(
+			"Target.attachToTarget",
+			{ targetId, flatten: true },
+		)) as { sessionId: string }
+
+		let session = this.getSession(sessionId)
+		if (!session) {
+			session = this._createSession(sessionId)
+			this._setSession(sessionId, session)
+		}
+		this._mapTarget(sessionId, targetId)
+		return session
+	}
+
+	async getTargets(): Promise<Protocol.Target.TargetInfo[]> {
+		const res = await this.send<{
+			targetInfos: Protocol.Target.TargetInfo[]
+		}>("Target.getTargets")
+		return res.targetInfos
+	}
+
+	protected abstract _createSession(sessionId: string): CDPSessionLike
+	protected abstract _setSession(
+		sessionId: string,
+		session: CDPSessionLike,
+	): void
+	protected abstract _mapTarget(sessionId: string, targetId: string): void
+}
+
+export class CdpConnection extends BaseCdpConnection {
 	private transport: CDPTransport
 	private nextId = 1
 	private inflight = new Map<number, Inflight>() // Outstanding request records; `_sendViaSession()` inserts and `onMessage()` removes/resolves them.
@@ -108,6 +173,7 @@ export class CdpConnection implements CdpConnectionLike {
 	}
 
 	constructor(transport: CDPTransport) {
+		super()
 		this.transport = transport
 		this.transport.onclose = (reason) => {
 			const why = `transport-close reason=${String(reason || "")}`
@@ -258,6 +324,18 @@ export class CdpConnection implements CdpConnectionLike {
 		return res.targetInfos
 	}
 
+	protected _createSession(sessionId: string): CDPSessionLike {
+		return new CdpSession(this, sessionId)
+	}
+
+	protected _setSession(sessionId: string, session: CDPSessionLike): void {
+		this.sessions.set(sessionId, session as CdpSession)
+	}
+
+	protected _mapTarget(sessionId: string, targetId: string): void {
+		this.sessionToTarget.set(sessionId, targetId)
+	}
+
 	private onMessage(json: string): void {
 		const msg = JSON.parse(json) as RawMessage
 
@@ -403,24 +481,39 @@ export class CdpConnection implements CdpConnectionLike {
 	}
 }
 
-export class ExternalConnectionAdapter implements CdpConnectionLike {
+export class ExternalConnectionAdapter extends BaseCdpConnection {
 	private transportCloseHandlers = new Set<(why: string) => void>()
 	private sessions = new Map<string, ExternalSessionAdapter>()
-	private eventHandlers = new Map<string, Set<(params: any) => void>>()
-	private rootEventHandlers = new Map<string, (params: any, sessionId?: string) => void>()
+	private eventHandlers = new Map<string, Set<(params: unknown) => void>>()
+	private rootEventHandlers = new Map<
+		string,
+		(params: unknown, sessionId?: string) => void
+	>()
+	private sessionDispatchWaiters = new Set<SessionDispatchWaiter>()
+	private sessionToTarget = new Map<string, string>()
 
 	constructor(private externalSession: ExternalCDPSession) {
+		super()
 		// Listen for flattened child session events if the external wrapper passes them
-		this.on<{sessionId: string, targetInfo: any}>("Target.attachedToTarget", (params) => {
-			if (params && params.sessionId && !this.sessions.has(params.sessionId)) {
-				this.sessions.set(params.sessionId, new ExternalSessionAdapter(this, params.sessionId))
-			}
-		})
-		this.on<{sessionId: string, targetId: string}>("Target.detachedFromTarget", (params) => {
-			if (params && params.sessionId) {
-				this.sessions.delete(params.sessionId)
-			}
-		})
+		this.on<{ sessionId: string; targetInfo: any }>(
+			"Target.attachedToTarget",
+			(params) => {
+				if (params?.sessionId && !this.sessions.has(params.sessionId)) {
+					this.sessions.set(
+						params.sessionId,
+						new ExternalSessionAdapter(this, params.sessionId),
+					)
+				}
+			},
+		)
+		this.on<{ sessionId: string; targetId: string }>(
+			"Target.detachedFromTarget",
+			(params) => {
+				if (params?.sessionId) {
+					this.sessions.delete(params.sessionId)
+				}
+			},
+		)
 
 		this.externalSession.onclose = (reason: string) => {
 			this.emitTransportClosed(`external-session-close reason=${reason}`)
@@ -435,7 +528,9 @@ export class ExternalConnectionAdapter implements CdpConnectionLike {
 		}
 	}
 
-	get id() { return this.externalSession.id }
+	get id() {
+		return this.externalSession.id
+	}
 
 	async send<R = unknown>(method: string, params?: object): Promise<R> {
 		return this.externalSession.send<R>(method, params)
@@ -443,7 +538,7 @@ export class ExternalConnectionAdapter implements CdpConnectionLike {
 
 	private ensureRootListener(event: string) {
 		if (!this.rootEventHandlers.has(event)) {
-			const rootHandler = (params: any, targetSessionId?: string) => {
+			const rootHandler = (params: unknown, targetSessionId?: string) => {
 				if (targetSessionId) {
 					const childKey = `${targetSessionId}:${event}`
 					const childHandlers = this.eventHandlers.get(childKey)
@@ -479,24 +574,32 @@ export class ExternalConnectionAdapter implements CdpConnectionLike {
 	off<P = unknown>(event: string, handler: (params: P) => void): void {
 		const set = this.eventHandlers.get(event)
 		if (set) {
-			set.delete(handler as any)
+			set.delete(handler as (params: unknown) => void)
 		}
 	}
 
 	async close(): Promise<void> {
+		for (const waiter of Array.from(this.sessionDispatchWaiters)) {
+			waiter.reject(new CdpConnectionClosedError("connection closed"))
+		}
+		this.sessionDispatchWaiters.clear()
+
 		for (const [event, handler] of this.rootEventHandlers.entries()) {
 			this.externalSession.off(event, handler)
 		}
 		this.rootEventHandlers.clear()
 		this.eventHandlers.clear()
 
+		this.transportCloseHandlers.clear()
+		this.sessions.clear()
+
 		if (this.externalSession.onclose) {
-			this.externalSession.onclose = undefined as any
+			this.externalSession.onclose = undefined
 		}
 
 		// If external session has a close method, invoke it, otherwise no-op.
-		if (typeof (this.externalSession as any).close === "function") {
-			await (this.externalSession as any).close()
+		if (typeof this.externalSession.close === "function") {
+			await this.externalSession.close()
 		}
 	}
 
@@ -504,28 +607,16 @@ export class ExternalConnectionAdapter implements CdpConnectionLike {
 		return this.sessions.get(sessionId)
 	}
 
-	async enableAutoAttach(): Promise<void> {
-		await this.send("Target.setAutoAttach", {
-			autoAttach: true,
-			flatten: true,
-			waitForDebuggerOnStart: true,
-		})
-		await this.send("Target.setDiscoverTargets", { discover: true })
+	protected _createSession(sessionId: string): CDPSessionLike {
+		return new ExternalSessionAdapter(this, sessionId)
 	}
 
-	async attachToTarget(targetId: string): Promise<CDPSessionLike> {
-		const { sessionId } = await this.send<{ sessionId: string }>("Target.attachToTarget", { targetId, flatten: true })
-		let session = this.sessions.get(sessionId)
-		if (!session) {
-			session = new ExternalSessionAdapter(this, sessionId)
-			this.sessions.set(sessionId, session)
-		}
-		return session
+	protected _setSession(sessionId: string, session: CDPSessionLike): void {
+		this.sessions.set(sessionId, session as ExternalSessionAdapter)
 	}
 
-	async getTargets(): Promise<Protocol.Target.TargetInfo[]> {
-		const res = await this.send<{ targetInfos: Protocol.Target.TargetInfo[] }>("Target.getTargets")
-		return res.targetInfos
+	protected _mapTarget(sessionId: string, targetId: string): void {
+		this.sessionToTarget.set(sessionId, targetId)
 	}
 
 	onTransportClosed(handler: (why: string) => void): void {
@@ -541,15 +632,47 @@ export class ExternalConnectionAdapter implements CdpConnectionLike {
 		method: string,
 		match?: (params?: object) => boolean,
 	): Promise<void> {
-		// We cannot reliably track transport dispatch for external sessions, so just resolve on the next tick.
-		await new Promise((resolve) => setTimeout(resolve, 0))
+		return new Promise<void>((resolve, reject) => {
+			const waiter: SessionDispatchWaiter = {
+				sessionId,
+				method,
+				match,
+				resolve: () => {
+					this.sessionDispatchWaiters.delete(waiter)
+					resolve()
+				},
+				reject: (error: Error) => {
+					this.sessionDispatchWaiters.delete(waiter)
+					reject(error)
+				},
+			}
+			this.sessionDispatchWaiters.add(waiter)
+		})
 	}
 
-	async sendToSession<R = unknown>(sessionId: string, method: string, params?: object): Promise<R> {
-		return this.externalSession.send<R>(method, params, sessionId)
+	async sendToSession<R = unknown>(
+		sessionId: string,
+		method: string,
+		params?: object,
+	): Promise<R> {
+		const p = this.externalSession.send<R>(method, params, sessionId)
+
+		for (const waiter of Array.from(this.sessionDispatchWaiters)) {
+			if (waiter.sessionId !== sessionId) continue
+			if (waiter.method !== method) continue
+			if (waiter.match && !waiter.match(params)) continue
+			waiter.resolve()
+			break
+		}
+
+		return p
 	}
 
-	onSessionEvent(sessionId: string, event: string, handler: (params: any) => void) {
+	onSessionEvent(
+		sessionId: string,
+		event: string,
+		handler: (params: unknown) => void,
+	) {
 		const key = `${sessionId}:${event}`
 		let set = this.eventHandlers.get(key)
 		if (!set) {
@@ -560,7 +683,11 @@ export class ExternalConnectionAdapter implements CdpConnectionLike {
 		this.ensureRootListener(event)
 	}
 
-	offSessionEvent(sessionId: string, event: string, handler: (params: any) => void) {
+	offSessionEvent(
+		sessionId: string,
+		event: string,
+		handler: (params: unknown) => void,
+	) {
 		const key = `${sessionId}:${event}`
 		const set = this.eventHandlers.get(key)
 		if (set) {
@@ -570,20 +697,23 @@ export class ExternalConnectionAdapter implements CdpConnectionLike {
 }
 
 export class ExternalSessionAdapter implements CDPSessionLike {
-	constructor(private adapter: ExternalConnectionAdapter, public readonly id: string) {}
-	
+	constructor(
+		private adapter: ExternalConnectionAdapter,
+		public readonly id: string,
+	) {}
+
 	send<R = unknown>(method: string, params?: object): Promise<R> {
 		return this.adapter.sendToSession(this.id, method, params)
 	}
-	
+
 	on<P = unknown>(event: string, handler: (params: P) => void): void {
 		this.adapter.onSessionEvent(this.id, event, handler)
 	}
-	
+
 	off<P = unknown>(event: string, handler: (params: P) => void): void {
 		this.adapter.offSessionEvent(this.id, event, handler)
 	}
-	
+
 	async close(): Promise<void> {
 		await this.adapter.send("Target.detachFromTarget", { sessionId: this.id })
 	}
