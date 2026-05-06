@@ -484,6 +484,16 @@ export class ExternalConnectionAdapter implements CdpConnectionLike {
 	}
 
 	async close(): Promise<void> {
+		for (const [event, handler] of this.rootEventHandlers.entries()) {
+			this.externalSession.off(event, handler)
+		}
+		this.rootEventHandlers.clear()
+		this.eventHandlers.clear()
+
+		if (this.externalSession.onclose) {
+			this.externalSession.onclose = undefined as any
+		}
+
 		// If external session has a close method, invoke it, otherwise no-op.
 		if (typeof (this.externalSession as any).close === "function") {
 			await (this.externalSession as any).close()
