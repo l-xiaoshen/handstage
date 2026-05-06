@@ -915,7 +915,7 @@ export class V3Context {
 					const child = this.conn.getSession(pendingChildSessionId)
 					if (child) {
 						owner.adoptOopifSession(child, frameId)
-						this.sessionOwnerPage.set(child.id, owner)
+						this.sessionOwnerPage.set(child.id ?? "child", owner)
 						// Wire bridges for the child so its Page events keep flowing.
 						this.installFrameEventBridges(pendingChildSessionId, owner)
 					}
