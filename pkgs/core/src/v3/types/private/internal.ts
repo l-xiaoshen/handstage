@@ -1,9 +1,8 @@
 import type { LaunchedChrome } from "chrome-launcher"
 
-import type { CdpConnectionLike, CDPTransport } from "../../understudy/cdp"
+import type { ExternalCDPSession, CDPTransport } from "../../understudy/cdp"
 
 export type InitState =
-	| { kind: "UNINITIALIZED" }
 	| {
 			kind: "LOCAL"
 			chrome: LaunchedChrome
@@ -14,7 +13,7 @@ export type InitState =
 	  }
 	| {
 			kind: "CUSTOM_CONNECTION"
-			connection: CdpConnectionLike
+			connection: ExternalCDPSession
 	  }
 	| {
 			kind: "CUSTOM_TRANSPORT"
