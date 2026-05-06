@@ -31,9 +31,9 @@ export interface CDPTransport {
 }
 
 export interface ExternalCDPSession {
-	send<R = unknown>(method: string, params?: object): Promise<R>
-	on<P = unknown>(event: string, handler: (params: P) => void): void
-	off<P = unknown>(event: string, handler: (params: P) => void): void
+	send<R = unknown>(method: string, params?: object, sessionId?: string): Promise<R>
+	on<P = unknown>(event: string, handler: (params: P, sessionId?: string) => void): void
+	off<P = unknown>(event: string, handler: (params: P, sessionId?: string) => void): void
 	readonly id: string | null
 }
 
@@ -406,15 +406,16 @@ export class ExternalConnectionAdapter implements CdpConnectionLike {
 	private transportCloseHandlers = new Set<(why: string) => void>()
 	private sessions = new Map<string, ExternalSessionAdapter>()
 	private eventHandlers = new Map<string, Set<(params: any) => void>>()
+	private rootEventHandlers = new Map<string, (params: any, sessionId?: string) => void>()
 
 	constructor(private externalSession: ExternalCDPSession) {
 		// Listen for flattened child session events if the external wrapper passes them
-		this.externalSession.on<{sessionId: string, targetInfo: any}>("Target.attachedToTarget", (params) => {
+		this.on<{sessionId: string, targetInfo: any}>("Target.attachedToTarget", (params) => {
 			if (params && params.sessionId && !this.sessions.has(params.sessionId)) {
 				this.sessions.set(params.sessionId, new ExternalSessionAdapter(this, params.sessionId))
 			}
 		})
-		this.externalSession.on<{sessionId: string, targetId: string}>("Target.detachedFromTarget", (params) => {
+		this.on<{sessionId: string, targetId: string}>("Target.detachedFromTarget", (params) => {
 			if (params && params.sessionId) {
 				this.sessions.delete(params.sessionId)
 			}
@@ -427,12 +428,46 @@ export class ExternalConnectionAdapter implements CdpConnectionLike {
 		return this.externalSession.send<R>(method, params)
 	}
 
+	private ensureRootListener(event: string) {
+		if (!this.rootEventHandlers.has(event)) {
+			const rootHandler = (params: any, targetSessionId?: string) => {
+				if (targetSessionId) {
+					const childKey = `${targetSessionId}:${event}`
+					const childHandlers = this.eventHandlers.get(childKey)
+					if (childHandlers) {
+						for (const h of childHandlers) h(params)
+					}
+
+					// Forward target lifecycle events to root listeners as well.
+					if (event.startsWith("Target.")) {
+						const rootHandlers = this.eventHandlers.get(event)
+						if (rootHandlers) for (const h of rootHandlers) h(params)
+					}
+				} else {
+					const rootHandlers = this.eventHandlers.get(event)
+					if (rootHandlers) for (const h of rootHandlers) h(params)
+				}
+			}
+			this.rootEventHandlers.set(event, rootHandler)
+			this.externalSession.on(event, rootHandler)
+		}
+	}
+
 	on<P = unknown>(event: string, handler: (params: P) => void): void {
-		this.externalSession.on(event, handler)
+		let set = this.eventHandlers.get(event)
+		if (!set) {
+			set = new Set()
+			this.eventHandlers.set(event, set)
+		}
+		set.add(handler)
+		this.ensureRootListener(event)
 	}
 
 	off<P = unknown>(event: string, handler: (params: P) => void): void {
-		this.externalSession.off(event, handler)
+		const set = this.eventHandlers.get(event)
+		if (set) {
+			set.delete(handler as any)
+		}
 	}
 
 	async close(): Promise<void> {
@@ -488,10 +523,7 @@ export class ExternalConnectionAdapter implements CdpConnectionLike {
 	}
 
 	async sendToSession<R = unknown>(sessionId: string, method: string, params?: object): Promise<R> {
-		// Send the command directly over the external session. Depending on the external wrapper (e.g. Playwright), 
-		// they may handle child session routing inherently, or expect `sessionId` in the payload.
-		// For robust native CDP wrappers, we inject sessionId into params or rely on their multiplexing.
-		return this.externalSession.send<R>(method, params)
+		return this.externalSession.send<R>(method, params, sessionId)
 	}
 
 	onSessionEvent(sessionId: string, event: string, handler: (params: any) => void) {
@@ -502,6 +534,7 @@ export class ExternalConnectionAdapter implements CdpConnectionLike {
 			this.eventHandlers.set(key, set)
 		}
 		set.add(handler)
+		this.ensureRootListener(event)
 	}
 
 	offSessionEvent(sessionId: string, event: string, handler: (params: any) => void) {
