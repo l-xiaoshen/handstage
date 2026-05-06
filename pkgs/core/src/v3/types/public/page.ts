@@ -1,10 +1,6 @@
-import type { Page as PatchrightPage } from "patchright-core"
-import type { Page as PlaywrightPage } from "playwright-core"
-import type { Page as PuppeteerPage } from "puppeteer-core"
 import type { Page } from "../../understudy/page"
 
-export type { Page, PatchrightPage, PlaywrightPage, PuppeteerPage }
-export type AnyPage = PlaywrightPage | PuppeteerPage | PatchrightPage | Page
+export type { Page }
 
 export type { ConsoleListener } from "../../understudy/consoleMessage"
 export { ConsoleMessage } from "../../understudy/consoleMessage"
