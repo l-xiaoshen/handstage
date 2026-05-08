@@ -32,3 +32,11 @@ export interface ClearCookieOptions {
 	domain?: string | RegExp
 	path?: string | RegExp
 }
+
+/** Options for creating a dedicated browser context. */
+export interface CreateContextOptions {
+	disposeOnDetach?: boolean
+	proxyServer?: string
+	proxyBypassList?: string
+	originsWithUniversalNetworkAccess?: string[]
+}
