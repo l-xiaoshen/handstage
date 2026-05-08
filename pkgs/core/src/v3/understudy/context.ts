@@ -7,6 +7,7 @@ import type {
 	ClearCookieOptions,
 	Cookie,
 	CookieParam,
+	CreateContextOptions,
 } from "../types/public/context"
 import type { LocalBrowserLaunchOptions } from "../types/public/index"
 import { LogLevel } from "../types/public/logs"
@@ -101,6 +102,7 @@ export class V3Context {
 	private constructor(
 		readonly conn: CdpConnectionLike,
 		private readonly localBrowserLaunchOptions: LocalBrowserLaunchOptions | null = null,
+		public readonly browserContextId?: string,
 	) {}
 
 	private readonly _piercerInstalled = new Set<string>()
@@ -172,7 +174,36 @@ export class V3Context {
 			localBrowserLaunchOptions?: LocalBrowserLaunchOptions | null
 		},
 	): Promise<V3Context> {
-		const ctx = new V3Context(conn, opts?.localBrowserLaunchOptions ?? null)
+		let browserContextId: string | undefined = undefined;
+		try {
+			const res = await conn.send<{ defaultBrowserContextId?: string }>("Target.getBrowserContexts");
+			browserContextId = res.defaultBrowserContextId;
+		} catch (e) {
+			try {
+				const info = await conn.send<{ targetInfo: Protocol.Target.TargetInfo }>("Target.getTargetInfo");
+				browserContextId = info.targetInfo.browserContextId;
+			} catch (e2) {}
+		}
+
+		const ctx = new V3Context(conn, opts?.localBrowserLaunchOptions ?? null, browserContextId)
+		await ctx.bootstrap()
+		await ctx.ensureFirstTopLevelPage(getFirstTopLevelPageTimeoutMs())
+		return ctx
+	}
+
+	/**
+	 * Create a new dedicated browser context.
+	 */
+	public async create(options?: CreateContextOptions): Promise<V3Context> {
+		const opts = {
+			disposeOnDetach: true,
+			...options,
+		}
+		const { browserContextId } = await this.conn.send<{ browserContextId: string }>(
+			"Target.createBrowserContext",
+			opts,
+		)
+		const ctx = new V3Context(this.conn, this.localBrowserLaunchOptions, browserContextId)
 		await ctx.bootstrap()
 		await ctx.ensureFirstTopLevelPage(getFirstTopLevelPageTimeoutMs())
 		return ctx
@@ -441,7 +472,7 @@ export class V3Context {
 		const { targetId } = await this.conn.send<{ targetId: string }>(
 			"Target.createTarget",
 			// Create at about:blank so init scripts can install before first real navigation.
-			{ url: "about:blank" },
+			{ url: "about:blank", browserContextId: this.browserContextId },
 		)
 		this.pendingCreatedTargetUrl.set(targetId, "about:blank")
 		// Best-effort bring-to-front
@@ -469,7 +500,17 @@ export class V3Context {
 	 * Close CDP and clear all mappings. Best-effort cleanup.
 	 */
 	async close(): Promise<void> {
-		await this.conn.close()
+		this.conn.off("Target.attachedToTarget", this._onAttachedToTarget)
+		this.conn.off("Target.detachedFromTarget", this._onDetachedFromTarget)
+		this.conn.off("Target.targetDestroyed", this._onTargetDestroyed)
+		this.conn.off("Target.targetCreated", this._onTargetCreated)
+
+		if (this.browserContextId === undefined) {
+			await this.conn.close()
+		} else {
+			await this.conn.send("Target.disposeBrowserContext", { browserContextId: this.browserContextId }).catch(() => {})
+		}
+
 		this.pagesByTarget.clear()
 		this.mainFrameToTarget.clear()
 		this.sessionOwnerPage.clear()
@@ -478,6 +519,28 @@ export class V3Context {
 		this.createdAtByTarget.clear()
 		this.typeByTarget.clear()
 		this.pendingCreatedTargetUrl.clear()
+	}
+
+	private _onAttachedToTarget = async (evt: Protocol.Target.AttachedToTargetEvent) => {
+		if (this.browserContextId !== undefined && evt.targetInfo.browserContextId !== this.browserContextId) return
+		await this.onAttachedToTarget(evt.targetInfo, evt.sessionId)
+	}
+
+	private _onDetachedFromTarget = (evt: Protocol.Target.DetachedFromTargetEvent) => {
+		this.onDetachedFromTarget(evt.sessionId, evt.targetId ?? null)
+	}
+
+	private _onTargetDestroyed = (evt: Protocol.Target.TargetDestroyedEvent) => {
+		this.cleanupByTarget(evt.targetId)
+	}
+
+	private _onTargetCreated = async (evt: Protocol.Target.TargetCreatedEvent) => {
+		const info = evt.targetInfo
+		if (this.browserContextId !== undefined && info.browserContextId !== this.browserContextId) return
+		const ti = info as unknown as { openerId?: string; openerFrameId?: string }
+		if (info.type === "page" && (ti?.openerId || ti?.openerFrameId)) {
+			this._notePopupSignal()
+		}
 	}
 
 	/**
@@ -490,37 +553,24 @@ export class V3Context {
 		// Live attach via auto-attach (normal path)
 		this.conn.on<Protocol.Target.AttachedToTargetEvent>(
 			"Target.attachedToTarget",
-			async (evt) => {
-				await this.onAttachedToTarget(evt.targetInfo, evt.sessionId)
-			},
+			this._onAttachedToTarget,
 		)
 
 		// Live detach (clean up session from owner page & frame graph)
 		this.conn.on<Protocol.Target.DetachedFromTargetEvent>(
 			"Target.detachedFromTarget",
-			(evt) => {
-				this.onDetachedFromTarget(evt.sessionId, evt.targetId ?? null)
-			},
+			this._onDetachedFromTarget,
 		)
 
 		// Destroyed targets (fallback cleanup by targetId)
 		this.conn.on<Protocol.Target.TargetDestroyedEvent>(
 			"Target.targetDestroyed",
-			(evt) => {
-				this.cleanupByTarget(evt.targetId)
-			},
+			this._onTargetDestroyed,
 		)
 
 		this.conn.on<Protocol.Target.TargetCreatedEvent>(
 			"Target.targetCreated",
-			async (evt) => {
-				const info = evt.targetInfo
-				// Note popups to help activePage settle
-				const ti = info
-				if (info.type === "page" && (ti?.openerId || ti?.openerFrameId)) {
-					this._notePopupSignal()
-				}
-			},
+			this._onTargetCreated,
 		)
 
 		// Only enable auto-attach after listeners are ready so replayed targets are captured.
@@ -528,6 +578,7 @@ export class V3Context {
 
 		const targets = await this.conn.getTargets()
 		for (const t of targets) {
+			if (this.browserContextId !== undefined && t.browserContextId !== this.browserContextId) continue
 			if (t.attached) continue // auto-attach already handled this target
 			try {
 				await this.conn.attachToTarget(t.targetId)
@@ -535,7 +586,7 @@ export class V3Context {
 		}
 
 		const topLevelTargetIds = targets
-			.filter((t) => isTopLevelPage(t))
+			.filter((t) => (this.browserContextId === undefined || t.browserContextId === this.browserContextId) && isTopLevelPage(t))
 			.map((t) => t.targetId)
 		await this.waitForInitialTopLevelTargets(topLevelTargetIds)
 	}
@@ -1037,7 +1088,7 @@ export class V3Context {
 
 		const { cookies } = await this.conn.send<{
 			cookies: Protocol.Network.Cookie[]
-		}>("Storage.getCookies")
+		}>("Storage.getCookies", { browserContextId: this.browserContextId })
 
 		const mapped: Cookie[] = cookies.map((c) => ({
 			name: c.name,
@@ -1068,7 +1119,7 @@ export class V3Context {
 		const cdpCookies = normalized.map(toCdpCookieParam)
 
 		try {
-			await this.conn.send("Storage.setCookies", { cookies: cdpCookies })
+			await this.conn.send("Storage.setCookies", { cookies: cdpCookies, browserContextId: this.browserContextId })
 		} catch (err) {
 			const detail = err instanceof Error ? err.message : String(err)
 			const names = normalized.map((c) => `"${c.name}"`).join(", ")
@@ -1098,7 +1149,7 @@ export class V3Context {
 
 		if (!hasFilter) {
 			// Atomic single-call wipe — no race condition, no O(N) roundtrips.
-			await this.conn.send("Storage.clearCookies")
+			await this.conn.send("Storage.clearCookies", { browserContextId: this.browserContextId })
 			return
 		}
 
@@ -1109,11 +1160,12 @@ export class V3Context {
 
 		// Storage domain doesn't support targeted deletes on the browser endpoint.
 		// Clear everything, then re-add only the cookies we're keeping.
-		await this.conn.send("Storage.clearCookies")
+		await this.conn.send("Storage.clearCookies", { browserContextId: this.browserContextId })
 		if (toKeep.length) {
 			try {
 				await this.conn.send("Storage.setCookies", {
 					cookies: toKeep.map(toCdpCookieParam),
+					browserContextId: this.browserContextId,
 				})
 			} catch (err) {
 				const detail = err instanceof Error ? err.message : String(err)
