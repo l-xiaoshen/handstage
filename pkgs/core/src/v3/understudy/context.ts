@@ -178,11 +178,17 @@ export class V3Context {
 		let browserContextId: string | undefined = undefined;
 		try {
 			const res = await conn.send<{ defaultBrowserContextId?: string }>("Target.getBrowserContexts");
-			browserContextId = res.defaultBrowserContextId;
-		} catch (e) {
+			if (res.defaultBrowserContextId) {
+				browserContextId = res.defaultBrowserContextId;
+			}
+		} catch (e) {}
+
+		if (!browserContextId) {
 			try {
 				const info = await conn.send<{ targetInfo: Protocol.Target.TargetInfo }>("Target.getTargetInfo");
-				browserContextId = info.targetInfo.browserContextId;
+				if (info.targetInfo && info.targetInfo.browserContextId) {
+					browserContextId = info.targetInfo.browserContextId;
+				}
 			} catch (e2) {}
 		}
 
@@ -194,10 +200,13 @@ export class V3Context {
 					browserContextId = defaultTarget.browserContextId;
 				} else {
 					const { targetId } = await conn.send<{ targetId: string }>("Target.createTarget", { url: "about:blank" });
-					const newTargets = await conn.getTargets();
-					const t = newTargets.find(t => t.targetId === targetId);
-					if (t) browserContextId = t.browserContextId;
-					await conn.send("Target.closeTarget", { targetId }).catch(() => {});
+					try {
+						const newTargets = await conn.getTargets();
+						const t = newTargets.find(t => t.targetId === targetId);
+						if (t) browserContextId = t.browserContextId;
+					} finally {
+						await conn.send("Target.closeTarget", { targetId }).catch(() => {});
+					}
 				}
 			} catch (e) {}
 		}
@@ -526,6 +535,7 @@ export class V3Context {
 			for (const page of this.pages()) {
 				await page.close().catch(() => {})
 			}
+			await this.conn.close()
 		} else {
 			if (this.browserContextId) {
 				await this.conn.send("Target.disposeBrowserContext", { browserContextId: this.browserContextId }).catch(() => {})
@@ -543,7 +553,7 @@ export class V3Context {
 	}
 
 	private _onAttachedToTarget = async (evt: Protocol.Target.AttachedToTargetEvent) => {
-		if (this.browserContextId !== undefined && evt.targetInfo.browserContextId !== this.browserContextId) return
+		if (evt.targetInfo.browserContextId !== this.browserContextId) return
 		await this.onAttachedToTarget(evt.targetInfo, evt.sessionId)
 	}
 
@@ -557,7 +567,7 @@ export class V3Context {
 
 	private _onTargetCreated = async (evt: Protocol.Target.TargetCreatedEvent) => {
 		const info = evt.targetInfo
-		if (this.browserContextId !== undefined && info.browserContextId !== this.browserContextId) return
+		if (info.browserContextId !== this.browserContextId) return
 		const ti = info as unknown as { openerId?: string; openerFrameId?: string }
 		if (info.type === "page" && (ti?.openerId || ti?.openerFrameId)) {
 			this._notePopupSignal()
@@ -599,7 +609,7 @@ export class V3Context {
 
 		const targets = await this.conn.getTargets()
 		for (const t of targets) {
-			if (this.browserContextId !== undefined && t.browserContextId !== this.browserContextId) continue
+			if (t.browserContextId !== this.browserContextId) continue
 			if (t.attached) continue // auto-attach already handled this target
 			try {
 				await this.conn.attachToTarget(t.targetId)
@@ -607,7 +617,7 @@ export class V3Context {
 		}
 
 		const topLevelTargetIds = targets
-			.filter((t) => (this.browserContextId === undefined || t.browserContextId === this.browserContextId) && isTopLevelPage(t))
+			.filter((t) => t.browserContextId === this.browserContextId && isTopLevelPage(t))
 			.map((t) => t.targetId)
 		await this.waitForInitialTopLevelTargets(topLevelTargetIds)
 	}
