@@ -103,6 +103,7 @@ export class V3Context {
 		readonly conn: CdpConnectionLike,
 		private readonly localBrowserLaunchOptions: LocalBrowserLaunchOptions | null = null,
 		public readonly browserContextId?: string,
+		public readonly isDefaultContext: boolean = false,
 	) {}
 
 	private readonly _piercerInstalled = new Set<string>()
@@ -185,7 +186,23 @@ export class V3Context {
 			} catch (e2) {}
 		}
 
-		const ctx = new V3Context(conn, opts?.localBrowserLaunchOptions ?? null, browserContextId)
+		if (!browserContextId) {
+			try {
+				const targets = await conn.getTargets();
+				const defaultTarget = targets.find(t => t.type === 'page' && t.browserContextId);
+				if (defaultTarget && defaultTarget.browserContextId) {
+					browserContextId = defaultTarget.browserContextId;
+				} else {
+					const { targetId } = await conn.send<{ targetId: string }>("Target.createTarget", { url: "about:blank" });
+					const newTargets = await conn.getTargets();
+					const t = newTargets.find(t => t.targetId === targetId);
+					if (t) browserContextId = t.browserContextId;
+					await conn.send("Target.closeTarget", { targetId }).catch(() => {});
+				}
+			} catch (e) {}
+		}
+
+		const ctx = new V3Context(conn, opts?.localBrowserLaunchOptions ?? null, browserContextId, true)
 		await ctx.bootstrap()
 		await ctx.ensureFirstTopLevelPage(getFirstTopLevelPageTimeoutMs())
 		return ctx
@@ -203,7 +220,7 @@ export class V3Context {
 			"Target.createBrowserContext",
 			opts,
 		)
-		const ctx = new V3Context(this.conn, this.localBrowserLaunchOptions, browserContextId)
+		const ctx = new V3Context(this.conn, this.localBrowserLaunchOptions, browserContextId, false)
 		await ctx.bootstrap()
 		await ctx.ensureFirstTopLevelPage(getFirstTopLevelPageTimeoutMs())
 		return ctx
@@ -505,10 +522,14 @@ export class V3Context {
 		this.conn.off("Target.targetDestroyed", this._onTargetDestroyed)
 		this.conn.off("Target.targetCreated", this._onTargetCreated)
 
-		if (this.browserContextId === undefined) {
-			await this.conn.close()
+		if (this.isDefaultContext) {
+			for (const page of this.pages()) {
+				await page.close().catch(() => {})
+			}
 		} else {
-			await this.conn.send("Target.disposeBrowserContext", { browserContextId: this.browserContextId }).catch(() => {})
+			if (this.browserContextId) {
+				await this.conn.send("Target.disposeBrowserContext", { browserContextId: this.browserContextId }).catch(() => {})
+			}
 		}
 
 		this.pagesByTarget.clear()

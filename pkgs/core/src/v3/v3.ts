@@ -430,6 +430,12 @@ export class V3 {
 				await this.ctx?.close()
 			} catch {}
 
+			try {
+				if (this.ctx?.conn) {
+					await this.ctx.conn.close()
+				}
+			} catch {}
+
 			if (!keepAlive && this.state.kind === "LOCAL") {
 				const localState = this.state
 				await cleanupLocalBrowser({
