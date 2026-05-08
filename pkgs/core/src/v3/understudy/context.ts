@@ -176,21 +176,13 @@ export class V3Context {
 		},
 	): Promise<V3Context> {
 		let browserContextId: string | undefined = undefined;
-		try {
-			const res = await conn.send<{ defaultBrowserContextId?: string }>("Target.getBrowserContexts");
-			if (res.defaultBrowserContextId) {
-				browserContextId = res.defaultBrowserContextId;
-			}
-		} catch (e) {}
 
-		if (!browserContextId) {
-			try {
-				const info = await conn.send<{ targetInfo: Protocol.Target.TargetInfo }>("Target.getTargetInfo");
-				if (info.targetInfo && info.targetInfo.browserContextId) {
-					browserContextId = info.targetInfo.browserContextId;
-				}
-			} catch (e2) {}
-		}
+		try {
+			const info = await conn.send<{ targetInfo: Protocol.Target.TargetInfo }>("Target.getTargetInfo");
+			if (info.targetInfo && info.targetInfo.browserContextId) {
+				browserContextId = info.targetInfo.browserContextId;
+			}
+		} catch (e2) {}
 
 		if (!browserContextId) {
 			try {
@@ -231,7 +223,9 @@ export class V3Context {
 		)
 		const ctx = new V3Context(this.conn, this.localBrowserLaunchOptions, browserContextId, false)
 		await ctx.bootstrap()
-		await ctx.ensureFirstTopLevelPage(getFirstTopLevelPageTimeoutMs())
+		if (!ctx.hasTopLevelPage()) {
+			await ctx.newPage("about:blank")
+		}
 		return ctx
 	}
 
