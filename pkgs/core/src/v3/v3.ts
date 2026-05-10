@@ -31,7 +31,7 @@ import type {
 } from "./types/public/options"
 import type { CreateContextOptions } from "./types/public/context"
 import {
-	CdpConnection,
+	CDPConnection,
 	type CDPTransport,
 	type ExternalCDPSession,
 	ExternalConnectionAdapter,
@@ -48,7 +48,7 @@ const DEFAULT_VIEWPORT = { width: 1288, height: 711 }
 export class V3 {
 	private _isClosing = false
 
-	private _onCdpClosed = (why: string) => {
+	private _onCDPClosed = (why: string) => {
 		this._immediateShutdown(`CDP transport closed: ${why}`).catch(() => {})
 	}
 
@@ -74,7 +74,7 @@ export class V3 {
 
 		bindInstanceLogger(this.instanceId, (line) => this.emitLog(line))
 
-		this.ctx?.conn.onTransportClosed(this._onCdpClosed)
+		this.ctx?.conn.onTransportClosed(this._onCDPClosed)
 	}
 
 	private static setupContext(opts?: HandstagesSharedOptions) {
@@ -259,7 +259,7 @@ export class V3 {
 					message: "Connecting via custom transport",
 					level: LogLevel.Info,
 				})
-				const conn = new CdpConnection(transport)
+				const conn = new CDPConnection(transport)
 				const lbo: LocalBrowserLaunchOptions = opts
 					? {
 							viewport: opts.viewport,
@@ -454,8 +454,8 @@ export class V3 {
 		const keepAlive = this.keepAlive === true
 
 		try {
-			if (this.ctx?.conn && this._onCdpClosed) {
-				this.ctx.conn.offTransportClosed?.(this._onCdpClosed)
+			if (this.ctx?.conn && this._onCDPClosed) {
+				this.ctx.conn.offTransportClosed?.(this._onCDPClosed)
 			}
 		} catch {}
 

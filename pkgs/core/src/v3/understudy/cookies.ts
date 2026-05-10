@@ -128,7 +128,7 @@ export function normalizeCookieParams(cookies: CookieParam[]): CookieParam[] {
  * Session cookies (expires === -1) omit the expires field so CDP treats them
  * as session-scoped.
  */
-export function toCdpCookieParam(
+export function toCDPCookieParam(
 	c: Cookie | CookieParam,
 ): Record<string, unknown> {
 	return {
