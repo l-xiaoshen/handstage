@@ -130,28 +130,50 @@ export class V3Context {
 	private typeByTarget = new Map<TargetId, TargetType>()
 	private _pageOrder: TargetId[] = []
 	private pendingCreatedTargetUrl = new Map<TargetId, string>()
-	private initScripts: string[] = []
+	private readonly initScripts: string[] = []
 	private extraHttpHeaders: Record<string, string> | null = null
 	private _isClosed = false
 
-	private _sessionListeners = new Map<SessionId, SessionListenerEntry[]>()
+	/**
+	 * Child V3Contexts created via `createBrowserContext()`, tracked weakly
+	 * so a forgotten close on a child doesn't keep it alive past GC.  The
+	 * parent's `close()` walks this set and best-effort closes survivors so
+	 * their per-page resources (NetworkManager, console handlers) are
+	 * released before the shared CDP transport is torn down.
+	 */
+	private readonly _children = new Set<WeakRef<V3Context>>()
 
+	private readonly _sessionListeners = new Map<
+		SessionId,
+		SessionListenerEntry[]
+	>()
+
+	/**
+	 * Register and track a CDP-session-scoped event listener so it can be
+	 * removed in `close()`.  This API is for **child sessions only** —
+	 * passing the root connection (which has `id === null`) would silently
+	 * leak handlers because the root has no per-session bookkeeping here.
+	 * We assert against that to fail loudly during development.
+	 */
 	private _addSessionListener<P>(
 		session: CDPSessionLike,
 		event: string,
 		handler: (params: P) => void,
 	): void {
+		const sessionId = session.id
+		if (!sessionId) {
+			throw new Error(
+				"_addSessionListener requires a child CDP session with a non-null id; root-connection listeners must use this.conn.on() and be removed manually.",
+			)
+		}
 		const erasedHandler = handler as unknown as (params: unknown) => void
 		session.on(event, erasedHandler)
-		const sessionId = session.id
-		if (sessionId) {
-			let listeners = this._sessionListeners.get(sessionId)
-			if (!listeners) {
-				listeners = []
-				this._sessionListeners.set(sessionId, listeners)
-			}
-			listeners.push({ event, handler: erasedHandler })
+		let listeners = this._sessionListeners.get(sessionId)
+		if (!listeners) {
+			listeners = []
+			this._sessionListeners.set(sessionId, listeners)
 		}
+		listeners.push({ event, handler: erasedHandler })
 	}
 
 	private installTargetSessionListeners(session: CDPSessionLike): void {
@@ -342,6 +364,16 @@ export class V3Context {
 	 * Init scripts and extra HTTP headers are NOT inherited from this context
 	 * — call `addInitScript` / `setExtraHTTPHeaders` on the returned context
 	 * if you want them.
+	 *
+	 * The returned context is also tracked weakly by this context so that
+	 * if a caller forgets to `close()` it before the parent connection
+	 * shuts down, `parent.close()` will best-effort close it for them.
+	 *
+	 * Note on scaling: every active V3Context registers its own root-level
+	 * listeners on the shared connection, so each `Target.*` event fans out
+	 * O(N) handlers (each filtering by `browserContextId`).  This is fine
+	 * for a handful of contexts; if you need many dozens, consider sharing
+	 * one context across tasks or batching their lifetimes.
 	 */
 	public async createBrowserContext(
 		options?: CreateContextOptions,
@@ -363,7 +395,16 @@ export class V3Context {
 		if (!ctx.hasTopLevelPage()) {
 			await ctx.newPage("about:blank")
 		}
+		this._trackChild(ctx)
 		return ctx
+	}
+
+	private _trackChild(child: V3Context): void {
+		// Sweep dead refs opportunistically to keep the set bounded.
+		for (const ref of this._children) {
+			if (!ref.deref()) this._children.delete(ref)
+		}
+		this._children.add(new WeakRef(child))
 	}
 
 	private hasTopLevelPage(): boolean {
@@ -682,6 +723,23 @@ export class V3Context {
 		if (this._isClosed) return
 		this._isClosed = true
 
+		// Drain any still-alive child contexts FIRST so their per-page
+		// resources (NetworkManager, console handlers) are released before
+		// the shared CDP transport goes away under them.  Errors during
+		// child cleanup are swallowed by Promise.allSettled — a forgotten
+		// child shouldn't block the parent's shutdown path.
+		if (this._children.size > 0) {
+			const liveChildren: V3Context[] = []
+			for (const ref of this._children) {
+				const child = ref.deref()
+				if (child && !child._isClosed) liveChildren.push(child)
+			}
+			this._children.clear()
+			if (liveChildren.length > 0) {
+				await Promise.allSettled(liveChildren.map((c) => c.close()))
+			}
+		}
+
 		this.conn.off("Target.attachedToTarget", this._onAttachedToTarget)
 		this.conn.off("Target.detachedFromTarget", this._onDetachedFromTarget)
 		this.conn.off("Target.targetDestroyed", this._onTargetDestroyed)
@@ -745,7 +803,7 @@ export class V3Context {
 		this._piercerInstalled.clear()
 		this._targetSessionListeners.clear()
 		this._pageOrder = []
-		this.initScripts = []
+		this.initScripts.length = 0
 		this.extraHttpHeaders = null
 	}
 
