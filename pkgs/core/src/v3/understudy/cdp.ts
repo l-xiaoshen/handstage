@@ -106,7 +106,11 @@ export abstract class BaseCdpConnection implements CdpConnectionLike {
 		match?: (params?: object) => boolean,
 	): Promise<void>
 
+	private _autoAttachEnabled = false
+
 	async enableAutoAttach(): Promise<void> {
+		if (this._autoAttachEnabled) return
+		this._autoAttachEnabled = true
 		await this.send("Target.setAutoAttach", {
 			autoAttach: true,
 			flatten: true,
@@ -218,15 +222,6 @@ export class CdpConnection extends BaseCdpConnection {
 			if (transport.onerror) transport.onerror(error)
 		})
 		return new CdpConnection(transport)
-	}
-
-	async enableAutoAttach(): Promise<void> {
-		await this.send("Target.setAutoAttach", {
-			autoAttach: true,
-			flatten: true,
-			waitForDebuggerOnStart: true,
-		})
-		await this.send("Target.setDiscoverTargets", { discover: true })
 	}
 
 	async send<R = unknown>(method: string, params?: object): Promise<R> {
