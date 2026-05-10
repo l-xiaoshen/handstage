@@ -102,10 +102,7 @@ function getFirstTopLevelPageTimeoutMs(): number {
  * Context never “guesses” owners; it simply forwards events (with the emitting session)
  * so Page can record the correct owner at event time.
  */
-type SessionListenerEntry = {
-	event: string
-	handler: (params: unknown) => void
-}
+type SessionCleanup = () => void
 
 export class V3Context {
 	private constructor(
@@ -143,17 +140,57 @@ export class V3Context {
 	 */
 	private readonly _children = new Set<WeakRef<V3Context>>()
 
-	private readonly _sessionListeners = new Map<
-		SessionId,
-		SessionListenerEntry[]
-	>()
+	/**
+	 * Per-session disposer registry.  Holds every listener (or other
+	 * teardown callback) this V3Context registered against a given child
+	 * session, keyed by sessionId.  Drained both when the session detaches
+	 * (`onDetachedFromTarget`) and when the context closes — so for
+	 * dedicated contexts on a shared connection the connection's
+	 * `${sessionId}:Event` handler map doesn't accumulate stale entries
+	 * for the connection's lifetime.
+	 */
+	private readonly _sessionCleanups = new Map<SessionId, SessionCleanup[]>()
+
+	private _registerSessionCleanup(
+		sessionId: SessionId,
+		cleanup: SessionCleanup,
+	): void {
+		let cleanups = this._sessionCleanups.get(sessionId)
+		if (!cleanups) {
+			cleanups = []
+			this._sessionCleanups.set(sessionId, cleanups)
+		}
+		cleanups.push(cleanup)
+	}
+
+	private _drainSessionCleanups(sessionId: SessionId): void {
+		const cleanups = this._sessionCleanups.get(sessionId)
+		if (!cleanups) return
+		this._sessionCleanups.delete(sessionId)
+		for (const c of cleanups) {
+			try {
+				c()
+			} catch (err) {
+				v3Logger({
+					category: "ctx",
+					message: "Session cleanup callback threw",
+					level: LogLevel.Debug,
+					attributes: {
+						sessionId,
+						error: err instanceof Error ? err.message : String(err),
+					},
+				})
+			}
+		}
+	}
 
 	/**
 	 * Register and track a CDP-session-scoped event listener so it can be
-	 * removed in `close()`.  This API is for **child sessions only** —
-	 * passing the root connection (which has `id === null`) would silently
-	 * leak handlers because the root has no per-session bookkeeping here.
-	 * We assert against that to fail loudly during development.
+	 * removed when the session detaches or the context closes.  This API
+	 * is for **child sessions only** — passing the root connection
+	 * (which has `id === null`) would silently leak handlers because the
+	 * root has no per-session bookkeeping here.  We assert against that
+	 * to fail loudly during development.
 	 */
 	private _addSessionListener<P>(
 		session: CDPSessionLike,
@@ -168,12 +205,9 @@ export class V3Context {
 		}
 		const erasedHandler = handler as unknown as (params: unknown) => void
 		session.on(event, erasedHandler)
-		let listeners = this._sessionListeners.get(sessionId)
-		if (!listeners) {
-			listeners = []
-			this._sessionListeners.set(sessionId, listeners)
-		}
-		listeners.push({ event, handler: erasedHandler })
+		this._registerSessionCleanup(sessionId, () =>
+			session.off(event, erasedHandler),
+		)
 	}
 
 	private installTargetSessionListeners(session: CDPSessionLike): void {
@@ -745,27 +779,13 @@ export class V3Context {
 		this.conn.off("Target.targetDestroyed", this._onTargetDestroyed)
 		this.conn.off("Target.targetCreated", this._onTargetCreated)
 
-		for (const [sessionId, listeners] of this._sessionListeners.entries()) {
-			const session = this.conn.getSession(sessionId)
-			if (!session) continue
-			for (const { event, handler } of listeners) {
-				try {
-					session.off(event, handler)
-				} catch (err) {
-					v3Logger({
-						category: "ctx",
-						message: "Failed to remove session listener during close",
-						level: LogLevel.Debug,
-						attributes: {
-							sessionId,
-							event,
-							error: err instanceof Error ? err.message : String(err),
-						},
-					})
-				}
-			}
+		// Drain every per-session cleanup that wasn't already run by an
+		// earlier `Target.detachedFromTarget` event.  Iterating a snapshot
+		// of the keys avoids invalidating the iterator inside
+		// `_drainSessionCleanups()`.
+		for (const sessionId of Array.from(this._sessionCleanups.keys())) {
+			this._drainSessionCleanups(sessionId)
 		}
-		this._sessionListeners.clear()
 
 		const pagesSnapshot = this.pages()
 		await Promise.allSettled(pagesSnapshot.map((p) => p.close()))
@@ -953,8 +973,12 @@ export class V3Context {
 
 		this.installTargetSessionListeners(session)
 
-		// Register for Runtime events before enabling it so we don't miss initial contexts.
-		executionContexts.attachSession(session)
+		// Register for Runtime events before enabling it so we don't miss
+		// initial contexts.  The disposer is tracked so we remove the
+		// underlying `Runtime.*` handler registrations from the connection
+		// when this session detaches or this V3Context closes.
+		const detachExec = executionContexts.attachSession(session)
+		this._registerSessionCleanup(sessionId, detachExec)
 
 		// Ensure we only resume once even if multiple code paths hit finally.
 		let resumed = false
@@ -1252,6 +1276,13 @@ export class V3Context {
 		)) {
 			if (sid === sessionId) this.pendingOopifByMainFrame.delete(fid)
 		}
+
+		// Run the per-session disposers (event-listener removals from
+		// `_addSessionListener` and the executionContexts attach handle).
+		// This bounds the leak in the connection's per-session
+		// `eventHandlers` map by the lifetime of each session, not the
+		// lifetime of the V3Context.
+		this._drainSessionCleanups(sessionId)
 
 		this._targetSessionListeners.delete(sessionId)
 		this._sessionInit.delete(sessionId)

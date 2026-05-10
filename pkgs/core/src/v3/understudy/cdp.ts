@@ -481,7 +481,11 @@ export class CdpConnection extends BaseCdpConnection {
 	): void {
 		const key = `${sessionId}:${event}`
 		const set = this.eventHandlers.get(key)
-		if (set) set.delete(handler)
+		if (!set) return
+		set.delete(handler)
+		// Drop the bucket once empty so a long-lived connection doesn't
+		// accumulate stale `${sessionId}:Event` keys after sessions detach.
+		if (set.size === 0) this.eventHandlers.delete(key)
 	}
 
 	_dispatchToSession(sessionId: string, event: string, params: unknown): void {
