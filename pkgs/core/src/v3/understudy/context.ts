@@ -202,26 +202,78 @@ export class V3Context {
 	/**
 	 * Discover the default `browserContextId` for an existing connection.
 	 *
-	 * Strategy:
-	 *  1. Inspect existing targets — every page/iframe target carries the
-	 *     id of the browser context it belongs to.
-	 *  2. If no such target exists yet (fresh browser, no page), create a
-	 *     temporary `about:blank` target, read its context id, and close it.
+	 * Naively picking "the first page target with a `browserContextId`" is
+	 * unsafe: in Chrome **every** page target — default-context or not —
+	 * carries a `browserContextId`, so when we connect to a browser that
+	 * already has dedicated contexts open we can mistakenly stamp a
+	 * non-default id as the default.  That id then propagates everywhere
+	 * (`isDefaultContext: true` + wrong id → `newPage()` times out,
+	 * `Storage.*` operations target the wrong cookie jar, etc.).
 	 *
-	 * `Target.getTargetInfo` is intentionally NOT used here: when called
-	 * on the browser endpoint without a `targetId` it returns the browser
-	 * target itself, which has no `browserContextId`.
+	 * Strategy, in order:
+	 *  1. Ask the browser for the IDs of all **non-default** contexts via
+	 *     `Target.getBrowserContexts`.  Any existing page target whose id
+	 *     is NOT in that list belongs to the default context.
+	 *  2. If `getBrowserContexts` is unsupported, or no default-context
+	 *     page exists yet, create a temporary `about:blank` target without
+	 *     specifying `browserContextId` — by definition it lands in the
+	 *     default context — read its id, then close it.
+	 *
+	 * `Target.getTargetInfo` is intentionally NOT used: when called on the
+	 * browser endpoint without a `targetId` it returns the browser target
+	 * itself, which has no `browserContextId`.
 	 */
 	private static async resolveDefaultBrowserContextId(
 		conn: CdpConnectionLike,
 	): Promise<string> {
+		// Step 1: enumerate non-default context ids.  Some non-Chrome CDP
+		// implementations don't expose this command; tolerate that.
+		let nonDefaultIds: Set<string> | undefined
 		try {
-			const targets = await conn.getTargets()
-			const existing = targets.find(
-				(t) => t.type === "page" && t.browserContextId,
+			const res = await conn.send<{ browserContextIds?: string[] }>(
+				"Target.getBrowserContexts",
 			)
-			if (existing?.browserContextId) return existing.browserContextId
+			nonDefaultIds = new Set(res.browserContextIds ?? [])
+		} catch (err) {
+			v3Logger({
+				category: "ctx",
+				message:
+					"Target.getBrowserContexts not available — falling back to temp-target discovery",
+				level: LogLevel.Debug,
+				attributes: { error: err instanceof Error ? err.message : String(err) },
+			})
+		}
 
+		// Step 2 (fast path): pick any existing page target whose
+		// browserContextId is NOT in the non-default set.
+		if (nonDefaultIds) {
+			try {
+				const targets = await conn.getTargets()
+				const defaultPage = targets.find(
+					(t) =>
+						t.type === "page" &&
+						!!t.browserContextId &&
+						!nonDefaultIds!.has(t.browserContextId),
+				)
+				if (defaultPage?.browserContextId) {
+					return defaultPage.browserContextId
+				}
+			} catch (err) {
+				v3Logger({
+					category: "ctx",
+					message: "Target.getTargets failed during default-context discovery",
+					level: LogLevel.Debug,
+					attributes: {
+						error: err instanceof Error ? err.message : String(err),
+					},
+				})
+			}
+		}
+
+		// Step 3 (slow path): create a temporary target.  Omitting
+		// `browserContextId` forces Chrome to use the default context, so
+		// the new target's `browserContextId` IS the default id.
+		try {
 			const { targetId } = await conn.send<{ targetId: string }>(
 				"Target.createTarget",
 				{ url: "about:blank" },
