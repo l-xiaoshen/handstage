@@ -106,17 +106,32 @@ export abstract class BaseCdpConnection implements CdpConnectionLike {
 		match?: (params?: object) => boolean,
 	): Promise<void>
 
-	private _autoAttachEnabled = false
+	// Memoize the in-flight enable so concurrent V3Contexts sharing the
+	// connection don't all re-fire setAutoAttach on the browser session.
+	// On rejection we clear the memo so the next caller can retry —
+	// otherwise a partial failure (e.g. setAutoAttach succeeds but
+	// setDiscoverTargets times out) would permanently leave the
+	// connection in a half-initialized state.
+	private _autoAttachPromise: Promise<void> | null = null
 
-	async enableAutoAttach(): Promise<void> {
-		if (this._autoAttachEnabled) return
-		this._autoAttachEnabled = true
-		await this.send("Target.setAutoAttach", {
-			autoAttach: true,
-			flatten: true,
-			waitForDebuggerOnStart: true,
+	enableAutoAttach(): Promise<void> {
+		if (this._autoAttachPromise) return this._autoAttachPromise
+		const p = (async () => {
+			await this.send("Target.setAutoAttach", {
+				autoAttach: true,
+				flatten: true,
+				waitForDebuggerOnStart: true,
+			})
+			await this.send("Target.setDiscoverTargets", { discover: true })
+		})()
+		this._autoAttachPromise = p
+		p.catch(() => {
+			// Allow retry — but only clear if we still own this promise.
+			if (this._autoAttachPromise === p) {
+				this._autoAttachPromise = null
+			}
 		})
-		await this.send("Target.setDiscoverTargets", { discover: true })
+		return p
 	}
 
 	async attachToTarget(targetId: string): Promise<CDPSessionLike> {
