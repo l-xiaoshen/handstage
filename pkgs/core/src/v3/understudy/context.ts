@@ -19,14 +19,14 @@ import {
 } from "../types/public/sdkErrors"
 import {
 	type CDPSessionLike,
-	type CdpConnectionLike,
-	CdpConnection,
+	type CDPConnectionLike,
+	CDPConnection,
 } from "./cdp"
 import {
 	cookieMatchesFilter,
 	filterCookies,
 	normalizeCookieParams,
-	toCdpCookieParam,
+	toCDPCookieParam,
 } from "./cookies"
 import { executionContexts } from "./executionContextRegistry"
 import { normalizeInitScriptSource } from "./initScripts"
@@ -106,7 +106,7 @@ type SessionCleanup = () => void
 
 export class V3Context {
 	private constructor(
-		readonly conn: CdpConnectionLike,
+		readonly conn: CDPConnectionLike,
 		private readonly localBrowserLaunchOptions: LocalBrowserLaunchOptions | null = null,
 		public readonly browserContextId: string,
 		public readonly isDefaultContext: boolean = false,
@@ -249,7 +249,7 @@ export class V3Context {
 			cdpHeaders?: Record<string, string>
 		},
 	): Promise<V3Context> {
-		const conn = await CdpConnection.connect(wsUrl, {
+		const conn = await CDPConnection.connect(wsUrl, {
 			headers: opts?.cdpHeaders,
 		})
 		return V3Context.createFromConnection(conn, opts)
@@ -280,7 +280,7 @@ export class V3Context {
 	 * itself, which has no `browserContextId`.
 	 */
 	private static async resolveDefaultBrowserContextId(
-		conn: CdpConnectionLike,
+		conn: CDPConnectionLike,
 	): Promise<string> {
 		// Step 1: enumerate non-default context ids.  Some non-Chrome CDP
 		// implementations don't expose this command; tolerate that.
@@ -366,10 +366,10 @@ export class V3Context {
 	}
 
 	/**
-	 * Create a Context from an existing CdpConnectionLike.
+	 * Create a Context from an existing CDPConnectionLike.
 	 */
 	static async createFromConnection(
-		conn: CdpConnectionLike,
+		conn: CDPConnectionLike,
 		opts?: {
 			localBrowserLaunchOptions?: LocalBrowserLaunchOptions | null
 		},
@@ -1512,7 +1512,7 @@ export class V3Context {
 		const normalized = normalizeCookieParams(cookies)
 		if (!normalized.length) return
 
-		const cdpCookies = normalized.map(toCdpCookieParam)
+		const cdpCookies = normalized.map(toCDPCookieParam)
 
 		try {
 			await this.conn.send(
@@ -1564,7 +1564,7 @@ export class V3Context {
 			try {
 				await this.conn.send(
 					"Storage.setCookies",
-					this._scopedParams({ cookies: toKeep.map(toCdpCookieParam) }),
+					this._scopedParams({ cookies: toKeep.map(toCDPCookieParam) }),
 				)
 			} catch (err) {
 				const detail = err instanceof Error ? err.message : String(err)

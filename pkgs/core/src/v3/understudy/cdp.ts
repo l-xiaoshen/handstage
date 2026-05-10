@@ -2,7 +2,7 @@ import type { Protocol } from "devtools-protocol"
 import WebSocket from "ws"
 import { HANDSTAGES_VERSION } from "../../version"
 import {
-	CdpConnectionClosedError,
+	CDPConnectionClosedError,
 	PageNotFoundError,
 } from "../types/public/sdkErrors"
 
@@ -49,7 +49,7 @@ export interface ExternalCDPSession {
 	readonly id: string | null
 }
 
-export interface CdpConnectionLike extends CDPSessionLike {
+export interface CDPConnectionLike extends CDPSessionLike {
 	getSession(sessionId: string): CDPSessionLike | undefined
 	enableAutoAttach(): Promise<void>
 	attachToTarget(targetId: string): Promise<CDPSessionLike>
@@ -91,7 +91,7 @@ type RawMessage =
 	  }
 	| { method: string; params?: unknown; sessionId?: string }
 
-export abstract class BaseCdpConnection implements CdpConnectionLike {
+export abstract class BaseCDPConnection implements CDPConnectionLike {
 	abstract send<R = unknown>(method: string, params?: object): Promise<R>
 	abstract on<P = unknown>(event: string, handler: (params: P) => void): void
 	abstract off<P = unknown>(event: string, handler: (params: P) => void): void
@@ -164,12 +164,12 @@ export abstract class BaseCdpConnection implements CdpConnectionLike {
 	protected abstract _mapTarget(sessionId: string, targetId: string): void
 }
 
-export class CdpConnection extends BaseCdpConnection {
+export class CDPConnection extends BaseCDPConnection {
 	private transport: CDPTransport
 	private nextId = 1
 	private inflight = new Map<number, Inflight>() // Outstanding request records; `_sendViaSession()` inserts and `onMessage()` removes/resolves them.
 	private eventHandlers = new Map<string, Set<EventHandler>>()
-	private sessions = new Map<string, CdpSession>()
+	private sessions = new Map<string, CDPSession>()
 	/** Maps sessionId -> targetId (1:1 mapping) */
 	private sessionToTarget = new Map<string, string>()
 	private sessionDispatchWaiters = new Set<SessionDispatchWaiter>()
@@ -211,7 +211,7 @@ export class CdpConnection extends BaseCdpConnection {
 	static async connect(
 		wsUrl: string,
 		options?: { headers?: Record<string, string> },
-	): Promise<CdpConnection> {
+	): Promise<CDPConnection> {
 		// Include User-Agent header for server-side observability and version tracking
 		// Merge user-provided headers, letting them override defaults
 		const headers = {
@@ -236,7 +236,7 @@ export class CdpConnection extends BaseCdpConnection {
 		ws.on("error", (error) => {
 			if (transport.onerror) transport.onerror(error)
 		})
-		return new CdpConnection(transport)
+		return new CDPConnection(transport)
 	}
 
 	async send<R = unknown>(method: string, params?: object): Promise<R> {
@@ -277,15 +277,15 @@ export class CdpConnection extends BaseCdpConnection {
 
 	private rejectAllInflight(why: string): void {
 		for (const [id, entry] of this.inflight.entries()) {
-			entry.reject(new CdpConnectionClosedError(why))
+			entry.reject(new CDPConnectionClosedError(why))
 			this.inflight.delete(id)
 		}
 		for (const waiter of Array.from(this.sessionDispatchWaiters)) {
-			waiter.reject(new CdpConnectionClosedError(why))
+			waiter.reject(new CDPConnectionClosedError(why))
 		}
 	}
 
-	getSession(sessionId: string): CdpSession | undefined {
+	getSession(sessionId: string): CDPSession | undefined {
 		return this.sessions.get(sessionId)
 	}
 
@@ -312,7 +312,7 @@ export class CdpConnection extends BaseCdpConnection {
 		})
 	}
 
-	async attachToTarget(targetId: string): Promise<CdpSession> {
+	async attachToTarget(targetId: string): Promise<CDPSession> {
 		const { sessionId } = (await this.send<{ sessionId: string }>(
 			"Target.attachToTarget",
 			{ targetId, flatten: true },
@@ -320,7 +320,7 @@ export class CdpConnection extends BaseCdpConnection {
 
 		let session = this.sessions.get(sessionId)
 		if (!session) {
-			session = new CdpSession(this, sessionId)
+			session = new CDPSession(this, sessionId)
 			this.sessions.set(sessionId, session)
 		}
 		this.sessionToTarget.set(sessionId, targetId)
@@ -335,11 +335,11 @@ export class CdpConnection extends BaseCdpConnection {
 	}
 
 	protected _createSession(sessionId: string): CDPSessionLike {
-		return new CdpSession(this, sessionId)
+		return new CDPSession(this, sessionId)
 	}
 
 	protected _setSession(sessionId: string, session: CDPSessionLike): void {
-		this.sessions.set(sessionId, session as CdpSession)
+		this.sessions.set(sessionId, session as CDPSession)
 	}
 
 	protected _mapTarget(sessionId: string, targetId: string): void {
@@ -368,7 +368,7 @@ export class CdpConnection extends BaseCdpConnection {
 				const p = (msg as { params: Protocol.Target.AttachedToTargetEvent })
 					.params
 				if (!this.sessions.has(p.sessionId)) {
-					this.sessions.set(p.sessionId, new CdpSession(this, p.sessionId))
+					this.sessions.set(p.sessionId, new CDPSession(this, p.sessionId))
 				}
 				this.sessionToTarget.set(p.sessionId, p.targetInfo.targetId)
 			} else if (msg.method === "Target.detachedFromTarget") {
@@ -495,7 +495,7 @@ export class CdpConnection extends BaseCdpConnection {
 	}
 }
 
-export class ExternalConnectionAdapter extends BaseCdpConnection {
+export class ExternalConnectionAdapter extends BaseCDPConnection {
 	private transportCloseHandlers = new Set<(why: string) => void>()
 	private sessions = new Map<string, ExternalSessionAdapter>()
 	private eventHandlers = new Map<string, Set<(params: unknown) => void>>()
@@ -594,7 +594,7 @@ export class ExternalConnectionAdapter extends BaseCdpConnection {
 
 	async close(): Promise<void> {
 		for (const waiter of Array.from(this.sessionDispatchWaiters)) {
-			waiter.reject(new CdpConnectionClosedError("connection closed"))
+			waiter.reject(new CDPConnectionClosedError("connection closed"))
 		}
 		this.sessionDispatchWaiters.clear()
 
@@ -733,9 +733,9 @@ export class ExternalSessionAdapter implements CDPSessionLike {
 	}
 }
 
-export class CdpSession implements CDPSessionLike {
+export class CDPSession implements CDPSessionLike {
 	constructor(
-		private readonly root: CdpConnection,
+		private readonly root: CDPConnection,
 		public readonly id: string,
 	) {}
 

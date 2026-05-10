@@ -291,7 +291,7 @@ export class HandstagesClosedError extends HandstagesError {
 	}
 }
 
-export class CdpConnectionClosedError extends HandstagesError {
+export class CDPConnectionClosedError extends HandstagesError {
 	constructor(reason: string) {
 		super(`CDP connection closed: ${reason}`)
 	}

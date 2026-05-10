@@ -28,7 +28,7 @@ import {
 	captureHybridSnapshot,
 	resolveXpathForLocation,
 } from "./a11y/snapshot/index"
-import type { CDPSessionLike, CdpConnectionLike } from "./cdp"
+import type { CDPSessionLike, CDPConnectionLike } from "./cdp"
 import { type ConsoleListener, ConsoleMessage } from "./consoleMessage"
 import { deepLocatorFromPage, resolveLocatorTarget } from "./deepLocator"
 import { executionContexts } from "./executionContextRegistry"
@@ -111,7 +111,7 @@ export class Page {
 	private extraHTTPHeaders: Record<string, string> = {}
 
 	private constructor(
-		private readonly conn: CdpConnectionLike,
+		private readonly conn: CDPConnectionLike,
 		private readonly mainSession: CDPSessionLike,
 		private readonly _targetId: string,
 		mainFrameId: string,
@@ -286,7 +286,7 @@ export class Page {
 	 * Assumes Page domain is already enabled on the session passed in.
 	 */
 	static async create(
-		conn: CdpConnectionLike,
+		conn: CDPConnectionLike,
 		session: CDPSessionLike,
 		targetId: string,
 		localBrowserLaunchOptions?: LocalBrowserLaunchOptions | null,
