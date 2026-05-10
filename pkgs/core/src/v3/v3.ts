@@ -29,7 +29,13 @@ import type {
 	HandstagesSharedOptions,
 	HandstagesConnectOptions,
 } from "./types/public/options"
-import { CdpConnection, type CDPTransport, type ExternalCDPSession, ExternalConnectionAdapter } from "./understudy/cdp"
+import type { CreateContextOptions } from "./types/public/context"
+import {
+	CdpConnection,
+	type CDPTransport,
+	type ExternalCDPSession,
+	ExternalConnectionAdapter,
+} from "./understudy/cdp"
 import { V3Context } from "./understudy/context"
 
 const DEFAULT_VIEWPORT = { width: 1288, height: 711 }
@@ -58,7 +64,7 @@ export class V3 {
 		private ctx: V3Context | undefined,
 		opts: HandstagesSharedOptions,
 		instanceId: string,
-		logSink: Logger
+		logSink: Logger,
 	) {
 		this.logSink = logSink
 		this.verbose = opts.verbose ?? LogLevel.Info
@@ -97,7 +103,8 @@ export class V3 {
 						delete process.env.HEADLESS
 					}
 				}
-				const lbo: LocalBrowserLaunchOptions = opts?.localBrowserLaunchOptions ?? {}
+				const lbo: LocalBrowserLaunchOptions =
+					opts?.localBrowserLaunchOptions ?? {}
 
 				if (lbo.cdpHeaders && !lbo.cdpUrl) {
 					logger({
@@ -214,7 +221,7 @@ export class V3 {
 					createdTempProfile: createdTemp,
 					preserveUserDataDir: !!lbo.preserveUserDataDir,
 				}
-				
+
 				const v3 = new V3(state, ctx, sharedOpts, instanceId, logSink)
 
 				const chromePid = chrome.process?.pid ?? chrome.pid
@@ -239,7 +246,10 @@ export class V3 {
 		}
 	}
 
-	static async connectTransport(transport: CDPTransport, opts?: HandstagesConnectOptions): Promise<V3> {
+	static async connectTransport(
+		transport: CDPTransport,
+		opts?: HandstagesConnectOptions,
+	): Promise<V3> {
 		const { instanceId, sharedOpts, logSink, logger } = V3.setupContext(opts)
 
 		try {
@@ -250,12 +260,14 @@ export class V3 {
 					level: LogLevel.Info,
 				})
 				const conn = new CdpConnection(transport)
-				const lbo: LocalBrowserLaunchOptions = opts ? {
-					viewport: opts.viewport,
-					deviceScaleFactor: opts.deviceScaleFactor,
-					downloadsPath: opts.downloadsPath,
-					acceptDownloads: opts.acceptDownloads,
-				} : {}
+				const lbo: LocalBrowserLaunchOptions = opts
+					? {
+							viewport: opts.viewport,
+							deviceScaleFactor: opts.deviceScaleFactor,
+							downloadsPath: opts.downloadsPath,
+							acceptDownloads: opts.acceptDownloads,
+						}
+					: {}
 				const ctx = await V3Context.createFromConnection(conn, {
 					localBrowserLaunchOptions: lbo,
 				})
@@ -275,7 +287,10 @@ export class V3 {
 		}
 	}
 
-	static async connectSession(session: ExternalCDPSession, opts?: HandstagesConnectOptions): Promise<V3> {
+	static async connectSession(
+		session: ExternalCDPSession,
+		opts?: HandstagesConnectOptions,
+	): Promise<V3> {
 		const { instanceId, sharedOpts, logSink, logger } = V3.setupContext(opts)
 
 		try {
@@ -286,12 +301,14 @@ export class V3 {
 					level: LogLevel.Info,
 				})
 				const adapter = new ExternalConnectionAdapter(session)
-				const lbo: LocalBrowserLaunchOptions = opts ? {
-					viewport: opts.viewport,
-					deviceScaleFactor: opts.deviceScaleFactor,
-					downloadsPath: opts.downloadsPath,
-					acceptDownloads: opts.acceptDownloads,
-				} : {}
+				const lbo: LocalBrowserLaunchOptions = opts
+					? {
+							viewport: opts.viewport,
+							deviceScaleFactor: opts.deviceScaleFactor,
+							downloadsPath: opts.downloadsPath,
+							acceptDownloads: opts.acceptDownloads,
+						}
+					: {}
 				const ctx = await V3Context.createFromConnection(adapter, {
 					localBrowserLaunchOptions: lbo,
 				})
@@ -404,12 +421,29 @@ export class V3 {
 		return ""
 	}
 
-	/** Expose the current CDP-backed context. */
+	/** Expose the current CDP-backed (default) browser context. */
 	public get context(): V3Context {
 		if (!this.ctx) {
 			throw new Error("Cannot access context: V3 instance is closed")
 		}
 		return this.ctx
+	}
+
+	/**
+	 * Create a new isolated browser context (similar to an incognito profile).
+	 *
+	 * The returned context shares the underlying CDP connection but has its
+	 * own cookies, storage, and pages. By default `disposeOnDetach: true` is
+	 * set so Chrome auto-cleans the context on disconnect.
+	 *
+	 * @example
+	 * const handstage = await V3.connectLocal()
+	 * const isolated = await handstage.create({ disposeOnDetach: true })
+	 * await isolated.newPage("https://example.com")
+	 * await isolated.close()
+	 */
+	public async create(options?: CreateContextOptions): Promise<V3Context> {
+		return this.context.createBrowserContext(options)
 	}
 
 	/** Best-effort cleanup of context and launched resources. */
@@ -439,7 +473,7 @@ export class V3 {
 					preserveUserDataDir: localState.preserveUserDataDir,
 				})
 			}
-		} 		finally {
+		} finally {
 			this.stopShutdownSupervisor()
 
 			this.state = { kind: "UNINITIALIZED" }

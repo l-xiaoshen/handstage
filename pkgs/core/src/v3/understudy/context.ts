@@ -17,7 +17,11 @@ import {
 	PageNotFoundError,
 	TimeoutError,
 } from "../types/public/sdkErrors"
-import { type CDPSessionLike, type CdpConnectionLike, CdpConnection } from "./cdp"
+import {
+	type CDPSessionLike,
+	type CdpConnectionLike,
+	CdpConnection,
+} from "./cdp"
 import {
 	cookieMatchesFilter,
 	filterCookies,
@@ -98,11 +102,16 @@ function getFirstTopLevelPageTimeoutMs(): number {
  * Context never “guesses” owners; it simply forwards events (with the emitting session)
  * so Page can record the correct owner at event time.
  */
+type SessionListenerEntry = {
+	event: string
+	handler: (params: unknown) => void
+}
+
 export class V3Context {
 	private constructor(
 		readonly conn: CdpConnectionLike,
 		private readonly localBrowserLaunchOptions: LocalBrowserLaunchOptions | null = null,
-		public readonly browserContextId?: string,
+		public readonly browserContextId: string,
 		public readonly isDefaultContext: boolean = false,
 	) {}
 
@@ -121,8 +130,29 @@ export class V3Context {
 	private typeByTarget = new Map<TargetId, TargetType>()
 	private _pageOrder: TargetId[] = []
 	private pendingCreatedTargetUrl = new Map<TargetId, string>()
-	private readonly initScripts: string[] = []
+	private initScripts: string[] = []
 	private extraHttpHeaders: Record<string, string> | null = null
+	private _isClosed = false
+
+	private _sessionListeners = new Map<SessionId, SessionListenerEntry[]>()
+
+	private _addSessionListener<P>(
+		session: CDPSessionLike,
+		event: string,
+		handler: (params: P) => void,
+	): void {
+		const erasedHandler = handler as unknown as (params: unknown) => void
+		session.on(event, erasedHandler)
+		const sessionId = session.id
+		if (sessionId) {
+			let listeners = this._sessionListeners.get(sessionId)
+			if (!listeners) {
+				listeners = []
+				this._sessionListeners.set(sessionId, listeners)
+			}
+			listeners.push({ event, handler: erasedHandler })
+		}
+	}
 
 	private installTargetSessionListeners(session: CDPSessionLike): void {
 		const sessionId = session.id
@@ -130,19 +160,22 @@ export class V3Context {
 		if (this._targetSessionListeners.has(sessionId)) return
 		this._targetSessionListeners.add(sessionId)
 
-		session.on<Protocol.Target.AttachedToTargetEvent>(
+		this._addSessionListener<Protocol.Target.AttachedToTargetEvent>(
+			session,
 			"Target.attachedToTarget",
 			(evt) => {
 				void this.onAttachedToTarget(evt.targetInfo, evt.sessionId)
 			},
 		)
-		session.on<Protocol.Target.DetachedFromTargetEvent>(
+		this._addSessionListener<Protocol.Target.DetachedFromTargetEvent>(
+			session,
 			"Target.detachedFromTarget",
 			(evt) => {
 				this.onDetachedFromTarget(evt.sessionId, evt.targetId ?? null)
 			},
 		)
-		session.on<Protocol.Target.TargetDestroyedEvent>(
+		this._addSessionListener<Protocol.Target.TargetDestroyedEvent>(
+			session,
 			"Target.targetDestroyed",
 			(evt) => {
 				this.cleanupByTarget(evt.targetId)
@@ -167,6 +200,64 @@ export class V3Context {
 	}
 
 	/**
+	 * Discover the default `browserContextId` for an existing connection.
+	 *
+	 * Strategy:
+	 *  1. Inspect existing targets — every page/iframe target carries the
+	 *     id of the browser context it belongs to.
+	 *  2. If no such target exists yet (fresh browser, no page), create a
+	 *     temporary `about:blank` target, read its context id, and close it.
+	 *
+	 * `Target.getTargetInfo` is intentionally NOT used here: when called
+	 * on the browser endpoint without a `targetId` it returns the browser
+	 * target itself, which has no `browserContextId`.
+	 */
+	private static async resolveDefaultBrowserContextId(
+		conn: CdpConnectionLike,
+	): Promise<string> {
+		try {
+			const targets = await conn.getTargets()
+			const existing = targets.find(
+				(t) => t.type === "page" && t.browserContextId,
+			)
+			if (existing?.browserContextId) return existing.browserContextId
+
+			const { targetId } = await conn.send<{ targetId: string }>(
+				"Target.createTarget",
+				{ url: "about:blank" },
+			)
+			try {
+				const after = await conn.getTargets()
+				const probe = after.find((t) => t.targetId === targetId)
+				if (probe?.browserContextId) return probe.browserContextId
+			} finally {
+				await conn
+					.send("Target.closeTarget", { targetId })
+					.catch((err) => {
+						v3Logger({
+							category: "ctx",
+							message:
+								"Failed to close temporary discovery target; it will remain until the browser exits",
+							level: LogLevel.Debug,
+							attributes: {
+								targetId,
+								error: err instanceof Error ? err.message : String(err),
+							},
+						})
+					})
+			}
+		} catch (err) {
+			throw new Error(
+				`Failed to resolve default browserContextId via Target CDP commands: ${err instanceof Error ? err.message : String(err)}`,
+			)
+		}
+
+		throw new Error(
+			"Could not determine default browserContextId. The Target domain returned no usable context id.",
+		)
+	}
+
+	/**
 	 * Create a Context from an existing CdpConnectionLike.
 	 */
 	static async createFromConnection(
@@ -175,53 +266,47 @@ export class V3Context {
 			localBrowserLaunchOptions?: LocalBrowserLaunchOptions | null
 		},
 	): Promise<V3Context> {
-		let browserContextId: string | undefined = undefined;
+		const browserContextId =
+			await V3Context.resolveDefaultBrowserContextId(conn)
 
-		try {
-			const info = await conn.send<{ targetInfo: Protocol.Target.TargetInfo }>("Target.getTargetInfo");
-			if (info.targetInfo && info.targetInfo.browserContextId) {
-				browserContextId = info.targetInfo.browserContextId;
-			}
-		} catch (e2) {}
-
-		if (!browserContextId) {
-			try {
-				const targets = await conn.getTargets();
-				const defaultTarget = targets.find(t => t.type === 'page' && t.browserContextId);
-				if (defaultTarget && defaultTarget.browserContextId) {
-					browserContextId = defaultTarget.browserContextId;
-				} else {
-					const { targetId } = await conn.send<{ targetId: string }>("Target.createTarget", { url: "about:blank" });
-					try {
-						const newTargets = await conn.getTargets();
-						const t = newTargets.find(t => t.targetId === targetId);
-						if (t) browserContextId = t.browserContextId;
-					} finally {
-						await conn.send("Target.closeTarget", { targetId }).catch(() => {});
-					}
-				}
-			} catch (e) {}
-		}
-
-		const ctx = new V3Context(conn, opts?.localBrowserLaunchOptions ?? null, browserContextId, true)
+		const ctx = new V3Context(
+			conn,
+			opts?.localBrowserLaunchOptions ?? null,
+			browserContextId,
+			true,
+		)
 		await ctx.bootstrap()
 		await ctx.ensureFirstTopLevelPage(getFirstTopLevelPageTimeoutMs())
 		return ctx
 	}
 
 	/**
-	 * Create a new dedicated browser context.
+	 * Create a new isolated browser context (similar to an incognito profile).
+	 *
+	 * The new context shares this context's CDP connection but has its own
+	 * cookies, storage, and pages.  By default `disposeOnDetach: true` is set
+	 * so Chrome auto-cleans the context if the connection drops unexpectedly.
+	 *
+	 * Init scripts and extra HTTP headers are NOT inherited from this context
+	 * — call `addInitScript` / `setExtraHTTPHeaders` on the returned context
+	 * if you want them.
 	 */
-	public async create(options?: CreateContextOptions): Promise<V3Context> {
-		const opts = {
+	public async createBrowserContext(
+		options?: CreateContextOptions,
+	): Promise<V3Context> {
+		const opts: CreateContextOptions = {
 			disposeOnDetach: true,
 			...options,
 		}
-		const { browserContextId } = await this.conn.send<{ browserContextId: string }>(
-			"Target.createBrowserContext",
-			opts,
+		const { browserContextId } = await this.conn.send<{
+			browserContextId: string
+		}>("Target.createBrowserContext", opts)
+		const ctx = new V3Context(
+			this.conn,
+			this.localBrowserLaunchOptions,
+			browserContextId,
+			false,
 		)
-		const ctx = new V3Context(this.conn, this.localBrowserLaunchOptions, browserContextId, false)
 		await ctx.bootstrap()
 		if (!ctx.hasTopLevelPage()) {
 			await ctx.newPage("about:blank")
@@ -489,10 +574,19 @@ export class V3Context {
 	 */
 	public async newPage(url = "about:blank"): Promise<Page> {
 		const targetUrl = String(url ?? "about:blank")
+		// `browserContextId` is only forwarded for dedicated contexts.  Chrome
+		// silently routes targets without a `browserContextId` to the default
+		// context but explicitly rejects passing the default context's id to
+		// some commands ("Failed to find browser context for id ...").
+		const createParams: { url: string; browserContextId?: string } = {
+			url: "about:blank",
+		}
+		if (!this.isDefaultContext) {
+			createParams.browserContextId = this.browserContextId
+		}
 		const { targetId } = await this.conn.send<{ targetId: string }>(
 			"Target.createTarget",
-			// Create at about:blank so init scripts can install before first real navigation.
-			{ url: "about:blank", browserContextId: this.browserContextId },
+			createParams,
 		)
 		this.pendingCreatedTargetUrl.set(targetId, "about:blank")
 		// Best-effort bring-to-front
@@ -517,23 +611,73 @@ export class V3Context {
 	}
 
 	/**
-	 * Close CDP and clear all mappings. Best-effort cleanup.
+	 * Tear down this context.
+	 *
+	 * Order matters here:
+	 *   1. Mark closed and detach **all** listeners first.  Otherwise, the
+	 *      detach storms triggered by closing pages or disposing the browser
+	 *      context fire `Target.detachedFromTarget` events that mutate state
+	 *      we are about to wipe — risking dangling references or double-frees.
+	 *   2. Close pages individually so each `Page` can dispose its
+	 *      `NetworkManager`, console handlers, and other per-page resources.
+	 *   3. Default context → close the underlying CDP connection.
+	 *      Dedicated context → call `Target.disposeBrowserContext` so Chrome
+	 *      releases the context's storage; the connection is shared and must
+	 *      stay open for sibling contexts.
+	 *   4. Drop all internal state.
 	 */
 	async close(): Promise<void> {
+		if (this._isClosed) return
+		this._isClosed = true
+
 		this.conn.off("Target.attachedToTarget", this._onAttachedToTarget)
 		this.conn.off("Target.detachedFromTarget", this._onDetachedFromTarget)
 		this.conn.off("Target.targetDestroyed", this._onTargetDestroyed)
 		this.conn.off("Target.targetCreated", this._onTargetCreated)
 
-		if (this.isDefaultContext) {
-			for (const page of this.pages()) {
-				await page.close().catch(() => {})
+		for (const [sessionId, listeners] of this._sessionListeners.entries()) {
+			const session = this.conn.getSession(sessionId)
+			if (!session) continue
+			for (const { event, handler } of listeners) {
+				try {
+					session.off(event, handler)
+				} catch (err) {
+					v3Logger({
+						category: "ctx",
+						message: "Failed to remove session listener during close",
+						level: LogLevel.Debug,
+						attributes: {
+							sessionId,
+							event,
+							error: err instanceof Error ? err.message : String(err),
+						},
+					})
+				}
 			}
+		}
+		this._sessionListeners.clear()
+
+		const pagesSnapshot = this.pages()
+		await Promise.allSettled(pagesSnapshot.map((p) => p.close()))
+
+		if (this.isDefaultContext) {
 			await this.conn.close()
 		} else {
-			if (this.browserContextId) {
-				await this.conn.send("Target.disposeBrowserContext", { browserContextId: this.browserContextId }).catch(() => {})
-			}
+			await this.conn
+				.send("Target.disposeBrowserContext", {
+					browserContextId: this.browserContextId,
+				})
+				.catch((err) => {
+					v3Logger({
+						category: "ctx",
+						message: "Target.disposeBrowserContext failed during close",
+						level: LogLevel.Debug,
+						attributes: {
+							browserContextId: this.browserContextId,
+							error: err instanceof Error ? err.message : String(err),
+						},
+					})
+				})
 		}
 
 		this.pagesByTarget.clear()
@@ -544,22 +688,43 @@ export class V3Context {
 		this.createdAtByTarget.clear()
 		this.typeByTarget.clear()
 		this.pendingCreatedTargetUrl.clear()
+
+		this._sessionInit.clear()
+		this._piercerInstalled.clear()
+		this._targetSessionListeners.clear()
+		this._pageOrder = []
+		this.initScripts = []
+		this.extraHttpHeaders = null
 	}
 
-	private _onAttachedToTarget = async (evt: Protocol.Target.AttachedToTargetEvent) => {
-		if (evt.targetInfo.browserContextId !== this.browserContextId) return
+	// Filtering by `browserContextId` happens inside `onAttachedToTarget`
+	// itself so that BOTH the root listener and per-session child-attach
+	// listeners get the same isolation guarantee.
+	private _onAttachedToTarget = async (
+		evt: Protocol.Target.AttachedToTargetEvent,
+	) => {
+		if (this._isClosed) return
 		await this.onAttachedToTarget(evt.targetInfo, evt.sessionId)
 	}
 
-	private _onDetachedFromTarget = (evt: Protocol.Target.DetachedFromTargetEvent) => {
+	private _onDetachedFromTarget = (
+		evt: Protocol.Target.DetachedFromTargetEvent,
+	) => {
+		if (this._isClosed) return
 		this.onDetachedFromTarget(evt.sessionId, evt.targetId ?? null)
 	}
 
 	private _onTargetDestroyed = (evt: Protocol.Target.TargetDestroyedEvent) => {
+		if (this._isClosed) return
 		this.cleanupByTarget(evt.targetId)
 	}
 
-	private _onTargetCreated = async (evt: Protocol.Target.TargetCreatedEvent) => {
+	// `Target.targetCreated` doesn't pass through `onAttachedToTarget`, so it
+	// needs its own browser-context filter.
+	private _onTargetCreated = async (
+		evt: Protocol.Target.TargetCreatedEvent,
+	) => {
+		if (this._isClosed) return
 		const info = evt.targetInfo
 		if (info.browserContextId !== this.browserContextId) return
 		const ti = info as unknown as { openerId?: string; openerFrameId?: string }
@@ -607,11 +772,25 @@ export class V3Context {
 			if (t.attached) continue // auto-attach already handled this target
 			try {
 				await this.conn.attachToTarget(t.targetId)
-			} catch {}
+			} catch (err) {
+				v3Logger({
+					category: "ctx",
+					message: "Failed to attach to existing target during bootstrap",
+					level: LogLevel.Debug,
+					attributes: {
+						targetId: t.targetId,
+						targetType: t.type,
+						error: err instanceof Error ? err.message : String(err),
+					},
+				})
+			}
 		}
 
 		const topLevelTargetIds = targets
-			.filter((t) => t.browserContextId === this.browserContextId && isTopLevelPage(t))
+			.filter(
+				(t) =>
+					t.browserContextId === this.browserContextId && isTopLevelPage(t),
+			)
 			.map((t) => t.targetId)
 		await this.waitForInitialTopLevelTargets(topLevelTargetIds)
 	}
@@ -623,11 +802,26 @@ export class V3Context {
 	 * - Else → probe child root frame id via `Page.getFrameTree` and adopt immediately
 	 *   if the parent is known; otherwise stage until parent `frameAttached`.
 	 * - Resume the target only after listeners are wired.
+	 *
+	 * Browser-context isolation: this method is a single chokepoint for
+	 * **both** the root `Target.attachedToTarget` listener AND per-session
+	 * child-attach listeners.  Filtering on `browserContextId` here is what
+	 * keeps multiple `V3Context` instances sharing one connection from
+	 * cross-talking (otherwise both would manage every target).
 	 */
 	private async onAttachedToTarget(
 		info: Protocol.Target.TargetInfo,
 		sessionId: SessionId,
 	): Promise<void> {
+		if (this._isClosed) return
+
+		// Reject anything not in our browser context.  This filter must run
+		// before any state mutation because per-session listeners (installed
+		// on parent sessions) will fire for OOPIF children regardless of which
+		// context owns them, and we don't want to fight a sibling context for
+		// ownership of someone else's target.
+		if (info.browserContextId !== this.browserContextId) return
+
 		// Skip non-web targets (workers, chrome extensions, background pages, etc.).
 		// They still need to be resumed so we don't leave them paused by
 		// waitForDebuggerOnStart, but injecting the piercer into these targets
@@ -903,9 +1097,20 @@ export class V3Context {
 				} else {
 					this.pendingOopifByMainFrame.set(childMainId, sessionId)
 				}
-			} catch {
-				// page.getFrameTree failed. Most likely was an ad iframe
-				// that opened & closed before we could attach. ignore
+			} catch (err) {
+				// Most often a short-lived ad iframe that opened and closed
+				// before we could probe its frame tree. Log at Debug for
+				// visibility but don't surface — this is expected at
+				// non-trivial frequency on real-world pages.
+				v3Logger({
+					category: "ctx",
+					message: "OOPIF Page.getFrameTree failed during attach",
+					level: LogLevel.Debug,
+					attributes: {
+						targetId: info.targetId,
+						error: err instanceof Error ? err.message : String(err),
+					},
+				})
 			}
 		} finally {
 			await resume()
@@ -978,7 +1183,8 @@ export class V3Context {
 		const session = this.conn.getSession(sessionId)
 		if (!session) return
 
-		session.on<Protocol.Page.FrameAttachedEvent>(
+		this._addSessionListener<Protocol.Page.FrameAttachedEvent>(
+			session,
 			"Page.frameAttached",
 			(evt) => {
 				const { frameId, parentFrameId } = evt
@@ -1013,7 +1219,8 @@ export class V3Context {
 			},
 		)
 
-		session.on<Protocol.Page.FrameDetachedEvent>(
+		this._addSessionListener<Protocol.Page.FrameDetachedEvent>(
+			session,
 			"Page.frameDetached",
 			(evt) => {
 				owner.onFrameDetached(evt.frameId, evt.reason ?? "remove")
@@ -1023,14 +1230,16 @@ export class V3Context {
 			},
 		)
 
-		session.on<Protocol.Page.FrameNavigatedEvent>(
+		this._addSessionListener<Protocol.Page.FrameNavigatedEvent>(
+			session,
 			"Page.frameNavigated",
 			(evt) => {
 				owner.onFrameNavigated(evt.frame, session)
 			},
 		)
 
-		session.on<Protocol.Page.NavigatedWithinDocumentEvent>(
+		this._addSessionListener<Protocol.Page.NavigatedWithinDocumentEvent>(
+			session,
 			"Page.navigatedWithinDocument",
 			(evt) => {
 				owner.onNavigatedWithinDocument(evt.frameId, evt.url, session)
@@ -1038,9 +1247,13 @@ export class V3Context {
 		)
 
 		// Observe window.open to anticipate default page changes
-		session.on<Protocol.Page.WindowOpenEvent>("Page.windowOpen", () => {
-			this._notePopupSignal()
-		})
+		this._addSessionListener<Protocol.Page.WindowOpenEvent>(
+			session,
+			"Page.windowOpen",
+			() => {
+				this._notePopupSignal()
+			},
+		)
 	}
 
 	/**
@@ -1102,6 +1315,23 @@ export class V3Context {
 	}
 
 	/**
+	 * Build a CDP params object that is scoped to this context's
+	 * `browserContextId` — but only when this is a dedicated context.
+	 *
+	 * Chrome's Storage domain rejects an explicit `browserContextId` for
+	 * the *default* context (the parameter is meant to address non-default
+	 * contexts). Passing it would yield `-32602 Failed to find browser
+	 * context for id ...`.
+	 */
+	private _scopedParams<T extends object>(extra?: T): T & { browserContextId?: string } {
+		const out = { ...(extra ?? {}) } as T & { browserContextId?: string }
+		if (!this.isDefaultContext) {
+			out.browserContextId = this.browserContextId
+		}
+		return out
+	}
+
+	/**
 	 * Get all browser cookies, optionally filtered by URL(s).
 	 *
 	 * When `urls` is omitted or empty every cookie in the browser context is
@@ -1113,7 +1343,7 @@ export class V3Context {
 
 		const { cookies } = await this.conn.send<{
 			cookies: Protocol.Network.Cookie[]
-		}>("Storage.getCookies", { browserContextId: this.browserContextId })
+		}>("Storage.getCookies", this._scopedParams())
 
 		const mapped: Cookie[] = cookies.map((c) => ({
 			name: c.name,
@@ -1144,7 +1374,10 @@ export class V3Context {
 		const cdpCookies = normalized.map(toCdpCookieParam)
 
 		try {
-			await this.conn.send("Storage.setCookies", { cookies: cdpCookies, browserContextId: this.browserContextId })
+			await this.conn.send(
+				"Storage.setCookies",
+				this._scopedParams({ cookies: cdpCookies }),
+			)
 		} catch (err) {
 			const detail = err instanceof Error ? err.message : String(err)
 			const names = normalized.map((c) => `"${c.name}"`).join(", ")
@@ -1174,7 +1407,7 @@ export class V3Context {
 
 		if (!hasFilter) {
 			// Atomic single-call wipe — no race condition, no O(N) roundtrips.
-			await this.conn.send("Storage.clearCookies", { browserContextId: this.browserContextId })
+			await this.conn.send("Storage.clearCookies", this._scopedParams())
 			return
 		}
 
@@ -1185,13 +1418,13 @@ export class V3Context {
 
 		// Storage domain doesn't support targeted deletes on the browser endpoint.
 		// Clear everything, then re-add only the cookies we're keeping.
-		await this.conn.send("Storage.clearCookies", { browserContextId: this.browserContextId })
+		await this.conn.send("Storage.clearCookies", this._scopedParams())
 		if (toKeep.length) {
 			try {
-				await this.conn.send("Storage.setCookies", {
-					cookies: toKeep.map(toCdpCookieParam),
-					browserContextId: this.browserContextId,
-				})
+				await this.conn.send(
+					"Storage.setCookies",
+					this._scopedParams({ cookies: toKeep.map(toCdpCookieParam) }),
+				)
 			} catch (err) {
 				const detail = err instanceof Error ? err.message : String(err)
 				const names = toKeep.map((c) => `"${c.name}"`).join(", ")
