@@ -8,8 +8,16 @@ export class ExecutionContextRegistry {
 	private readonly byFrame = new WeakMap<CDPSessionLike, Map<FrameId, ExecId>>()
 	private readonly byExec = new WeakMap<CDPSessionLike, Map<ExecId, FrameId>>()
 
-	/** Wire listeners for this session. Call BEFORE Runtime.enable. */
-	attachSession(session: CDPSessionLike): void {
+	/**
+	 * Wire listeners for this session. Call BEFORE Runtime.enable.
+	 *
+	 * Returns a disposer that removes every listener installed by this
+	 * call.  Callers (notably `V3Context`) must invoke the disposer when
+	 * the session is detached or the owning context closes; otherwise
+	 * the connection's per-session event-handler map accumulates entries
+	 * keyed by `${sessionId}:Runtime.*` for the connection's lifetime.
+	 */
+	attachSession(session: CDPSessionLike): () => void {
 		const onCreated = (
 			evt: Protocol.Runtime.ExecutionContextCreatedEvent,
 		): void => {
@@ -40,6 +48,12 @@ export class ExecutionContextRegistry {
 		session.on("Runtime.executionContextCreated", onCreated)
 		session.on("Runtime.executionContextDestroyed", onDestroyed)
 		session.on("Runtime.executionContextsCleared", onCleared)
+
+		return () => {
+			session.off("Runtime.executionContextCreated", onCreated)
+			session.off("Runtime.executionContextDestroyed", onDestroyed)
+			session.off("Runtime.executionContextsCleared", onCleared)
+		}
 	}
 
 	getMainWorld(session: CDPSessionLike, frameId: FrameId): ExecId | null {
