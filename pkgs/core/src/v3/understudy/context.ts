@@ -383,9 +383,14 @@ export class V3Context {
 			browserContextId,
 			true,
 		)
-		await ctx.bootstrap()
-		await ctx.ensureFirstTopLevelPage(getFirstTopLevelPageTimeoutMs())
-		return ctx
+		try {
+			await ctx.bootstrap()
+			await ctx.ensureFirstTopLevelPage(getFirstTopLevelPageTimeoutMs())
+			return ctx
+		} catch (err) {
+			await ctx.close().catch(() => {})
+			throw err
+		}
 	}
 
 	/**
@@ -425,12 +430,17 @@ export class V3Context {
 			browserContextId,
 			false,
 		)
-		await ctx.bootstrap()
-		if (!ctx.hasTopLevelPage()) {
-			await ctx.newPage("about:blank")
+		try {
+			await ctx.bootstrap()
+			if (!ctx.hasTopLevelPage()) {
+				await ctx.newPage("about:blank")
+			}
+			this._trackChild(ctx)
+			return ctx
+		} catch (err) {
+			await ctx.close().catch(() => {})
+			throw err
 		}
-		this._trackChild(ctx)
-		return ctx
 	}
 
 	private _trackChild(child: V3Context): void {
@@ -1299,6 +1309,10 @@ export class V3Context {
 		const mainId = page.mainFrameId()
 		this.mainFrameToTarget.delete(mainId)
 		this.frameOwnerPage.delete(mainId)
+
+		for (const [fid, p] of Array.from(this.frameOwnerPage.entries())) {
+			if (p === page) this.frameOwnerPage.delete(fid)
+		}
 
 		for (const [sid, p] of Array.from(this.sessionOwnerPage.entries())) {
 			if (p === page) this.sessionOwnerPage.delete(sid)
