@@ -115,7 +115,6 @@ export class V3Context {
 	private readonly _piercerInstalled = new Set<string>()
 	// Timestamp for most recent popup/open signal
 	private _lastPopupSignalAt = 0
-	private readonly _targetSessionListeners = new Set<SessionId>()
 
 	private readonly _sessionInit = new Set<SessionId>()
 	private pagesByTarget = new Map<TargetId, Page>()
@@ -207,35 +206,6 @@ export class V3Context {
 		session.on(event, erasedHandler)
 		this._registerSessionCleanup(sessionId, () =>
 			session.off(event, erasedHandler),
-		)
-	}
-
-	private installTargetSessionListeners(session: CDPSessionLike): void {
-		const sessionId = session.id
-		if (!sessionId) return
-		if (this._targetSessionListeners.has(sessionId)) return
-		this._targetSessionListeners.add(sessionId)
-
-		this._addSessionListener<Protocol.Target.AttachedToTargetEvent>(
-			session,
-			"Target.attachedToTarget",
-			(evt) => {
-				void this.onAttachedToTarget(evt.targetInfo, evt.sessionId)
-			},
-		)
-		this._addSessionListener<Protocol.Target.DetachedFromTargetEvent>(
-			session,
-			"Target.detachedFromTarget",
-			(evt) => {
-				this.onDetachedFromTarget(evt.sessionId, evt.targetId ?? null)
-			},
-		)
-		this._addSessionListener<Protocol.Target.TargetDestroyedEvent>(
-			session,
-			"Target.targetDestroyed",
-			(evt) => {
-				this.cleanupByTarget(evt.targetId)
-			},
 		)
 	}
 
@@ -831,7 +801,6 @@ export class V3Context {
 
 		this._sessionInit.clear()
 		this._piercerInstalled.clear()
-		this._targetSessionListeners.clear()
 		this._pageOrder = []
 		this.initScripts.length = 0
 		this.extraHttpHeaders = null
@@ -980,8 +949,6 @@ export class V3Context {
 		// Init guard
 		if (this._sessionInit.has(sessionId)) return
 		this._sessionInit.add(sessionId)
-
-		this.installTargetSessionListeners(session)
 
 		// Register for Runtime events before enabling it so we don't miss
 		// initial contexts.  The disposer is tracked so we remove the
@@ -1294,7 +1261,6 @@ export class V3Context {
 		// lifetime of the V3Context.
 		this._drainSessionCleanups(sessionId)
 
-		this._targetSessionListeners.delete(sessionId)
 		this._sessionInit.delete(sessionId)
 		this._piercerInstalled.delete(sessionId)
 	}
