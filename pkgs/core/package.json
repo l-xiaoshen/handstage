@@ -8,9 +8,6 @@
 			"import": "./dist/index.js"
 		}
 	},
-	"bin": {
-		"handstages": "./dist/v3/cli.js"
-	},
 	"files": [
 		"dist",
 		"src"
@@ -19,20 +16,20 @@
 		"build": "tsc -p tsconfig.build.json --noCheck"
 	},
 	"devDependencies": {
-		"@types/bun": "latest",
-		"@types/node": "^22.19.15",
+		"@types/bun": "1.3.14",
+		"@types/node": "^22.19.19",
 		"@types/ws": "^8.18.1",
-		"typescript": "^5.9.3"
+		"typescript": "^6.0.3"
 	},
 	"peerDependencies": {
-		"typescript": "^5"
+		"typescript": "^6.0.3"
 	},
 	"dependencies": {
 		"@handstage/dom": "workspace:*",
 		"chrome-launcher": "^1.2.1",
-		"devtools-protocol": "^0.0.1425554",
-		"uuid": "^11.1.0",
-		"ws": "^8.20.0",
-		"zod": "^4.3.6"
+		"devtools-protocol": "^0.0.1632630",
+		"uuid": "^11.1.1",
+		"ws": "^8.20.1",
+		"zod": "^4.4.3"
 	}
 }
