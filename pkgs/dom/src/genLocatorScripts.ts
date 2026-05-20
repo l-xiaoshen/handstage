@@ -29,13 +29,13 @@ async function main(): Promise<void> {
 		format: "iife",
 		platform: "browser",
 		target: "es2020",
-		globalName: "__handstagesLocatorScriptsFactory",
+		globalName: "__handstageLocatorScriptsFactory",
 		minify: true,
 		outfile: bundleOutfile,
 	})
 
 	const bundleRaw = (await readFile(bundleOutfile, "utf8")).trim()
-	const bootstrap = `if (!globalThis.__handstagesLocatorScripts) { ${bundleRaw}\n  globalThis.__handstagesLocatorScripts = __handstagesLocatorScriptsFactory;\n}`
+	const bootstrap = `if (!globalThis.__handstageLocatorScripts) { ${bundleRaw}\n  globalThis.__handstageLocatorScripts = __handstageLocatorScriptsFactory;\n}`
 
 	const compiledModule = (await import(
 		pathToFileURL(moduleOutfile).href
@@ -58,7 +58,7 @@ async function main(): Promise<void> {
 	const globalRefs: Record<string, string> = Object.fromEntries(
 		sorted.map(([name]) => [
 			name,
-			`globalThis.__handstagesLocatorScripts.${name}`,
+			`globalThis.__handstageLocatorScripts.${name}`,
 		]),
 	)
 

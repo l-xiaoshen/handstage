@@ -30,13 +30,13 @@ async function main(): Promise<void> {
 		format: "iife",
 		platform: "browser",
 		target: "es2020",
-		globalName: "__handstagesA11yScriptsFactory",
+		globalName: "__handstageA11yScriptsFactory",
 		minify: true,
 		outfile: bundleOut,
 	})
 
 	const bundleRaw = (await readFile(bundleOut, "utf8")).trim()
-	const bootstrap = `if (!globalThis.__handstagesA11yScripts) { ${bundleRaw}\n  globalThis.__handstagesA11yScripts = __handstagesA11yScriptsFactory;\n}`
+	const bootstrap = `if (!globalThis.__handstageA11yScripts) { ${bundleRaw}\n  globalThis.__handstageA11yScripts = __handstageA11yScriptsFactory;\n}`
 
 	const compiledModule = (await import(
 		pathToFileURL(moduleOut).href
@@ -57,7 +57,7 @@ async function main(): Promise<void> {
 	const banner = `/*\n * AUTO-GENERATED FILE. DO NOT EDIT.\n * Update sources in pkgs/dom/src/a11yScripts and run genA11yScripts.ts.\n */`
 
 	const globalRefs: Record<string, string> = Object.fromEntries(
-		sorted.map(([name]) => [name, `globalThis.__handstagesA11yScripts.${name}`]),
+		sorted.map(([name]) => [name, `globalThis.__handstageA11yScripts.${name}`]),
 	)
 
 	const content = `${banner}

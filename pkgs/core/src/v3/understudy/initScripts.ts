@@ -1,6 +1,6 @@
 import { promises as fs } from "fs"
 import type { InitScriptSource } from "../types/private/index"
-import { HandstagesInvalidArgumentError } from "../types/public/sdkErrors"
+import { HandstageInvalidArgumentError } from "../types/public/sdkErrors"
 
 const DEFAULT_CALLER = "context.addInitScript"
 
@@ -22,7 +22,7 @@ export async function normalizeInitScriptSource<Arg>(
 	}
 
 	if (!Object.is(arg, undefined)) {
-		throw new HandstagesInvalidArgumentError(
+		throw new HandstageInvalidArgumentError(
 			`${caller}: 'arg' is only supported when passing a function.`,
 		)
 	}
@@ -32,7 +32,7 @@ export async function normalizeInitScriptSource<Arg>(
 	}
 
 	if (!script || typeof script !== "object") {
-		throw new HandstagesInvalidArgumentError(
+		throw new HandstageInvalidArgumentError(
 			`${caller}: provide a string, function, or an object with path/content.`,
 		)
 	}
@@ -46,7 +46,7 @@ export async function normalizeInitScriptSource<Arg>(
 		return appendSourceURL(raw, script.path)
 	}
 
-	throw new HandstagesInvalidArgumentError(
+	throw new HandstageInvalidArgumentError(
 		`${caller}: provide a string, function, or an object with path/content.`,
 	)
 }

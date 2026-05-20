@@ -127,7 +127,7 @@ function matchesTag(element: Element, step: XPathStep): boolean {
 }
 
 function getShadowContext(): ShadowContext {
-	const backdoor = window.__handstagesV3__
+	const backdoor = window.__handstageV3__
 	const getClosedRoot: ClosedRootGetter | null =
 		backdoor && typeof backdoor.getClosedRoot === "function"
 			? (host: Element): ShadowRoot | null => {

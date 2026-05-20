@@ -106,12 +106,12 @@ export const HoverOnInputSchema = z.object({
 })
 
 /** Shared `{ ok: true } | { ok: false; error }` tool result shape */
-export const HandstagesAgentOkOrErrOutputSchema = z.discriminatedUnion("ok", [
+export const HandstageAgentOkOrErrOutputSchema = z.discriminatedUnion("ok", [
 	z.object({ ok: z.literal(true) }),
 	z.object({ ok: z.literal(false), error: z.string() }),
 ])
 
-export const HandstagesAgentPageEntrySchema = z.object({
+export const HandstageAgentPageEntrySchema = z.object({
 	pageId: z.string(),
 	url: z.string(),
 	title: z.string(),
@@ -119,12 +119,12 @@ export const HandstagesAgentPageEntrySchema = z.object({
 })
 
 export const PagesOutputSchema = z.object({
-	pages: z.array(HandstagesAgentPageEntrySchema),
+	pages: z.array(HandstageAgentPageEntrySchema),
 })
 
 export const NewPageOutputSchema = z.object({ pageId: z.string() })
 
-export const SetActivePageOutputSchema = HandstagesAgentOkOrErrOutputSchema
+export const SetActivePageOutputSchema = HandstageAgentOkOrErrOutputSchema
 
 export const GotoOutputSchema = z.discriminatedUnion("ok", [
 	z.object({ ok: z.literal(true), url: z.string() }),
@@ -169,6 +169,6 @@ export const PointerOutputSchema = z.discriminatedUnion("ok", [
 	z.object({ ok: z.literal(false), error: z.string() }),
 ])
 
-export const TypeOutputSchema = HandstagesAgentOkOrErrOutputSchema
+export const TypeOutputSchema = HandstageAgentOkOrErrOutputSchema
 
-export const ElementActionOutputSchema = HandstagesAgentOkOrErrOutputSchema
+export const ElementActionOutputSchema = HandstageAgentOkOrErrOutputSchema

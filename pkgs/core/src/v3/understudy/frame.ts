@@ -1,5 +1,5 @@
 import type { Protocol } from "devtools-protocol"
-import { HandstagesEvalError } from "../types/public/sdkErrors"
+import { HandstageEvalError } from "../types/public/sdkErrors"
 import type { CDPSessionLike } from "./cdp"
 import { executionContexts } from "./executionContextRegistry"
 import { Locator } from "./locator"
@@ -176,7 +176,7 @@ export class Frame implements FrameManager {
 			)
 		}
 		if (res.exceptionDetails) {
-			throw new HandstagesEvalError(
+			throw new HandstageEvalError(
 				res.exceptionDetails.text ?? "Evaluation failed",
 			)
 		}

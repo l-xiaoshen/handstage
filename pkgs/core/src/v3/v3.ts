@@ -25,9 +25,9 @@ import {
 } from "./types/public/logs"
 import type {
 	LocalBrowserLaunchOptions,
-	HandstagesLocalOptions,
-	HandstagesSharedOptions,
-	HandstagesConnectOptions,
+	HandstageLocalOptions,
+	HandstageSharedOptions,
+	HandstageConnectOptions,
 } from "./types/public/options"
 import type { CreateContextOptions } from "./types/public/context"
 import {
@@ -62,7 +62,7 @@ export class V3 {
 	private constructor(
 		private state: InitState,
 		private ctx: V3Context | undefined,
-		opts: HandstagesSharedOptions,
+		opts: HandstageSharedOptions,
 		instanceId: string,
 		logSink: Logger,
 	) {
@@ -77,7 +77,7 @@ export class V3 {
 		this.ctx?.conn.onTransportClosed(this._onCDPClosed)
 	}
 
-	private static setupContext(opts?: HandstagesSharedOptions) {
+	private static setupContext(opts?: HandstageSharedOptions) {
 		const instanceId = uuidv7()
 		const sharedOpts = opts ?? {}
 		const verbose = sharedOpts.verbose ?? LogLevel.Info
@@ -91,7 +91,7 @@ export class V3 {
 		return { instanceId, sharedOpts, logSink, logger }
 	}
 
-	static async connectLocal(opts?: HandstagesLocalOptions): Promise<V3> {
+	static async connectLocal(opts?: HandstageLocalOptions): Promise<V3> {
 		const { instanceId, sharedOpts, logSink, logger } = V3.setupContext(opts)
 
 		try {
@@ -145,7 +145,7 @@ export class V3 {
 				let userDataDir = lbo.userDataDir
 				let createdTemp = false
 				if (!userDataDir) {
-					const base = path.join(os.tmpdir(), "handstages-v3")
+					const base = path.join(os.tmpdir(), "handstage-v3")
 					fs.mkdirSync(base, { recursive: true })
 					userDataDir = fs.mkdtempSync(path.join(base, "profile-"))
 					createdTemp = true
@@ -248,7 +248,7 @@ export class V3 {
 
 	static async connectTransport(
 		transport: CDPTransport,
-		opts?: HandstagesConnectOptions,
+		opts?: HandstageConnectOptions,
 	): Promise<V3> {
 		const { instanceId, sharedOpts, logSink, logger } = V3.setupContext(opts)
 
@@ -289,7 +289,7 @@ export class V3 {
 
 	static async connectSession(
 		session: ExternalCDPSession,
-		opts?: HandstagesConnectOptions,
+		opts?: HandstageConnectOptions,
 	): Promise<V3> {
 		const { instanceId, sharedOpts, logSink, logger } = V3.setupContext(opts)
 

@@ -3,7 +3,7 @@ export interface V3ShadowPatchOptions {
 	tagExisting?: boolean
 }
 
-export interface HandstagesV3Backdoor {
+export interface HandstageV3Backdoor {
 	/** Closed shadow-root accessors */
 	getClosedRoot(host: Element): ShadowRoot | undefined
 	/** Stats + quick health check */
@@ -25,8 +25,8 @@ type V3InternalState = {
 
 declare global {
 	interface Window {
-		__handstagesV3Injected?: boolean
-		__handstagesV3__?: HandstagesV3Backdoor
+		__handstageV3Injected?: boolean
+		__handstageV3__?: HandstageV3Backdoor
 	}
 }
 
@@ -41,7 +41,7 @@ export function installV3ShadowPiercer(opts: V3ShadowPatchOptions = {}): void {
 	const bindBackdoor = (state: V3InternalState): void => {
 		const { hostToRoot } = state
 
-		window.__handstagesV3__ = {
+		window.__handstageV3__ = {
 			getClosedRoot: (host: Element) => hostToRoot.get(host),
 			stats: () => ({
 				installed: true,
@@ -50,7 +50,7 @@ export function installV3ShadowPiercer(opts: V3ShadowPatchOptions = {}): void {
 				open: state.openCount,
 				closed: state.closedCount,
 			}),
-		} satisfies HandstagesV3Backdoor
+		} satisfies HandstageV3Backdoor
 	}
 
 	const currentFn = Element.prototype.attachShadow as PatchedFn
@@ -114,7 +114,7 @@ export function installV3ShadowPiercer(opts: V3ShadowPatchOptions = {}): void {
 		} catch {}
 	}
 
-	window.__handstagesV3Injected = true
+	window.__handstageV3Injected = true
 	bindBackdoor(state)
 
 	if (state.debug) {

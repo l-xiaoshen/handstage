@@ -1,6 +1,6 @@
 export {
-	createHandstagesAgentToolDefinitions,
-	handstagesAgentTools,
+	createHandstageAgentToolDefinitions,
+	handstageAgentTools,
 } from "./definitions"
 export * from "./handlerTypes"
 export * from "./schemas"
