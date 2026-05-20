@@ -175,6 +175,7 @@ export class CDPConnection extends BaseCDPConnection {
 	private sessionDispatchWaiters = new Set<SessionDispatchWaiter>()
 	public readonly id: string | null = null // root
 	private transportCloseHandlers = new Set<(why: string) => void>()
+	private _isClosed = false
 
 	public onTransportClosed(handler: (why: string) => void): void {
 		this.transportCloseHandlers.add(handler)
@@ -195,12 +196,14 @@ export class CDPConnection extends BaseCDPConnection {
 		super()
 		this.transport = transport
 		this.transport.onclose = (reason) => {
+			this._isClosed = true
 			const why = `transport-close reason=${String(reason || "")}`
 			this.rejectAllInflight(why)
 			this.emitTransportClosed(why)
 		}
 
 		this.transport.onerror = (err) => {
+			this._isClosed = true
 			const why = `transport-error ${err?.message ?? String(err)}`
 			this.rejectAllInflight(why)
 			this.emitTransportClosed(why)
@@ -240,6 +243,13 @@ export class CDPConnection extends BaseCDPConnection {
 	}
 
 	async send<R = unknown>(method: string, params?: object): Promise<R> {
+		if (this._isClosed) {
+			return Promise.reject(
+				new CDPConnectionClosedError(
+					`Cannot send ${method}: connection is closed`,
+				),
+			)
+		}
 		const id = this.nextId++
 		const payload = { id, method, params }
 		const stack = new Error().stack?.split("\n").slice(1, 4).join("\n")
@@ -272,6 +282,7 @@ export class CDPConnection extends BaseCDPConnection {
 	}
 
 	async close(): Promise<void> {
+		this._isClosed = true
 		this.transport.close()
 	}
 
@@ -436,6 +447,13 @@ export class CDPConnection extends BaseCDPConnection {
 		method: string,
 		params?: object,
 	): Promise<R> {
+		if (this._isClosed) {
+			return Promise.reject(
+				new CDPConnectionClosedError(
+					`Cannot send ${method}: connection is closed`,
+				),
+			)
+		}
 		const id = this.nextId++
 		const payload = { id, method, params, sessionId }
 		const stack = new Error().stack?.split("\n").slice(1, 4).join("\n")
