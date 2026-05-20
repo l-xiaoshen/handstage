@@ -1,15 +1,3 @@
 # @handstage/agent
 
-To install dependencies:
-
-```bash
-bun install
-```
-
-To run:
-
-```bash
-bun run src/index.ts
-```
-
-This project was created using `bun init` in bun v1.3.11. [Bun](https://bun.com) is a fast all-in-one JavaScript runtime.
+AI agent tools and schemas for driving Handstage. Provides structured inputs/outputs for browser interactions (navigation, clicking, typing, page info) tailored for use with LLMs and AI agents.
