@@ -3,7 +3,7 @@ import { createConsoleLogger } from "./types/public/consoleLogger"
 import type { LogLine } from "./types/public/logs"
 
 /**
- * Handstages V3 per-instance log routing (AsyncLocalStorage).
+ * Handstage V3 per-instance log routing (AsyncLocalStorage).
  *
  * - `bindInstanceLogger` / `unbindInstanceLogger`: register the effective logger for an instance id.
  * - `withInstanceLogContext`: run a function with that instance id on the async context.

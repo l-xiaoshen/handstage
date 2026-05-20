@@ -1,4 +1,4 @@
-import { HandstagesInvalidArgumentError } from "../types/public/sdkErrors"
+import { HandstageInvalidArgumentError } from "../types/public/sdkErrors"
 import { IFRAME_STEP_RE } from "./a11y/snapshot/focusSelectors"
 import type { Frame } from "./frame"
 import { type FrameLocator, frameLocatorFromFrame } from "./frameLocator"
@@ -208,7 +208,7 @@ export class DeepLocatorDelegate {
 	nth(index: number): DeepLocatorDelegate {
 		const value = Number(index)
 		if (!Number.isFinite(value) || value < 0) {
-			throw new HandstagesInvalidArgumentError(
+			throw new HandstageInvalidArgumentError(
 				"deepLocator().nth() expects a non-negative index",
 			)
 		}

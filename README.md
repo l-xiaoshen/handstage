@@ -1,3 +1,3 @@
-# handstages
+# handstage
 
-A handstages fork.
+A handstage fork.

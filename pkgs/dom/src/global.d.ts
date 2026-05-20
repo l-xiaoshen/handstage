@@ -1,4 +1,4 @@
-export interface HandstagesV3Backdoor {
+export interface HandstageV3Backdoor {
 	/** Closed shadow-root accessors */
 	getClosedRoot(host: Element): ShadowRoot | undefined
 	/** Stats + quick health check */
@@ -13,7 +13,7 @@ export interface HandstagesV3Backdoor {
 
 declare global {
 	interface Window {
-		__handstagesV3Injected?: boolean
-		__handstagesV3__?: HandstagesV3Backdoor
+		__handstageV3Injected?: boolean
+		__handstageV3__?: HandstageV3Backdoor
 	}
 }

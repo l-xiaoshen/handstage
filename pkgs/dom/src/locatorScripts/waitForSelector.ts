@@ -23,7 +23,7 @@ const isXPath = (selector: string): boolean => {
  */
 const getClosedRoot = (element: Element): ShadowRoot | null => {
 	try {
-		const backdoor = window.__handstagesV3__
+		const backdoor = window.__handstageV3__
 		if (backdoor && typeof backdoor.getClosedRoot === "function") {
 			return backdoor.getClosedRoot(element) ?? null
 		}

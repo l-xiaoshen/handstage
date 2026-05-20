@@ -8,11 +8,11 @@ export type LocalBrowserLaunchOptions = z.infer<
 	typeof LocalBrowserLaunchOptionsSchema
 >
 
-/** Shared constructor options for all Handstages connection modes. */
-export interface HandstagesSharedOptions {
+/** Shared constructor options for all Handstage connection modes. */
+export interface HandstageSharedOptions {
 	/**
 	 * Optional external session identifier.
-	 * When omitted, Handstages falls back to its internal instance id.
+	 * When omitted, Handstage falls back to its internal instance id.
 	 */
 	sessionId?: string
 	/**
@@ -32,13 +32,13 @@ export interface HandstagesSharedOptions {
 	logger?: (line: LogLine) => void
 }
 
-export interface HandstagesConnectOptions extends HandstagesSharedOptions {
+export interface HandstageConnectOptions extends HandstageSharedOptions {
 	viewport?: { width: number; height: number }
 	deviceScaleFactor?: number
 	downloadsPath?: string
 	acceptDownloads?: boolean
 }
 
-export interface HandstagesLocalOptions extends HandstagesSharedOptions {
+export interface HandstageLocalOptions extends HandstageSharedOptions {
 	localBrowserLaunchOptions?: LocalBrowserLaunchOptions
 }

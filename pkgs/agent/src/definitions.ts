@@ -31,10 +31,10 @@ import {
 } from "./schemas"
 
 /**
- * Handstages browser agent tools: descriptions, `inputSchema`, and `outputSchema` (Zod).
- * Execution is supplied separately via {@link HandstagesAgentToolHandlers}.
+ * Handstage browser agent tools: descriptions, `inputSchema`, and `outputSchema` (Zod).
+ * Execution is supplied separately via {@link HandstageAgentToolHandlers}.
  */
-export const handstagesAgentTools = {
+export const handstageAgentTools = {
 	pages: tool({
 		description:
 			"List open browser tabs. Each entry has pageId, url, title, and whether the tab is active (foreground).",
@@ -150,8 +150,8 @@ export const handstagesAgentTools = {
 } as const satisfies ToolSet
 
 /**
- * Same object as {@link handstagesAgentTools}; kept for callers that only need a `ToolSet`.
+ * Same object as {@link handstageAgentTools}; kept for callers that only need a `ToolSet`.
  */
-export function createHandstagesAgentToolDefinitions(): ToolSet {
-	return handstagesAgentTools
+export function createHandstageAgentToolDefinitions(): ToolSet {
+	return handstageAgentTools
 }

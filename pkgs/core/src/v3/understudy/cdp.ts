@@ -1,6 +1,6 @@
 import type { Protocol } from "devtools-protocol"
 import WebSocket from "ws"
-import { HANDSTAGES_VERSION } from "../../version"
+import { HANDSTAGE_VERSION } from "../../version"
 import {
 	CDPConnectionClosedError,
 	PageNotFoundError,
@@ -215,7 +215,7 @@ export class CDPConnection extends BaseCDPConnection {
 		// Include User-Agent header for server-side observability and version tracking
 		// Merge user-provided headers, letting them override defaults
 		const headers = {
-			"User-Agent": `Handstages/${HANDSTAGES_VERSION}`,
+			"User-Agent": `Handstage/${HANDSTAGE_VERSION}`,
 			...options?.headers,
 		}
 		const ws = new WebSocket(wsUrl, { headers })

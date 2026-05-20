@@ -1,14 +1,14 @@
 import type { Page } from "@handstage/core"
 import type { InferToolInput, InferToolOutput } from "ai"
-import type { handstagesAgentTools } from "./definitions"
+import type { handstageAgentTools } from "./definitions"
 
-type Tools = typeof handstagesAgentTools
+type Tools = typeof handstageAgentTools
 
 /**
- * Inferred tool input/output types for the Handstages browser agent, e.g.
- * `HandstagesAgent.NewPageInput` / `HandstagesAgent.NewPageOutput`.
+ * Inferred tool input/output types for the Handstage browser agent, e.g.
+ * `HandstageAgent.NewPageInput` / `HandstageAgent.NewPageOutput`.
  */
-export namespace HandstagesAgent {
+export namespace HandstageAgent {
 	export type ToolName = keyof Tools
 
 	export type PagesInput = InferToolInput<Tools["pages"]>
@@ -68,10 +68,10 @@ export namespace HandstagesAgent {
 }
 
 /**
- * Browser context exposed by Handstages (`V3.context` after init). Implementations
- * of {@link HandstagesAgentToolHandlers} typically hold this.
+ * Browser context exposed by Handstage (`V3.context` after init). Implementations
+ * of {@link HandstageAgentToolHandlers} typically hold this.
  */
-export interface HandstagesAgentContext {
+export interface HandstageAgentContext {
 	pages(): Page[]
 	activePage(): Page | undefined
 	setActivePage(page: Page): void
@@ -79,49 +79,49 @@ export interface HandstagesAgentContext {
 }
 
 /**
- * Implementations perform Handstages actions for each tool. Inputs and outputs are
- * inferred from {@link handstagesAgentTools} via the AI SDK.
+ * Implementations perform Handstage actions for each tool. Inputs and outputs are
+ * inferred from {@link handstageAgentTools} via the AI SDK.
  */
-export interface HandstagesAgentToolHandlers {
-	pages(input: HandstagesAgent.PagesInput): Promise<HandstagesAgent.PagesOutput>
+export interface HandstageAgentToolHandlers {
+	pages(input: HandstageAgent.PagesInput): Promise<HandstageAgent.PagesOutput>
 	newPage(
-		input: HandstagesAgent.NewPageInput,
-	): Promise<HandstagesAgent.NewPageOutput>
+		input: HandstageAgent.NewPageInput,
+	): Promise<HandstageAgent.NewPageOutput>
 	setActivePage(
-		input: HandstagesAgent.SetActivePageInput,
-	): Promise<HandstagesAgent.SetActivePageOutput>
-	goto(input: HandstagesAgent.GotoInput): Promise<HandstagesAgent.GotoOutput>
+		input: HandstageAgent.SetActivePageInput,
+	): Promise<HandstageAgent.SetActivePageOutput>
+	goto(input: HandstageAgent.GotoInput): Promise<HandstageAgent.GotoOutput>
 	reload(
-		input: HandstagesAgent.ReloadInput,
-	): Promise<HandstagesAgent.ReloadOutput>
+		input: HandstageAgent.ReloadInput,
+	): Promise<HandstageAgent.ReloadOutput>
 	goBack(
-		input: HandstagesAgent.GoBackInput,
-	): Promise<HandstagesAgent.GoBackOutput>
+		input: HandstageAgent.GoBackInput,
+	): Promise<HandstageAgent.GoBackOutput>
 	goForward(
-		input: HandstagesAgent.GoForwardInput,
-	): Promise<HandstagesAgent.GoForwardOutput>
+		input: HandstageAgent.GoForwardInput,
+	): Promise<HandstageAgent.GoForwardOutput>
 	snapshot(
-		input: HandstagesAgent.SnapshotInput,
-	): Promise<HandstagesAgent.SnapshotOutput>
+		input: HandstageAgent.SnapshotInput,
+	): Promise<HandstageAgent.SnapshotOutput>
 	pageInfo(
-		input: HandstagesAgent.PageInfoInput,
-	): Promise<HandstagesAgent.PageInfoOutput>
-	click(input: HandstagesAgent.ClickInput): Promise<HandstagesAgent.ClickOutput>
-	hover(input: HandstagesAgent.HoverInput): Promise<HandstagesAgent.HoverOutput>
+		input: HandstageAgent.PageInfoInput,
+	): Promise<HandstageAgent.PageInfoOutput>
+	click(input: HandstageAgent.ClickInput): Promise<HandstageAgent.ClickOutput>
+	hover(input: HandstageAgent.HoverInput): Promise<HandstageAgent.HoverOutput>
 	scroll(
-		input: HandstagesAgent.ScrollInput,
-	): Promise<HandstagesAgent.ScrollOutput>
-	type(input: HandstagesAgent.TypeInput): Promise<HandstagesAgent.TypeOutput>
+		input: HandstageAgent.ScrollInput,
+	): Promise<HandstageAgent.ScrollOutput>
+	type(input: HandstageAgent.TypeInput): Promise<HandstageAgent.TypeOutput>
 	click_on(
-		input: HandstagesAgent.ClickOnInput,
-	): Promise<HandstagesAgent.ClickOnOutput>
+		input: HandstageAgent.ClickOnInput,
+	): Promise<HandstageAgent.ClickOnOutput>
 	fill_on(
-		input: HandstagesAgent.FillOnInput,
-	): Promise<HandstagesAgent.FillOnOutput>
+		input: HandstageAgent.FillOnInput,
+	): Promise<HandstageAgent.FillOnOutput>
 	type_on(
-		input: HandstagesAgent.TypeOnInput,
-	): Promise<HandstagesAgent.TypeOnOutput>
+		input: HandstageAgent.TypeOnInput,
+	): Promise<HandstageAgent.TypeOnOutput>
 	hover_on(
-		input: HandstagesAgent.HoverOnInput,
-	): Promise<HandstagesAgent.HoverOnOutput>
+		input: HandstageAgent.HoverOnInput,
+	): Promise<HandstageAgent.HoverOnOutput>
 }
