@@ -23,6 +23,7 @@ import type {
 import {
 	HandstageEvalError,
 	HandstageInvalidArgumentError,
+	CDPConnectionClosedError,
 } from "../types/public/sdkErrors"
 import {
 	captureHybridSnapshot,
@@ -636,7 +637,9 @@ export class Page {
 					this.networkManager.dispose()
 					return
 				}
-			} catch {}
+			} catch (err) {
+				if (err instanceof CDPConnectionClosedError) break
+			}
 			await new Promise((r) => setTimeout(r, 25))
 		}
 		this.networkManager.dispose()
