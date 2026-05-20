@@ -634,8 +634,7 @@ export class Page {
 			try {
 				const targets = await this.conn.getTargets()
 				if (!targets.some((t) => t.targetId === this._targetId)) {
-					this.networkManager.dispose()
-					return
+					break
 				}
 			} catch (err) {
 				if (err instanceof CDPConnectionClosedError) break
