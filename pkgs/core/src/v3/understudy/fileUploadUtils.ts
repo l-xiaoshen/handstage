@@ -1,6 +1,6 @@
-import { Buffer } from "buffer"
-import { promises as fs, type Stats } from "fs"
-import path from "path"
+import { Buffer } from "node:buffer"
+import { promises as fs, type Stats } from "node:fs"
+import path from "node:path"
 import type { NormalizedFilePayload } from "../types/private/locator"
 import type {
 	SetInputFilePayload,

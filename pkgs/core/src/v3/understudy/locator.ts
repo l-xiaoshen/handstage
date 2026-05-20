@@ -4,9 +4,9 @@ import {
 	locatorScriptSources,
 } from "@handstage/dom/build/locatorScripts.generated"
 import type { Protocol } from "devtools-protocol"
-import * as fs from "fs"
-import * as os from "os"
-import * as path from "path"
+import * as fs from "node:fs"
+import * as os from "node:os"
+import * as path from "node:path"
 import type { NormalizedFilePayload } from "../types/private/locator"
 import type {
 	MouseButton,
