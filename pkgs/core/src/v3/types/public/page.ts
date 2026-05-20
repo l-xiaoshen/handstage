@@ -1,9 +1,8 @@
 import type { Page } from "../../understudy/page"
 
-export type { Page }
-
 export type { ConsoleListener } from "../../understudy/consoleMessage"
 export { ConsoleMessage } from "../../understudy/consoleMessage"
+export type { Page }
 
 export type LoadState = "load" | "domcontentloaded" | "networkidle"
 export { Response } from "../../understudy/response"

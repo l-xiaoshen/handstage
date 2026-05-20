@@ -323,7 +323,7 @@ export class CDPConnection extends BaseCDPConnection {
 		})
 	}
 
-	async attachToTarget(targetId: string): Promise<CDPSession> {
+	override async attachToTarget(targetId: string): Promise<CDPSession> {
 		const { sessionId } = (await this.send<{ sessionId: string }>(
 			"Target.attachToTarget",
 			{ targetId, flatten: true },
@@ -338,7 +338,7 @@ export class CDPConnection extends BaseCDPConnection {
 		return session
 	}
 
-	async getTargets(): Promise<Protocol.Target.TargetInfo[]> {
+	override async getTargets(): Promise<Protocol.Target.TargetInfo[]> {
 		const res = await this.send<{
 			targetInfos: Protocol.Target.TargetInfo[]
 		}>("Target.getTargets")
@@ -599,7 +599,7 @@ export class ExternalConnectionAdapter extends BaseCDPConnection {
 			set = new Set()
 			this.eventHandlers.set(event, set)
 		}
-		set.add(handler)
+		set.add(handler as (params: unknown) => void)
 		this.ensureRootListener(event)
 	}
 
@@ -739,11 +739,19 @@ export class ExternalSessionAdapter implements CDPSessionLike {
 	}
 
 	on<P = unknown>(event: string, handler: (params: P) => void): void {
-		this.adapter.onSessionEvent(this.id, event, handler)
+		this.adapter.onSessionEvent(
+			this.id,
+			event,
+			handler as (params: unknown) => void,
+		)
 	}
 
 	off<P = unknown>(event: string, handler: (params: P) => void): void {
-		this.adapter.offSessionEvent(this.id, event, handler)
+		this.adapter.offSessionEvent(
+			this.id,
+			event,
+			handler as (params: unknown) => void,
+		)
 	}
 
 	async close(): Promise<void> {

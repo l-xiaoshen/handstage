@@ -1,9 +1,9 @@
-import type { Protocol } from "devtools-protocol"
 import {
 	type LocatorScriptName,
 	locatorScriptBootstrap,
 	locatorScriptGlobalRefs,
 } from "@handstage/dom/build/locatorScripts.generated"
+import type { Protocol } from "devtools-protocol"
 import { v3Logger } from "../logger"
 import { LogLevel } from "../types/public/logs"
 import { executionContexts } from "./executionContextRegistry"

@@ -18,9 +18,9 @@ import {
 	TimeoutError,
 } from "../types/public/sdkErrors"
 import {
-	type CDPSessionLike,
-	type CDPConnectionLike,
 	CDPConnection,
+	type CDPConnectionLike,
+	type CDPSessionLike,
 } from "./cdp"
 import {
 	cookieMatchesFilter,
@@ -309,20 +309,18 @@ export class V3Context {
 				const probe = after.find((t) => t.targetId === targetId)
 				if (probe?.browserContextId) return probe.browserContextId
 			} finally {
-				await conn
-					.send("Target.closeTarget", { targetId })
-					.catch((err) => {
-						v3Logger({
-							category: "ctx",
-							message:
-								"Failed to close temporary discovery target; it will remain until the browser exits",
-							level: LogLevel.Debug,
-							attributes: {
-								targetId,
-								error: err instanceof Error ? err.message : String(err),
-							},
-						})
+				await conn.send("Target.closeTarget", { targetId }).catch((err) => {
+					v3Logger({
+						category: "ctx",
+						message:
+							"Failed to close temporary discovery target; it will remain until the browser exits",
+						level: LogLevel.Debug,
+						attributes: {
+							targetId,
+							error: err instanceof Error ? err.message : String(err),
+						},
 					})
+				})
 			}
 		} catch (err) {
 			throw new Error(
@@ -1444,7 +1442,9 @@ export class V3Context {
 	 * contexts). Passing it would yield `-32602 Failed to find browser
 	 * context for id ...`.
 	 */
-	private _scopedParams<T extends object>(extra?: T): T & { browserContextId?: string } {
+	private _scopedParams<T extends object>(
+		extra?: T,
+	): T & { browserContextId?: string } {
 		const out = { ...(extra ?? {}) } as T & { browserContextId?: string }
 		if (!this.isDefaultContext) {
 			out.browserContextId = this.browserContextId

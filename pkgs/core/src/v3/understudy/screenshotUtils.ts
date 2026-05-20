@@ -302,9 +302,7 @@ export async function applyMaskOverlays(
 										`[data-handstage-mask-root="${rootToken}"]`,
 									) as HTMLElement | null
 									if (!root) continue
-									const prev = root.getAttribute(
-										"data-handstage-mask-root-pos",
-									)
+									const prev = root.getAttribute("data-handstage-mask-root-pos")
 									if (prev !== null) {
 										root.style.position = prev
 										root.removeAttribute("data-handstage-mask-root-pos")

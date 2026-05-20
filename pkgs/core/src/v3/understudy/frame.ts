@@ -75,10 +75,10 @@ export class Frame implements FrameManager {
 			{ nodeId },
 		)
 
-		const x = model.content[0]
-		const y = model.content[1]
-		const width = model.width
-		const height = model.height
+		const x = model.content[0] ?? 0
+		const y = model.content[1] ?? 0
+		const width = model.width ?? 0
+		const height = model.height ?? 0
 		return { x, y, width, height }
 	}
 

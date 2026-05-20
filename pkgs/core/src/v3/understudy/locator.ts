@@ -907,10 +907,8 @@ export class Locator {
 		if (!content || content.length < 8) {
 			throw new HandstageInvalidArgumentError("Invalid box model content quad")
 		}
-		const xs = [content[0], content[2], content[4], content[6]]
-		const ys = [content[1], content[3], content[5], content[7]]
-		const cx = (xs[0] + xs[1] + xs[2] + xs[3]) / 4
-		const cy = (ys[0] + ys[1] + ys[2] + ys[3]) / 4
+		const cx = (content[0]! + content[2]! + content[4]! + content[6]!) / 4
+		const cy = (content[1]! + content[3]! + content[5]! + content[7]!) / 4
 		return { cx, cy }
 	}
 }

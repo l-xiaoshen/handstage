@@ -28,13 +28,13 @@ export function injectSubtrees(
 	const stack: Frame[] = [{ lines: rootOutline.split("\n"), i: 0 }]
 
 	while (stack.length) {
-		const top = stack[stack.length - 1]
+		const top = stack[stack.length - 1]!
 		if (top.i >= top.lines.length) {
 			stack.pop()
 			continue
 		}
 
-		const raw = top.lines[top.i++]
+		const raw = top.lines[top.i++]!
 		out.push(raw)
 
 		const indent = raw.match(/^(\s*)/)?.[1] ?? ""

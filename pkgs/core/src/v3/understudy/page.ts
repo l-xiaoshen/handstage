@@ -21,15 +21,15 @@ import type {
 	ScreenshotScaleOption,
 } from "../types/public/screenshotTypes"
 import {
+	CDPConnectionClosedError,
 	HandstageEvalError,
 	HandstageInvalidArgumentError,
-	CDPConnectionClosedError,
 } from "../types/public/sdkErrors"
 import {
 	captureHybridSnapshot,
 	resolveXpathForLocation,
 } from "./a11y/snapshot/index"
-import type { CDPSessionLike, CDPConnectionLike } from "./cdp"
+import type { CDPConnectionLike, CDPSessionLike } from "./cdp"
 import { type ConsoleListener, ConsoleMessage } from "./consoleMessage"
 import { deepLocatorFromPage, resolveLocatorTarget } from "./deepLocator"
 import { executionContexts } from "./executionContextRegistry"
@@ -1150,7 +1150,7 @@ export class Page {
 		// get list of objects containing results & corresponding session IDs
 		const pairs = results.map((result, index) => ({
 			result,
-			id: sessions[index].id,
+			id: sessions[index]!.id,
 		}))
 
 		const filtered = pairs.filter(
@@ -1708,7 +1708,7 @@ export class Page {
 				"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 .,;:'\"!?@#$%^&*()-_=+[]{}<>/\\|`~"
 			let c = avoid
 			while (c === avoid) {
-				c = pool[Math.floor(Math.random() * pool.length)]
+				c = pool[Math.floor(Math.random() * pool.length)]!
 			}
 			return c
 		}
@@ -1777,7 +1777,10 @@ export class Page {
 		}
 
 		const tokens = split(key)
-		const mainKey = tokens[tokens.length - 1]
+		if (tokens.length === 0) {
+			throw new HandstageInvalidArgumentError("Invalid key combination")
+		}
+		const mainKey = tokens[tokens.length - 1]!
 		const modifierKeys = tokens.slice(0, -1)
 
 		try {
@@ -1790,7 +1793,7 @@ export class Page {
 			await this.keyUp(mainKey)
 
 			for (let i = modifierKeys.length - 1; i >= 0; i--) {
-				await this.keyUp(modifierKeys[i])
+				await this.keyUp(modifierKeys[i]!)
 			}
 		} catch (error) {
 			// Clear stuck modifiers on error to prevent affecting subsequent keyPress calls

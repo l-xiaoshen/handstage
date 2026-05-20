@@ -1,6 +1,6 @@
-import type { Protocol } from "devtools-protocol"
 import { reRenderScriptContent } from "@handstage/dom/build/reRenderScriptContent"
 import { v3ScriptContent } from "@handstage/dom/build/scriptV3Content"
+import type { Protocol } from "devtools-protocol"
 import { v3Logger } from "../logger"
 import { LogLevel } from "../types/public/logs"
 import type { CDPSessionLike } from "./cdp"

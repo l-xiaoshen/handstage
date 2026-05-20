@@ -1,6 +1,6 @@
 import type { LaunchedChrome } from "chrome-launcher"
 
-import type { ExternalCDPSession, CDPTransport } from "../../understudy/cdp"
+import type { CDPTransport, ExternalCDPSession } from "../../understudy/cdp"
 
 export type InitState =
 	| {

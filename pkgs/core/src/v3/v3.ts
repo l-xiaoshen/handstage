@@ -17,6 +17,7 @@ import type {
 	ShutdownSupervisorHandle,
 } from "./types/private/shutdown"
 import { createConsoleLogger } from "./types/public/consoleLogger"
+import type { CreateContextOptions } from "./types/public/context"
 import {
 	type Logger,
 	LogLevel,
@@ -24,12 +25,11 @@ import {
 	shouldEmitLogLine,
 } from "./types/public/logs"
 import type {
-	LocalBrowserLaunchOptions,
+	HandstageConnectOptions,
 	HandstageLocalOptions,
 	HandstageSharedOptions,
-	HandstageConnectOptions,
+	LocalBrowserLaunchOptions,
 } from "./types/public/options"
-import type { CreateContextOptions } from "./types/public/context"
 import {
 	CDPConnection,
 	type CDPTransport,
@@ -396,6 +396,7 @@ export class V3 {
 	private async _applyPostConnectLocalOptions(
 		lbo: LocalBrowserLaunchOptions,
 	): Promise<void> {
+		if (!this.ctx) return
 		try {
 			if (lbo.downloadsPath || lbo.acceptDownloads !== undefined) {
 				const behavior = lbo.acceptDownloads === false ? "deny" : "allow"
@@ -477,7 +478,6 @@ export class V3 {
 			this.stopShutdownSupervisor()
 
 			this.state = { kind: "UNINITIALIZED" }
-			// @ts-expect-error Reset context for cleanup
 			this.ctx = undefined
 			this._isClosing = false
 			try {
