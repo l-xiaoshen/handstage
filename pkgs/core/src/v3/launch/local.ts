@@ -1,5 +1,4 @@
 import { type LaunchedChrome, launch } from "chrome-launcher"
-import WebSocket from "ws"
 import { ConnectionTimeoutError } from "../types/public/sdkErrors"
 
 interface LaunchLocalOptions {
@@ -110,7 +109,7 @@ function probeWebSocket(wsUrl: string, timeoutMs: number): Promise<void> {
 			settled = true
 			clearTimeout(timer)
 			try {
-				ws.terminate()
+				ws.close()
 			} catch {}
 			if (error) {
 				reject(error)
@@ -122,7 +121,11 @@ function probeWebSocket(wsUrl: string, timeoutMs: number): Promise<void> {
 			finish(new Error(`websocket probe timeout after ${timeoutMs}ms`))
 		}, timeoutMs)
 
-		ws.once("open", () => finish())
-		ws.once("error", (error) => finish(error))
+		ws.addEventListener("open", () => finish(), { once: true })
+		ws.addEventListener(
+			"error",
+			(error: any) => finish(error.error || new Error("WebSocket error")),
+			{ once: true },
+		)
 	})
 }

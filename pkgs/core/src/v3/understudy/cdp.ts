@@ -1,5 +1,4 @@
 import type { Protocol } from "devtools-protocol"
-import WebSocket from "ws"
 import { HANDSTAGE_VERSION } from "../../version"
 import {
 	CDPConnectionClosedError,
@@ -221,23 +220,28 @@ export class CDPConnection extends BaseCDPConnection {
 			"User-Agent": `Handstage/${HANDSTAGE_VERSION}`,
 			...options?.headers,
 		}
+		// @ts-expect-error: Modern runtimes like Bun support headers in native WebSocket
 		const ws = new WebSocket(wsUrl, { headers })
 		await new Promise<void>((resolve, reject) => {
-			ws.once("open", () => resolve())
-			ws.once("error", (e) => reject(e))
+			ws.addEventListener("open", () => resolve(), { once: true })
+			ws.addEventListener("error", (e: any) => reject(e.error || e), {
+				once: true,
+			})
 		})
 		const transport: CDPTransport = {
 			send: (message) => ws.send(message),
 			close: () => ws.close(),
 		}
-		ws.on("message", (data) => {
-			if (transport.onmessage) transport.onmessage(data.toString())
+		ws.addEventListener("message", (event: any) => {
+			if (transport.onmessage) transport.onmessage(event.data.toString())
 		})
-		ws.on("close", (code, reason) => {
-			if (transport.onclose) transport.onclose(`code=${code} reason=${reason}`)
+		ws.addEventListener("close", (event: any) => {
+			if (transport.onclose)
+				transport.onclose(`code=${event.code} reason=${event.reason}`)
 		})
-		ws.on("error", (error) => {
-			if (transport.onerror) transport.onerror(error)
+		ws.addEventListener("error", (event: any) => {
+			if (transport.onerror)
+				transport.onerror(event.error || new Error("WebSocket error"))
 		})
 		return new CDPConnection(transport)
 	}
