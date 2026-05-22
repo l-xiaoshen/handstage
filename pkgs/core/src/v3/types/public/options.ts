@@ -37,6 +37,12 @@ export interface HandstageConnectOptions extends HandstageSharedOptions {
 	deviceScaleFactor?: number
 	downloadsPath?: string
 	acceptDownloads?: boolean
+	/**
+	 * Initial browser context for the connection.
+	 * - "isolated" (default): create a dedicated browser context.
+	 * - "default": attach to the browser's shared default context.
+	 */
+	context?: "isolated" | "default"
 }
 
 export interface HandstageLocalOptions extends HandstageSharedOptions {

@@ -110,6 +110,7 @@ export class Page {
 	/** Document-start scripts installed across every session this page owns. */
 	private readonly initScripts: string[] = []
 	private extraHTTPHeaders: Record<string, string> = {}
+	private disposed = false
 
 	private constructor(
 		private readonly conn: CDPConnectionLike,
@@ -440,30 +441,6 @@ export class Page {
 		)
 		this.frameCache.delete(childMainFrameId)
 
-		// Bridge events from the child session to keep registry in sync
-		childSession.on<Protocol.Page.FrameNavigatedEvent>(
-			"Page.frameNavigated",
-			(evt) => {
-				this.onFrameNavigated(evt.frame, childSession)
-			},
-		)
-		childSession.on<Protocol.Page.FrameAttachedEvent>(
-			"Page.frameAttached",
-			(evt) => {
-				this.onFrameAttached(
-					evt.frameId,
-					evt.parentFrameId ?? null,
-					childSession,
-				)
-			},
-		)
-		childSession.on<Protocol.Page.FrameDetachedEvent>(
-			"Page.frameDetached",
-			(evt) => {
-				this.onFrameDetached(evt.frameId, evt.reason ?? "remove")
-			},
-		)
-
 		// One-shot seed the child's subtree ownership from its current tree
 		void (async () => {
 			try {
@@ -641,9 +618,18 @@ export class Page {
 			}
 			await new Promise((r) => setTimeout(r, 25))
 		}
+		this.disposeResources()
+	}
+
+	public disposeResources(): void {
+		if (this.disposed) return
+		this.disposed = true
 		this.networkManager.dispose()
 		this.removeAllConsoleTaps()
 		this.consoleListeners.clear()
+		this.sessions.clear()
+		this.consoleHandlers.clear()
+		this.frameCache.clear()
 	}
 
 	public getFullFrameTree(): Protocol.Page.FrameTree {

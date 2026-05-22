@@ -90,6 +90,20 @@ type RawMessage =
 	  }
 	| { method: string; params?: unknown; sessionId?: string }
 
+function invokeEventHandler(handler: EventHandler, params: unknown): void {
+	try {
+		const result = handler(params) as unknown
+		if (
+			result &&
+			typeof result === "object" &&
+			"then" in result &&
+			typeof (result as Promise<unknown>).then === "function"
+		) {
+			void (result as Promise<unknown>).catch(() => {})
+		}
+	} catch {}
+}
+
 export abstract class BaseCDPConnection implements CDPConnectionLike {
 	abstract send<R = unknown>(method: string, params?: object): Promise<R>
 	abstract on<P = unknown>(event: string, handler: (params: P) => void): void
@@ -433,13 +447,13 @@ export class CDPConnection extends BaseCDPConnection {
 					// connection; fan-out keeps target tracking consistent.
 					if (method.startsWith("Target.")) {
 						const handlers = this.eventHandlers.get(method)
-						if (handlers) for (const h of handlers) h(params)
+						if (handlers) for (const h of handlers) invokeEventHandler(h, params)
 					}
 					return
 				}
 
 				const handlers = this.eventHandlers.get(method)
-				if (handlers) for (const h of handlers) h(params)
+				if (handlers) for (const h of handlers) invokeEventHandler(h, params)
 			}
 
 			dispatch()
@@ -513,7 +527,7 @@ export class CDPConnection extends BaseCDPConnection {
 	_dispatchToSession(sessionId: string, event: string, params: unknown): void {
 		const key = `${sessionId}:${event}`
 		const handlers = this.eventHandlers.get(key)
-		if (handlers) for (const h of handlers) h(params)
+		if (handlers) for (const h of handlers) invokeEventHandler(h, params)
 	}
 }
 
@@ -579,17 +593,21 @@ export class ExternalConnectionAdapter extends BaseCDPConnection {
 					const childKey = `${targetSessionId}:${event}`
 					const childHandlers = this.eventHandlers.get(childKey)
 					if (childHandlers) {
-						for (const h of childHandlers) h(params)
+						for (const h of childHandlers) invokeEventHandler(h, params)
 					}
 
 					// Forward target lifecycle events to root listeners as well.
 					if (event.startsWith("Target.")) {
 						const rootHandlers = this.eventHandlers.get(event)
-						if (rootHandlers) for (const h of rootHandlers) h(params)
+						if (rootHandlers) {
+							for (const h of rootHandlers) invokeEventHandler(h, params)
+						}
 					}
 				} else {
 					const rootHandlers = this.eventHandlers.get(event)
-					if (rootHandlers) for (const h of rootHandlers) h(params)
+					if (rootHandlers) {
+						for (const h of rootHandlers) invokeEventHandler(h, params)
+					}
 				}
 			}
 			this.rootEventHandlers.set(event, rootHandler)

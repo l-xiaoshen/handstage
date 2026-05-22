@@ -123,6 +123,7 @@ export class V3 {
 					})
 					const ctx = await V3Context.create(lbo.cdpUrl, {
 						cdpHeaders: lbo.cdpHeaders,
+						context: lbo.context,
 					})
 					const state: InitState = {
 						kind: "LOCAL",
@@ -212,6 +213,7 @@ export class V3 {
 				}
 				const ctx = await V3Context.create(ws, {
 					localBrowserLaunchOptions: lbo,
+					context: lbo.context,
 				})
 				const state: InitState = {
 					kind: "LOCAL",
@@ -270,6 +272,7 @@ export class V3 {
 					: {}
 				const ctx = await V3Context.createFromConnection(conn, {
 					localBrowserLaunchOptions: lbo,
+					context: opts?.context,
 				})
 				const state: InitState = {
 					kind: "CUSTOM_TRANSPORT",
@@ -311,6 +314,7 @@ export class V3 {
 					: {}
 				const ctx = await V3Context.createFromConnection(adapter, {
 					localBrowserLaunchOptions: lbo,
+					context: opts?.context,
 				})
 				const state: InitState = {
 					kind: "CUSTOM_CONNECTION",
@@ -397,18 +401,12 @@ export class V3 {
 		lbo: LocalBrowserLaunchOptions,
 	): Promise<void> {
 		if (!this.ctx) return
-		try {
-			if (lbo.downloadsPath || lbo.acceptDownloads !== undefined) {
-				const behavior = lbo.acceptDownloads === false ? "deny" : "allow"
-				await this.ctx.conn
-					.send("Browser.setDownloadBehavior", {
-						behavior,
-						downloadPath: lbo.downloadsPath,
-						eventsEnabled: true,
-					})
-					.catch(() => {})
-			}
-		} catch {}
+		await this.ctx
+			.setDownloadBehavior({
+				downloadPath: lbo.downloadsPath,
+				acceptDownloads: lbo.acceptDownloads,
+			})
+			.catch(() => {})
 	}
 
 	/** Return the browser-level CDP WebSocket endpoint. Returns empty string for custom transports/connections. */
