@@ -1,6 +1,6 @@
 import type { Protocol } from "devtools-protocol"
 import { promises as fs } from "node:fs"
-import { v3Logger } from "../logger"
+import { defaultLogger, type LogSink } from "../logger"
 import { withTimeout } from "../timeoutConfig"
 import type { InitScriptSource } from "../types/private/index"
 import {
@@ -112,13 +112,18 @@ export class Page {
 	private extraHTTPHeaders: Record<string, string> = {}
 	private disposed = false
 
+	/** Per-instance debug log sink — fans out to sub-managers (NetworkManager, etc.). */
+	public readonly logger: LogSink
+
 	private constructor(
 		private readonly conn: CDPConnectionLike,
 		private readonly mainSession: CDPSessionLike,
 		private readonly _targetId: string,
 		mainFrameId: string,
+		logger?: LogSink,
 	) {
 		this.pageId = _targetId
+		this.logger = logger ?? defaultLogger()
 
 		// own the main session
 		if (mainSession.id) this.sessions.set(mainSession.id, mainSession)
@@ -132,6 +137,7 @@ export class Page {
 			mainFrameId,
 			this.pageId,
 			false,
+			this.logger,
 		)
 
 		this.networkManager = new NetworkManager()
@@ -292,6 +298,7 @@ export class Page {
 		session: CDPSessionLike,
 		targetId: string,
 		localBrowserLaunchOptions?: LocalBrowserLaunchOptions | null,
+		logger?: LogSink,
 	): Promise<Page> {
 		// Context already issues Page.enable + lifecycle enable before resume.
 		// Re-issue here only as best-effort and do not block page registration on
@@ -306,7 +313,7 @@ export class Page {
 		}>("Page.getFrameTree")
 		const mainFrameId = frameTree.frame.id
 
-		const page = new Page(conn, session, targetId, mainFrameId)
+		const page = new Page(conn, session, targetId, mainFrameId, logger)
 		// Seed current URL from initial frame tree
 		try {
 			page._currentUrl = String(frameTree?.frame?.url ?? page._currentUrl)
@@ -376,6 +383,7 @@ export class Page {
 				newRoot,
 				this.pageId,
 				false,
+				this.logger,
 			)
 		}
 
@@ -492,7 +500,7 @@ export class Page {
 		if (hit) return hit
 
 		const sess = this.getSessionForFrame(frameId)
-		const f = new Frame(sess, frameId, this.pageId, false)
+		const f = new Frame(sess, frameId, this.pageId, false, this.logger)
 		this.frameCache.set(frameId, f)
 		return f
 	}
@@ -748,7 +756,7 @@ export class Page {
 			try {
 				listener(message)
 			} catch (error) {
-				v3Logger({
+				this.logger({
 					category: "page",
 					message: "Console listener threw",
 					level: LogLevel.Debug,
@@ -1375,7 +1383,7 @@ export class Page {
 			try {
 				const hit = await resolveXpathForLocation(this, x, y)
 				if (hit) {
-					v3Logger({
+					this.logger({
 						category: "page",
 						message: "click resolved hit",
 						level: LogLevel.Debug,
@@ -1387,7 +1395,7 @@ export class Page {
 						},
 					})
 					xpathResult = hit.absoluteXPath
-					v3Logger({
+					this.logger({
 						category: "page",
 						message: `click resolved xpath`,
 						level: LogLevel.Debug,
@@ -1450,7 +1458,7 @@ export class Page {
 			try {
 				const hit = await resolveXpathForLocation(this, x, y)
 				if (hit) {
-					v3Logger({
+					this.logger({
 						category: "page",
 						message: "hover resolved hit",
 						level: LogLevel.Debug,
@@ -1464,7 +1472,7 @@ export class Page {
 					xpathResult = hit.absoluteXPath
 				}
 			} catch {
-				v3Logger({
+				this.logger({
 					category: "page",
 					message: "Failed to resolve xpath for hover",
 					level: LogLevel.Debug,

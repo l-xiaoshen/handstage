@@ -1,48 +1,45 @@
-import { AsyncLocalStorage } from "node:async_hooks"
 import { createConsoleLogger } from "./types/public/consoleLogger"
-import type { LogLine } from "./types/public/logs"
+import { LogLevel, type LogLine, shouldEmitLogLine } from "./types/public/logs"
 
 /**
- * Handstage V3 per-instance log routing (AsyncLocalStorage).
+ * Per-instance log routing for Handstage V3.
  *
- * - `bindInstanceLogger` / `unbindInstanceLogger`: register the effective logger for an instance id.
- * - `withInstanceLogContext`: run a function with that instance id on the async context.
- * - `v3Logger`: emit a line for the current instance, or fall back to `createConsoleLogger()` when no context.
+ * There is no AsyncLocalStorage in this module — that approach lost scope
+ * inside event-driven code paths (CDP transport callbacks fire outside any
+ * parent async frame) and forced every event-time log to fall back to a
+ * global console logger.  Instead, every class that emits debug lines now
+ * accepts an explicit {@link LogSink} via its constructor and uses it
+ * directly.  Multiple V3 instances therefore route their logs to their own
+ * `HandstageSharedOptions.logger` without cross-talk.
  */
+export type LogSink = (line: LogLine) => void
 
-const logContext = new AsyncLocalStorage<string>()
-const instanceLoggers = new Map<string, (line: LogLine) => void>()
-
-const fallbackLogger = createConsoleLogger()
-
-export function bindInstanceLogger(
-	instanceId: string,
-	logger: (line: LogLine) => void,
-): void {
-	instanceLoggers.set(instanceId, logger)
-}
-
-export function unbindInstanceLogger(instanceId: string): void {
-	instanceLoggers.delete(instanceId)
-}
-
-export function withInstanceLogContext<T>(instanceId: string, fn: () => T): T {
-	return logContext.run(instanceId, fn)
-}
-
-export function v3Logger(line: LogLine): void {
-	const id = logContext.getStore()
-	if (id) {
-		const fn = instanceLoggers.get(id)
-		if (fn) {
-			try {
-				fn(line)
-				return
-			} catch {
-				// fall through to fallback
-			}
-		}
+/**
+ * Build a level-filtered logger from the caller-supplied logger (or a
+ * console fallback).  Used by V3 at construction time to wrap the user's
+ * raw logger into one that already respects `verbose`.
+ */
+export function createFilteredLogger(
+	rawLogger: LogSink | undefined,
+	verbose: LogLevel | undefined,
+): LogSink {
+	const sink = rawLogger ?? createConsoleLogger()
+	const minLevel = verbose ?? LogLevel.Info
+	return (line: LogLine) => {
+		if (!shouldEmitLogLine(line.level, minLevel)) return
+		sink({ ...line, level: line.level ?? LogLevel.Info })
 	}
+}
 
-	fallbackLogger(line)
+/**
+ * Lazily-constructed console fallback used for code paths that fire before
+ * a real logger is plumbed in (e.g. the few static utility functions that
+ * still take an optional logger arg).
+ */
+let _defaultLogger: LogSink | null = null
+export function defaultLogger(): LogSink {
+	if (!_defaultLogger) {
+		_defaultLogger = createFilteredLogger(undefined, LogLevel.Info)
+	}
+	return _defaultLogger
 }

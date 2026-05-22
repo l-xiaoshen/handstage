@@ -1,4 +1,5 @@
 import type { Protocol } from "devtools-protocol"
+import { defaultLogger, type LogSink } from "../logger"
 import { HandstageEvalError } from "../types/public/sdkErrors"
 import type { CDPSessionLike } from "./cdp"
 import { executionContexts } from "./executionContextRegistry"
@@ -22,13 +23,23 @@ export class Frame implements FrameManager {
 	/** Owning CDP session id (useful for logs); null for root connection (should not happen for targets) */
 	public readonly sessionId: string | null
 
+	/**
+	 * Logger inherited from the owning {@link Page} (which inherits from
+	 * {@link V3Context}).  Used by helpers that operate against a `Frame`
+	 * (selectorResolver, snapshot capture) to keep per-instance log routing
+	 * intact for multi-context callers.
+	 */
+	public readonly logger: LogSink
+
 	constructor(
 		public session: CDPSessionLike,
 		public frameId: string,
 		public pageId: string,
 		private readonly remoteBrowser: boolean,
+		logger?: LogSink,
 	) {
 		this.sessionId = this.session.id ?? null
+		this.logger = logger ?? defaultLogger()
 	}
 
 	/** True when the controlled browser runs on a different machine. */
@@ -247,6 +258,7 @@ export class Frame implements FrameManager {
 						tree.frame.id,
 						this.pageId,
 						this.remoteBrowser,
+						this.logger,
 					),
 				)
 			}

@@ -4,7 +4,6 @@ import {
 	locatorScriptGlobalRefs,
 } from "@handstage/dom/build/locatorScripts.generated"
 import type { Protocol } from "devtools-protocol"
-import { v3Logger } from "../logger"
 import { LogLevel } from "../types/public/logs"
 import { executionContexts } from "./executionContextRegistry"
 import type { Frame } from "./frame"
@@ -155,7 +154,7 @@ export class FrameSelectorResolver {
 			}
 
 			if (!loggedFallback) {
-				v3Logger({
+				this.frame.logger({
 					category: "locator",
 					message: "css pierce-fallback",
 					level: LogLevel.Debug,
@@ -291,7 +290,7 @@ export class FrameSelectorResolver {
 
 			if (evalRes.exceptionDetails) {
 				const details = evalRes.exceptionDetails
-				v3Logger({
+				this.frame.logger({
 					category: "locator",
 					message: "count text evaluate exception",
 					level: LogLevel.Error,

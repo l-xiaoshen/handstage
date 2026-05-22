@@ -1,7 +1,7 @@
 import { reRenderScriptContent } from "@handstage/dom/build/reRenderScriptContent"
 import { v3ScriptContent } from "@handstage/dom/build/scriptV3Content"
 import type { Protocol } from "devtools-protocol"
-import { v3Logger } from "../logger"
+import { defaultLogger, type LogSink } from "../logger"
 import { LogLevel } from "../types/public/logs"
 import type { CDPSessionLike } from "./cdp"
 
@@ -52,13 +52,15 @@ export async function installV3PiercerIntoSession(
 export function tapPiercerConsole(
 	session: CDPSessionLike,
 	label: string,
+	logger?: LogSink,
 ): void {
+	const sink = logger ?? defaultLogger()
 	session.on<Protocol.Runtime.ConsoleAPICalledEvent>(
 		"Runtime.consoleAPICalled",
 		(evt) => {
 			const head = evt.args?.[0]?.value as string | undefined
 			if (head?.startsWith?.("[v3-piercer]")) {
-				v3Logger({
+				sink({
 					category: "piercer",
 					message: `[${label}] ${head}`,
 					level: LogLevel.Debug,

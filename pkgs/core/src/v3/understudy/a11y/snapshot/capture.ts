@@ -1,5 +1,4 @@
 import type { Protocol } from "devtools-protocol"
-import { v3Logger } from "../../../logger"
 import type {
 	FrameContext,
 	FrameDomMaps,
@@ -122,7 +121,7 @@ export async function tryScopedSnapshot(
 	if (!requestedFocus) return null
 
 	const logScopeFallback = () => {
-		v3Logger({
+		page.logger({
 			message: `Unable to narrow scope with selector. Falling back to using full DOM`,
 			level: LogLevel.Info,
 			attributes: {

@@ -4,11 +4,7 @@ import path from "node:path"
 import process from "node:process"
 import { v7 as uuidv7 } from "uuid"
 import { launchLocalChrome } from "./launch/local"
-import {
-	bindInstanceLogger,
-	unbindInstanceLogger,
-	withInstanceLogContext,
-} from "./logger"
+import { createFilteredLogger, type LogSink } from "./logger"
 import { cleanupLocalBrowser } from "./shutdown/cleanupLocal"
 import { startShutdownSupervisor } from "./shutdown/supervisorClient"
 import type { InitState } from "./types/private/internal"
@@ -16,14 +12,8 @@ import type {
 	ShutdownSupervisorConfig,
 	ShutdownSupervisorHandle,
 } from "./types/private/shutdown"
-import { createConsoleLogger } from "./types/public/consoleLogger"
 import type { CreateContextOptions } from "./types/public/context"
-import {
-	type Logger,
-	LogLevel,
-	type LogLine,
-	shouldEmitLogLine,
-} from "./types/public/logs"
+import { LogLevel, type LogLine } from "./types/public/logs"
 import type {
 	HandstageConnectOptions,
 	HandstageLocalOptions,
@@ -64,7 +54,8 @@ export class V3 {
 		this._immediateShutdown(`CDP transport closed: ${why}`).catch(() => {})
 	}
 
-	private readonly logSink: Logger
+	/** Filtered logger built once at construction; passed down to V3Context. */
+	private readonly logSink: LogSink
 	public verbose: LogLevel
 	private readonly instanceId: string
 	private readonly sessionId: string
@@ -80,7 +71,7 @@ export class V3 {
 		private ctx: V3Context | undefined,
 		opts: HandstageSharedOptions,
 		instanceId: string,
-		logSink: Logger,
+		logSink: LogSink,
 	) {
 		this.connection = connection
 		this.ownsConnection = ownsConnection
@@ -90,30 +81,21 @@ export class V3 {
 		this.sessionId = opts.sessionId ?? this.instanceId
 		this.keepAlive = opts.keepAlive
 
-		bindInstanceLogger(this.instanceId, (line) => this.emitLog(line))
-
 		this.connection.onTransportClosed(this._onCDPClosed)
 	}
 
 	private static setupContext(opts?: HandstageSharedOptions) {
 		const instanceId = uuidv7()
 		const sharedOpts = opts ?? {}
-		const verbose = sharedOpts.verbose ?? LogLevel.Info
-		const logSink = sharedOpts.logger ?? createConsoleLogger()
-		const emitLog = (line: LogLine) => {
-			if (!shouldEmitLogLine(line.level, verbose)) return
-			logSink({ ...line, level: line.level ?? LogLevel.Info })
-		}
-		bindInstanceLogger(instanceId, emitLog)
-		const logger = (line: LogLine) => emitLog(line)
+		const logSink = createFilteredLogger(sharedOpts.logger, sharedOpts.verbose)
+		const logger: LogSink = (line) => logSink(line)
 		return { instanceId, sharedOpts, logSink, logger }
 	}
 
 	static async connectLocal(opts?: HandstageLocalOptions): Promise<V3> {
 		const { instanceId, sharedOpts, logSink, logger } = V3.setupContext(opts)
 
-		try {
-			return await withInstanceLogContext(instanceId, async () => {
+		return await (async () => {
 				const envHeadless = process.env.HEADLESS
 				if (envHeadless !== undefined) {
 					const normalized = envHeadless.trim().toLowerCase()
@@ -147,6 +129,7 @@ export class V3 {
 						ctx = await V3Context.createFromConnection(conn, {
 							localBrowserLaunchOptions: lbo,
 							context: lbo.context,
+							logger: logSink,
 						})
 					} catch (err) {
 						await conn.close().catch(() => {})
@@ -249,6 +232,7 @@ export class V3 {
 					ctx = await V3Context.createFromConnection(conn, {
 						localBrowserLaunchOptions: lbo,
 						context: lbo.context,
+						logger: logSink,
 					})
 				} catch (err) {
 					await conn.close().catch(() => {})
@@ -294,13 +278,7 @@ export class V3 {
 
 				await v3._applyPostConnectLocalOptions(lbo)
 				return v3
-			})
-		} catch (error) {
-			try {
-				unbindInstanceLogger(instanceId)
-			} catch {}
-			throw error
-		}
+		})()
 	}
 
 	static async connectTransport(
@@ -309,8 +287,7 @@ export class V3 {
 	): Promise<V3> {
 		const { instanceId, sharedOpts, logSink, logger } = V3.setupContext(opts)
 
-		try {
-			return await withInstanceLogContext(instanceId, async () => {
+		return await (async () => {
 				logger({
 					category: "init",
 					message: "Connecting via custom transport",
@@ -330,6 +307,7 @@ export class V3 {
 					ctx = await V3Context.createFromConnection(conn, {
 						localBrowserLaunchOptions: lbo,
 						context: opts?.context,
+						logger: logSink,
 					})
 				} catch (err) {
 					await conn.close().catch(() => {})
@@ -347,13 +325,7 @@ export class V3 {
 				)
 				await v3._applyPostConnectLocalOptions(lbo)
 				return v3
-			})
-		} catch (error) {
-			try {
-				unbindInstanceLogger(instanceId)
-			} catch {}
-			throw error
-		}
+		})()
 	}
 
 	static async connectSession(
@@ -362,8 +334,7 @@ export class V3 {
 	): Promise<V3> {
 		const { instanceId, sharedOpts, logSink, logger } = V3.setupContext(opts)
 
-		try {
-			return await withInstanceLogContext(instanceId, async () => {
+		return await (async () => {
 				logger({
 					category: "init",
 					message: "Connecting via custom connection",
@@ -383,6 +354,7 @@ export class V3 {
 					ctx = await V3Context.createFromConnection(adapter, {
 						localBrowserLaunchOptions: lbo,
 						context: opts?.context,
+						logger: logSink,
 					})
 				} catch (err) {
 					await adapter.close().catch(() => {})
@@ -400,13 +372,7 @@ export class V3 {
 				)
 				await v3._applyPostConnectLocalOptions(lbo)
 				return v3
-			})
-		} catch (error) {
-			try {
-				unbindInstanceLogger(instanceId)
-			} catch {}
-			throw error
-		}
+		})()
 	}
 
 	/**
@@ -423,8 +389,7 @@ export class V3 {
 	): Promise<V3> {
 		const { instanceId, sharedOpts, logSink, logger } = V3.setupContext(opts)
 
-		try {
-			return await withInstanceLogContext(instanceId, async () => {
+		return await (async () => {
 				logger({
 					category: "init",
 					message: "Attaching to shared CDP connection",
@@ -441,6 +406,7 @@ export class V3 {
 				const ctx = await V3Context.createFromConnection(conn, {
 					localBrowserLaunchOptions: lbo,
 					context: opts?.context,
+					logger: logSink,
 				})
 				const state: InitState = { kind: "SHARED_CONNECTION" }
 				const v3 = new V3(
@@ -454,24 +420,11 @@ export class V3 {
 				)
 				await v3._applyPostConnectLocalOptions(lbo)
 				return v3
-			})
-		} catch (error) {
-			try {
-				unbindInstanceLogger(instanceId)
-			} catch {}
-			throw error
-		}
+		})()
 	}
 
 	private emitLog(line: LogLine): void {
-		if (!shouldEmitLogLine(line.level, this.verbose)) {
-			return
-		}
-		const normalized: LogLine = {
-			...line,
-			level: line.level ?? LogLevel.Info,
-		}
-		this.logSink(normalized)
+		this.logSink(line)
 	}
 
 	private async _immediateShutdown(reason: string): Promise<void> {
@@ -622,9 +575,6 @@ export class V3 {
 			this.ctx = undefined
 			this.connection = null
 			this._isClosing = false
-			try {
-				unbindInstanceLogger(this.instanceId)
-			} catch {}
 		}
 	}
 

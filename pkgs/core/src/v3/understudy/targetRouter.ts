@@ -1,5 +1,5 @@
 import type { Protocol } from "devtools-protocol"
-import { v3Logger } from "../logger"
+import { defaultLogger, type LogSink } from "../logger"
 import { LogLevel } from "../types/public/logs"
 import type { CDPConnectionLike } from "./cdp"
 
@@ -28,9 +28,16 @@ export interface TargetRouterDelegate {
  * that saw it decides it is out-of-scope.  TargetRouter makes ownership a
  * single connection-level decision: exactly one registered context receives a
  * target, and every unclaimed session is immediately resumed and detached.
+ *
+ * One router per CDP connection — when multiple V3 instances share a
+ * connection they all register against the same router.  Router-level debug
+ * lines are broadcast to every registered delegate's logger so each V3 sees
+ * the events that affected it; if no loggers are registered (router-only
+ * lifecycle window) a console fallback is used.
  */
 export class TargetRouter {
 	private delegates: TargetRouterDelegate[] = []
+	private loggers = new Map<TargetRouterDelegate, LogSink>()
 	private sessionOwners = new Map<SessionId, TargetRouterDelegate>()
 	private started = false
 	private closed = false
@@ -47,19 +54,24 @@ export class TargetRouter {
 		return router
 	}
 
-	public async register(delegate: TargetRouterDelegate): Promise<() => void> {
+	public async register(
+		delegate: TargetRouterDelegate,
+		logger?: LogSink,
+	): Promise<() => void> {
 		if (this.closed) {
 			throw new Error("Cannot register a context on a closed TargetRouter")
 		}
 		if (!this.delegates.includes(delegate)) {
 			this.delegates.push(delegate)
 		}
+		if (logger) this.loggers.set(delegate, logger)
 		await this.start()
 		return () => this.unregister(delegate)
 	}
 
 	public unregister(delegate: TargetRouterDelegate): void {
 		this.delegates = this.delegates.filter((d) => d !== delegate)
+		this.loggers.delete(delegate)
 		for (const [sessionId, owner] of [...this.sessionOwners.entries()]) {
 			if (owner === delegate) this.sessionOwners.delete(sessionId)
 		}
@@ -67,6 +79,24 @@ export class TargetRouter {
 		// Keep the root Target listeners installed even with zero delegates.
 		// Auto-attach is browser-wide and remains enabled on the connection; a
 		// future target must still be resumed/detached rather than left paused.
+	}
+
+	/** Fan a router-level debug line out to every registered delegate's logger. */
+	private log(line: {
+		category: string
+		message: string
+		level: LogLevel
+		attributes?: Record<string, unknown>
+	}): void {
+		if (this.loggers.size === 0) {
+			defaultLogger()(line)
+			return
+		}
+		for (const sink of this.loggers.values()) {
+			try {
+				sink(line)
+			} catch {}
+		}
 	}
 
 	private async start(): Promise<void> {
@@ -107,7 +137,7 @@ export class TargetRouter {
 		evt: Protocol.Target.AttachedToTargetEvent,
 	): void => {
 		void this.routeAttached(evt).catch((err) => {
-			v3Logger({
+			this.log({
 				category: "target-router",
 				message: "Target attach routing failed",
 				level: LogLevel.Debug,
@@ -170,7 +200,7 @@ export class TargetRouter {
 			try {
 				claimed = await delegate.canClaimTarget(info)
 			} catch (err) {
-				v3Logger({
+				this.log({
 					category: "target-router",
 					message: "Target ownership predicate failed",
 					level: LogLevel.Debug,

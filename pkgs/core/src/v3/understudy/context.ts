@@ -1,6 +1,6 @@
 import { v3ScriptContent } from "@handstage/dom/build/scriptV3Content"
 import type { Protocol } from "devtools-protocol"
-import { v3Logger } from "../logger"
+import { defaultLogger, type LogSink } from "../logger"
 import type { InitScriptSource } from "../types/private/index"
 import type {
 	ClearCookieOptions,
@@ -89,13 +89,22 @@ function isTopLevelPage(info: Protocol.Target.TargetInfo): boolean {
 type SessionCleanup = () => void
 
 export class V3Context implements TargetRouterDelegate {
+	/**
+	 * Per-instance debug log sink.  Threaded down to Page / NetworkManager /
+	 * static helpers so multiple V3 instances on a shared connection each
+	 * receive their own logs without falling back to a global console.
+	 */
+	public readonly logger: LogSink
+
 	private constructor(
 		readonly conn: CDPConnectionLike,
 		private readonly localBrowserLaunchOptions: LocalBrowserLaunchOptions | null = null,
 		private _browserContextId: string | null,
 		public readonly isDefaultContext: boolean = false,
 		private readonly ownsBrowserContext: boolean = !isDefaultContext,
+		logger?: LogSink,
 	) {
+		this.logger = logger ?? defaultLogger()
 		this.targetRouter = getTargetRouter(this.conn)
 	}
 
@@ -164,7 +173,7 @@ export class V3Context implements TargetRouterDelegate {
 			try {
 				c()
 			} catch (err) {
-				v3Logger({
+				this.logger({
 					category: "ctx",
 					message: "Session cleanup callback threw",
 					level: LogLevel.Debug,
@@ -217,6 +226,7 @@ export class V3Context implements TargetRouterDelegate {
 		opts?: {
 			localBrowserLaunchOptions?: LocalBrowserLaunchOptions | null
 			context?: "isolated" | "default"
+			logger?: LogSink
 		},
 	): Promise<V3Context> {
 		const mode = opts?.context ?? opts?.localBrowserLaunchOptions?.context ?? "isolated"
@@ -230,6 +240,7 @@ export class V3Context implements TargetRouterDelegate {
 		conn: CDPConnectionLike,
 		opts?: {
 			localBrowserLaunchOptions?: LocalBrowserLaunchOptions | null
+			logger?: LogSink
 		},
 	): Promise<V3Context> {
 		const ctx = new V3Context(
@@ -238,6 +249,7 @@ export class V3Context implements TargetRouterDelegate {
 			null,
 			true,
 			false,
+			opts?.logger,
 		)
 		try {
 			await ctx.bootstrap()
@@ -253,6 +265,7 @@ export class V3Context implements TargetRouterDelegate {
 		opts?: {
 			localBrowserLaunchOptions?: LocalBrowserLaunchOptions | null
 			createOptions?: CreateContextOptions
+			logger?: LogSink
 		},
 	): Promise<V3Context> {
 		const createOptions: CreateContextOptions = {
@@ -268,6 +281,7 @@ export class V3Context implements TargetRouterDelegate {
 			browserContextId,
 			false,
 			true,
+			opts?.logger,
 		)
 		try {
 			await ctx.bootstrap()
@@ -315,6 +329,7 @@ export class V3Context implements TargetRouterDelegate {
 			browserContextId,
 			false,
 			true,
+			this.logger,
 		)
 		try {
 			await ctx.bootstrap()
@@ -596,7 +611,7 @@ export class V3Context implements TargetRouterDelegate {
 					browserContextId: this.browserContextId,
 				})
 				.catch((err) => {
-					v3Logger({
+					this.logger({
 						category: "ctx",
 						message: "Target.disposeBrowserContext failed during close",
 						level: LogLevel.Debug,
@@ -692,7 +707,7 @@ export class V3Context implements TargetRouterDelegate {
 			return this.knownNonDefaultBrowserContextIds
 		} catch (err) {
 			this.nonDefaultContextLookupFailed = true
-			v3Logger({
+			this.logger({
 				category: "ctx",
 				message:
 					"Target.getBrowserContexts not available — default-context target matching will learn the first observed context id",
@@ -716,7 +731,10 @@ export class V3Context implements TargetRouterDelegate {
 	 * - Clean up on detach/destroy.
 	 */
 	private async bootstrap(): Promise<void> {
-		this.routerUnsubscribe = await this.targetRouter.register(this)
+		this.routerUnsubscribe = await this.targetRouter.register(
+			this,
+			this.logger,
+		)
 
 		const targets = await this.conn.getTargets()
 		for (const t of targets) {
@@ -725,7 +743,7 @@ export class V3Context implements TargetRouterDelegate {
 			try {
 				await this.conn.attachToTarget(t.targetId)
 			} catch (err) {
-				v3Logger({
+				this.logger({
 					category: "ctx",
 					message: "Failed to attach to existing target during bootstrap",
 					level: LogLevel.Debug,
@@ -920,7 +938,7 @@ export class V3Context implements TargetRouterDelegate {
 			// Short-lived child targets can detach before resume is acknowledged.
 			// Keep this noisy only for top-level pages where missing attach is fatal.
 			if (isTopLevelPage(info)) {
-				v3Logger({
+				this.logger({
 					category: "ctx",
 					message: "Failed target pre-resume setup ordering",
 					level: LogLevel.Debug,
@@ -959,12 +977,13 @@ export class V3Context implements TargetRouterDelegate {
 						session,
 						info.targetId,
 						this.localBrowserLaunchOptions,
+						this.logger,
 					)
 				} catch (error) {
 					createError = error
 				}
 				if (!page) {
-					v3Logger({
+					this.logger({
 						category: "ctx",
 						message: "Failed to create top-level Page",
 						level: LogLevel.Debug,
@@ -1053,7 +1072,7 @@ export class V3Context implements TargetRouterDelegate {
 				// before we could probe its frame tree. Log at Debug for
 				// visibility but don't surface — this is expected at
 				// non-trivial frequency on real-world pages.
-				v3Logger({
+				this.logger({
 					category: "ctx",
 					message: "OOPIF Page.getFrameTree failed during attach",
 					level: LogLevel.Debug,
