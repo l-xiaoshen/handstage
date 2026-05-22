@@ -1446,7 +1446,7 @@ export class V3Context {
 		extra?: T,
 	): T & { browserContextId?: string } {
 		const out = { ...(extra ?? {}) } as T & { browserContextId?: string }
-		if (!this.isDefaultContext) {
+		if (!this.isDefaultContext && this.browserContextId !== undefined) {
 			out.browserContextId = this.browserContextId
 		}
 		return out
