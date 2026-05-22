@@ -1,5 +1,7 @@
 import { type ToolSet, tool } from "ai"
 import {
+	BringToFrontInputSchema,
+	BringToFrontOutputSchema,
 	ClickInputSchema,
 	ClickOnInputSchema,
 	ElementActionOutputSchema,
@@ -21,8 +23,6 @@ import {
 	ReloadInputSchema,
 	ReloadOutputSchema,
 	ScrollInputSchema,
-	SetActivePageInputSchema,
-	SetActivePageOutputSchema,
 	SnapshotInputSchema,
 	SnapshotOutputSchema,
 	TypeInputSchema,
@@ -37,7 +37,7 @@ import {
 export const handstageAgentTools = {
 	pages: tool({
 		description:
-			"List open browser tabs. Each entry has pageId, url, title, and whether the tab is active (foreground).",
+			"List open browser tabs. Each entry has pageId, url, and title. Tabs are returned in the order they were opened; no tab is implicitly 'active' — pass the pageId you want to act on with every tool call.",
 		inputSchema: PagesInputSchema,
 		outputSchema: PagesOutputSchema,
 	}),
@@ -49,11 +49,11 @@ export const handstageAgentTools = {
 		outputSchema: NewPageOutputSchema,
 	}),
 
-	setActivePage: tool({
+	bringToFront: tool({
 		description:
-			"Focus a tab by pageId (bring it to the foreground). Use after newPage or when switching context.",
-		inputSchema: SetActivePageInputSchema,
-		outputSchema: SetActivePageOutputSchema,
+			"Foreground a tab by pageId (Target.activateTarget). Necessary before input events can land on that tab in headful Chrome.",
+		inputSchema: BringToFrontInputSchema,
+		outputSchema: BringToFrontOutputSchema,
 	}),
 
 	goto: tool({

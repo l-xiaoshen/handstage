@@ -559,6 +559,21 @@ export class Page {
 	}
 
 	/**
+	 * Bring this page's tab to the foreground in the browser.
+	 *
+	 * Wraps `Target.activateTarget`.  In headless Chrome this is a no-op for
+	 * end users but still required so dispatchKeyEvent / dispatchMouseEvent
+	 * land on the intended target.  Use this in place of any "active page"
+	 * concept on the context — callers track Page references explicitly and
+	 * decide which one is foreground.
+	 */
+	public async bringToFront(): Promise<void> {
+		await this.conn
+			.send("Target.activateTarget", { targetId: this._targetId })
+			.catch(() => {})
+	}
+
+	/**
 	 * Send a CDP command through the main session.
 	 * Allows external consumers to execute arbitrary Chrome DevTools Protocol commands.
 	 *

@@ -15,7 +15,7 @@ export const NewPageInputSchema = z.object({
 	url: z.string().optional().describe('Initial URL (default "about:blank")'),
 })
 
-export const SetActivePageInputSchema = z.object({ pageId: PageIdSchema })
+export const BringToFrontInputSchema = z.object({ pageId: PageIdSchema })
 
 export const GotoInputSchema = z.object({
 	pageId: PageIdSchema,
@@ -115,7 +115,6 @@ export const HandstageAgentPageEntrySchema = z.object({
 	pageId: z.string(),
 	url: z.string(),
 	title: z.string(),
-	activated: z.boolean(),
 })
 
 export const PagesOutputSchema = z.object({
@@ -124,7 +123,7 @@ export const PagesOutputSchema = z.object({
 
 export const NewPageOutputSchema = z.object({ pageId: z.string() })
 
-export const SetActivePageOutputSchema = HandstageAgentOkOrErrOutputSchema
+export const BringToFrontOutputSchema = HandstageAgentOkOrErrOutputSchema
 
 export const GotoOutputSchema = z.discriminatedUnion("ok", [
 	z.object({ ok: z.literal(true), url: z.string() }),

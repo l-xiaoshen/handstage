@@ -1,7 +1,6 @@
 import { v3ScriptContent } from "@handstage/dom/build/scriptV3Content"
 import type { Protocol } from "devtools-protocol"
 import { v3Logger } from "../logger"
-import { getEnvTimeoutMs } from "../timeoutConfig"
 import type { InitScriptSource } from "../types/private/index"
 import type {
 	ClearCookieOptions,
@@ -80,22 +79,6 @@ function isTopLevelPage(info: Protocol.Target.TargetInfo): boolean {
 	return info.type === "page" && ti.subtype !== "iframe"
 }
 
-const DEFAULT_FIRST_TOP_LEVEL_PAGE_TIMEOUT_MS = 5000
-const CI_FIRST_TOP_LEVEL_PAGE_TIMEOUT_MS = 30000
-const FIRST_TOP_LEVEL_PAGE_TIMEOUT_ENV =
-	"HANDSTAGE_FIRST_TOP_LEVEL_PAGE_TIMEOUT_MS"
-const WAIT_FOR_FIRST_TOP_LEVEL_PAGE_OPERATION =
-	"waitForFirstTopLevelPage (no top-level Page)"
-
-function getFirstTopLevelPageTimeoutMs(): number {
-	return (
-		getEnvTimeoutMs(FIRST_TOP_LEVEL_PAGE_TIMEOUT_ENV) ??
-		(process.env.CI
-			? CI_FIRST_TOP_LEVEL_PAGE_TIMEOUT_MS
-			: DEFAULT_FIRST_TOP_LEVEL_PAGE_TIMEOUT_MS)
-	)
-}
-
 /**
  * V3Context
  *
@@ -131,8 +114,6 @@ export class V3Context implements TargetRouterDelegate {
 	}
 
 	private readonly _piercerInstalled = new Set<string>()
-	// Timestamp for most recent popup/open signal
-	private _lastPopupSignalAt = 0
 
 	private readonly _sessionInit = new Set<SessionId>()
 	private pagesByTarget = new Map<TargetId, Page>()
@@ -142,7 +123,6 @@ export class V3Context implements TargetRouterDelegate {
 	private pendingOopifByMainFrame = new Map<string, SessionId>()
 	private createdAtByTarget = new Map<TargetId, number>()
 	private typeByTarget = new Map<TargetId, TargetType>()
-	private _pageOrder: TargetId[] = []
 	private pendingCreatedTargetUrl = new Map<TargetId, string>()
 	private readonly initScripts: string[] = []
 	private extraHttpHeaders: Record<string, string> | null = null
@@ -371,84 +351,6 @@ export class V3Context implements TargetRouterDelegate {
 		this._children.add(new WeakRef(child))
 	}
 
-	private hasTopLevelPage(): boolean {
-		for (const [targetId, targetType] of this.typeByTarget) {
-			if (targetType === "page" && this.pagesByTarget.has(targetId)) {
-				return true
-			}
-		}
-		return false
-	}
-
-	private async ensureFirstTopLevelPage(timeoutMs: number): Promise<void> {
-		if (this.hasTopLevelPage()) return
-
-		try {
-			await this.waitForFirstTopLevelPage(timeoutMs)
-			return
-		} catch (err) {
-			if (!(err instanceof TimeoutError)) {
-				throw err
-			}
-			v3Logger({
-				category: "ctx",
-				message:
-					"No open browser pages found after connect; creating an initial about:blank page",
-				level: LogLevel.Info,
-			})
-		}
-
-		await this.newPage("about:blank")
-	}
-
-	/**
-	 * Wait until at least one top-level Page has been created and registered.
-	 * We poll internal maps that bootstrap/onAttachedToTarget populate.
-	 */
-	private async waitForFirstTopLevelPage(timeoutMs: number): Promise<void> {
-		const deadline = Date.now() + timeoutMs
-		while (Date.now() < deadline) {
-			// A top-level Page is present if typeByTarget has an entry "page"
-			// and pagesByTarget has the corresponding Page object.
-			for (const [tid, ttype] of this.typeByTarget) {
-				if (ttype === "page") {
-					const p = this.pagesByTarget.get(tid)
-					if (p) return
-				}
-			}
-			await new Promise((r) => setTimeout(r, 25))
-		}
-		throw new TimeoutError(WAIT_FOR_FIRST_TOP_LEVEL_PAGE_OPERATION, timeoutMs)
-	}
-
-	private async waitForInitialTopLevelTargets(
-		targetIds: TargetId[],
-		timeoutMs = 3000,
-	): Promise<void> {
-		if (!targetIds.length) return
-		const pending = new Set(targetIds)
-		const deadline = Date.now() + timeoutMs
-		while (pending.size && Date.now() < deadline) {
-			for (const tid of Array.from(pending)) {
-				if (this.pagesByTarget.has(tid)) {
-					pending.delete(tid)
-				}
-			}
-			if (!pending.size) return
-			await new Promise((r) => setTimeout(r, 25))
-		}
-		if (pending.size) {
-			v3Logger({
-				category: "ctx",
-				message: "Timed out waiting for existing top-level targets to attach",
-				level: LogLevel.Debug,
-				attributes: {
-					remainingTargets: Array.from(pending),
-				},
-			})
-		}
-	}
-
 	private async ensurePiercer(session: CDPSessionLike): Promise<boolean> {
 		const id = session.id ?? ""
 		if (this._piercerInstalled.has(id)) return true
@@ -458,66 +360,6 @@ export class V3Context implements TargetRouterDelegate {
 			this._piercerInstalled.add(id)
 		}
 		return installed
-	}
-
-	/** Mark a page target as the most-recent one (active). */
-	private _pushActive(tid: TargetId): void {
-		// remove prior entry if any
-		const i = this._pageOrder.indexOf(tid)
-		if (i !== -1) this._pageOrder.splice(i, 1)
-		this._pageOrder.push(tid)
-	}
-
-	/** Remove a page target from the recency list (used on close). */
-	private _removeFromOrder(tid: TargetId): void {
-		const i = this._pageOrder.indexOf(tid)
-		if (i !== -1) this._pageOrder.splice(i, 1)
-	}
-
-	/** Return the current active Page (most-recent page that still exists). */
-	public activePage(): Page | undefined {
-		// prune any stale ids from the tail
-		for (let i = this._pageOrder.length - 1; i >= 0; i--) {
-			const tid = this._pageOrder[i]!
-			const p = this.pagesByTarget.get(tid)
-			if (p) return p
-			// stale — remove and continue
-			this._pageOrder.splice(i, 1)
-		}
-		// fallback: pick the newest by createdAt if order is empty
-		let newestTid: TargetId | undefined
-		let newestTs = -1
-		for (const [tid] of this.pagesByTarget) {
-			const ts = this.createdAtByTarget.get(tid) ?? 0
-			if (ts > newestTs) {
-				newestTs = ts
-				newestTid = tid
-			}
-		}
-		return newestTid ? this.pagesByTarget.get(newestTid) : undefined
-	}
-
-	/** Explicitly mark a known Page as the most-recent active page (and focus it). */
-	public setActivePage(page: Page): void {
-		let targetId = page.targetId()
-		if (this.pagesByTarget.get(targetId) !== page) {
-			const lookup = this.findTargetIdByPage(page)
-			if (!lookup) {
-				v3Logger({
-					category: "ctx",
-					message: "setActivePage called with unknown Page",
-					level: LogLevel.Debug,
-					attributes: { targetId },
-				})
-				return
-			}
-			targetId = lookup
-		}
-
-		this._pushActive(targetId)
-
-		// Bring the tab to the foreground in headful Chrome (best effort).
-		void this.conn.send("Target.activateTarget", { targetId }).catch(() => {})
 	}
 
 	public async addInitScript<Arg>(
@@ -790,7 +632,6 @@ export class V3Context implements TargetRouterDelegate {
 
 		this._sessionInit.clear()
 		this._piercerInstalled.clear()
-		this._pageOrder = []
 		this.initScripts.length = 0
 		this.extraHttpHeaders = null
 	}
@@ -847,17 +688,6 @@ export class V3Context implements TargetRouterDelegate {
 		this.cleanupByTarget(targetId)
 	}
 
-	public async onRouterTargetCreated(
-		info: Protocol.Target.TargetInfo,
-	): Promise<void> {
-		if (this._isClosed) return
-		if (!(await this.canClaimTarget(info))) return
-		const ti = info as unknown as { openerId?: string; openerFrameId?: string }
-		if (info.type === "page" && (ti?.openerId || ti?.openerFrameId)) {
-			this._notePopupSignal()
-		}
-	}
-
 	private async getNonDefaultBrowserContextIds(): Promise<Set<string> | null> {
 		if (this.knownNonDefaultBrowserContextIds) {
 			return this.knownNonDefaultBrowserContextIds
@@ -901,10 +731,8 @@ export class V3Context implements TargetRouterDelegate {
 		this.routerUnsubscribe = await this.targetRouter.register(this)
 
 		const targets = await this.conn.getTargets()
-		const matchedTargets: Protocol.Target.TargetInfo[] = []
 		for (const t of targets) {
 			if (!(await this.canClaimTarget(t))) continue
-			matchedTargets.push(t)
 			if (t.attached) continue // auto-attach already handled this target
 			try {
 				await this.conn.attachToTarget(t.targetId)
@@ -921,11 +749,6 @@ export class V3Context implements TargetRouterDelegate {
 				})
 			}
 		}
-
-		const topLevelTargetIds = matchedTargets
-			.filter((t) => isTopLevelPage(t))
-			.map((t) => t.targetId)
-		await this.waitForInitialTopLevelTargets(topLevelTargetIds)
 	}
 
 	/**
@@ -1181,7 +1004,6 @@ export class V3Context implements TargetRouterDelegate {
 				const pendingSeedUrl = this.pendingCreatedTargetUrl.get(info.targetId)
 				this.pendingCreatedTargetUrl.delete(info.targetId)
 				page.seedCurrentUrl(pendingSeedUrl ?? info.url ?? "")
-				this._pushActive(info.targetId)
 				this.installFrameEventBridges(sessionId, page)
 				if (piercerPreRegistered) {
 					this._piercerInstalled.add(sessionId)
@@ -1320,7 +1142,6 @@ export class V3Context implements TargetRouterDelegate {
 		}
 
 		page.disposeResources()
-		this._removeFromOrder(targetId)
 		this.pagesByTarget.delete(targetId)
 		this.createdAtByTarget.delete(targetId)
 		this.typeByTarget.delete(targetId)
@@ -1398,15 +1219,6 @@ export class V3Context implements TargetRouterDelegate {
 				owner.onNavigatedWithinDocument(evt.frameId, evt.url, session)
 			},
 		)
-
-		// Observe window.open to anticipate default page changes
-		this._addSessionListener<Protocol.Page.WindowOpenEvent>(
-			session,
-			"Page.windowOpen",
-			() => {
-				this._notePopupSignal()
-			},
-		)
 	}
 
 	/**
@@ -1424,47 +1236,6 @@ export class V3Context implements TargetRouterDelegate {
 			if (p === page) return tid
 		}
 		return undefined
-	}
-
-	private _notePopupSignal(): void {
-		this._lastPopupSignalAt = Date.now()
-	}
-
-	/**
-	 * Await the current active page, waiting briefly if a popup/open was just triggered.
-	 * Normal path returns immediately; popup path waits up to timeoutMs for the new page.
-	 */
-	async awaitActivePage(timeoutMs?: number): Promise<Page> {
-		const defaultTimeout = 2000
-		timeoutMs = timeoutMs ?? defaultTimeout
-		// If a popup was just triggered, Chrome may briefly pause new targets at document start.
-		const recentWindowMs = 300
-		const now = Date.now()
-		const hasRecentPopup = now - this._lastPopupSignalAt <= recentWindowMs
-
-		const immediate = this.activePage()
-		if (!hasRecentPopup && immediate) return immediate
-
-		const deadline = now + timeoutMs
-		while (Date.now() < deadline) {
-			// Prefer most-recent by createdAt
-			let newestTid: TargetId | undefined
-			let newestTs = -1
-			for (const [tid] of this.pagesByTarget) {
-				const ts = this.createdAtByTarget.get(tid) ?? 0
-				if (ts > newestTs) {
-					newestTs = ts
-					newestTid = tid
-				}
-			}
-			if (newestTid) {
-				const p = this.pagesByTarget.get(newestTid)
-				if (p && newestTs >= this._lastPopupSignalAt) return p
-			}
-			await new Promise((r) => setTimeout(r, 25))
-		}
-		if (immediate) return immediate
-		throw new PageNotFoundError("awaitActivePage: no page available")
 	}
 
 	/**

@@ -17,7 +17,6 @@ export interface TargetRouterDelegate {
 		targetId: TargetId | null,
 	): void
 	onRouterTargetDestroyed(targetId: TargetId): void
-	onRouterTargetCreated(info: Protocol.Target.TargetInfo): Promise<void> | void
 }
 
 /**
@@ -78,7 +77,6 @@ export class TargetRouter {
 			this.conn.on("Target.attachedToTarget", this.onAttachedToTarget)
 			this.conn.on("Target.detachedFromTarget", this.onDetachedFromTarget)
 			this.conn.on("Target.targetDestroyed", this.onTargetDestroyed)
-			this.conn.on("Target.targetCreated", this.onTargetCreated)
 
 			try {
 				await this.conn.enableAutoAttach()
@@ -101,7 +99,6 @@ export class TargetRouter {
 		this.conn.off("Target.attachedToTarget", this.onAttachedToTarget)
 		this.conn.off("Target.detachedFromTarget", this.onDetachedFromTarget)
 		this.conn.off("Target.targetDestroyed", this.onTargetDestroyed)
-		this.conn.off("Target.targetCreated", this.onTargetCreated)
 		this.sessionOwners.clear()
 		this.started = false
 	}
@@ -162,29 +159,6 @@ export class TargetRouter {
 	): void => {
 		for (const delegate of this.delegates) {
 			delegate.onRouterTargetDestroyed(evt.targetId)
-		}
-	}
-
-	private onTargetCreated = (evt: Protocol.Target.TargetCreatedEvent): void => {
-		void this.routeTargetCreated(evt.targetInfo).catch((err) => {
-			v3Logger({
-				category: "target-router",
-				message: "Target creation routing failed",
-				level: LogLevel.Debug,
-				attributes: {
-					targetId: evt?.targetInfo?.targetId,
-					error: err instanceof Error ? err.message : String(err),
-				},
-			})
-		})
-	}
-
-	private async routeTargetCreated(
-		info: Protocol.Target.TargetInfo,
-	): Promise<void> {
-		const owner = await this.findOwner(info)
-		if (owner) {
-			await owner.onRouterTargetCreated(info)
 		}
 	}
 

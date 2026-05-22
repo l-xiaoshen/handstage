@@ -155,7 +155,6 @@ describe("TargetRouter", () => {
 			},
 			onRouterDetachedFromTarget: () => {},
 			onRouterTargetDestroyed: () => {},
-			onRouterTargetCreated: () => {},
 		}
 		const unregister = await router.register(delegate)
 
@@ -194,7 +193,6 @@ describe("TargetRouter", () => {
 			},
 			onRouterDetachedFromTarget: () => {},
 			onRouterTargetDestroyed: () => {},
-			onRouterTargetCreated: () => {},
 		}
 		const second: TargetRouterDelegate = {
 			canClaimTarget: () => true,
@@ -203,7 +201,6 @@ describe("TargetRouter", () => {
 			},
 			onRouterDetachedFromTarget: () => {},
 			onRouterTargetDestroyed: () => {},
-			onRouterTargetCreated: () => {},
 		}
 		const unregisterFirst = await router.register(first)
 		const unregisterSecond = await router.register(second)

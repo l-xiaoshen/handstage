@@ -18,8 +18,8 @@ export namespace HandstageAgent {
 	export type NewPageInput = InferToolInput<Tools["newPage"]>
 	export type NewPageOutput = InferToolOutput<Tools["newPage"]>
 
-	export type SetActivePageInput = InferToolInput<Tools["setActivePage"]>
-	export type SetActivePageOutput = InferToolOutput<Tools["setActivePage"]>
+	export type BringToFrontInput = InferToolInput<Tools["bringToFront"]>
+	export type BringToFrontOutput = InferToolOutput<Tools["bringToFront"]>
 
 	export type GotoInput = InferToolInput<Tools["goto"]>
 	export type GotoOutput = InferToolOutput<Tools["goto"]>
@@ -63,18 +63,20 @@ export namespace HandstageAgent {
 	export type HoverOnInput = InferToolInput<Tools["hover_on"]>
 	export type HoverOnOutput = InferToolOutput<Tools["hover_on"]>
 
-	export type OkResult = Extract<SetActivePageOutput, { ok: true }>
-	export type ErrResult = Extract<SetActivePageOutput, { ok: false }>
+	export type OkResult = Extract<BringToFrontOutput, { ok: true }>
+	export type ErrResult = Extract<BringToFrontOutput, { ok: false }>
 }
 
 /**
  * Browser context exposed by Handstage (`V3.context` after init). Implementations
  * of {@link HandstageAgentToolHandlers} typically hold this.
+ *
+ * There is no implicit "active page" — callers track Page references they
+ * received from `newPage()` or `pages()` explicitly, and pass `pageId` on
+ * every tool call.
  */
 export interface HandstageAgentContext {
 	pages(): Page[]
-	activePage(): Page | undefined
-	setActivePage(page: Page): void
 	newPage(url?: string): Promise<Page>
 }
 
@@ -87,9 +89,9 @@ export interface HandstageAgentToolHandlers {
 	newPage(
 		input: HandstageAgent.NewPageInput,
 	): Promise<HandstageAgent.NewPageOutput>
-	setActivePage(
-		input: HandstageAgent.SetActivePageInput,
-	): Promise<HandstageAgent.SetActivePageOutput>
+	bringToFront(
+		input: HandstageAgent.BringToFrontInput,
+	): Promise<HandstageAgent.BringToFrontOutput>
 	goto(input: HandstageAgent.GotoInput): Promise<HandstageAgent.GotoOutput>
 	reload(
 		input: HandstageAgent.ReloadInput,
