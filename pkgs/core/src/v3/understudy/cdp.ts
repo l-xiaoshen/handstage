@@ -2,8 +2,23 @@ import type { Protocol } from "devtools-protocol"
 import { HANDSTAGE_VERSION } from "../../version"
 import {
 	CDPConnectionClosedError,
+	HandstageTransportAlreadyOwnedError,
 	PageNotFoundError,
 } from "../types/public/sdkErrors"
+
+/**
+ * Marker placed on a `CDPTransport` once a `CDPConnection` has bound its
+ * `onmessage` / `onclose` / `onerror` callbacks.  A second wrap throws so
+ * the caller can't silently destroy the first owner.  Use `Symbol.for(...)`
+ * so the marker survives across module realms (rare, but cheap to guard).
+ */
+const TRANSPORT_OWNED = Symbol.for("handstage.cdp.transportOwned")
+
+/**
+ * Same marker as {@link TRANSPORT_OWNED} but for `ExternalCDPSession`
+ * wrapped by `ExternalConnectionAdapter`.
+ */
+const SESSION_OWNED = Symbol.for("handstage.cdp.sessionOwned")
 
 /**
  * CDP transport & session multiplexer
@@ -207,6 +222,13 @@ export class CDPConnection extends BaseCDPConnection {
 
 	constructor(transport: CDPTransport) {
 		super()
+		const owned = (transport as unknown as Record<symbol, unknown>)[
+			TRANSPORT_OWNED
+		]
+		if (owned) {
+			throw new HandstageTransportAlreadyOwnedError("transport")
+		}
+		;(transport as unknown as Record<symbol, unknown>)[TRANSPORT_OWNED] = this
 		this.transport = transport
 		this.transport.onclose = (reason) => {
 			this._isClosed = true
@@ -301,7 +323,18 @@ export class CDPConnection extends BaseCDPConnection {
 
 	async close(): Promise<void> {
 		this._isClosed = true
-		this.transport.close()
+		try {
+			this.transport.close()
+		} finally {
+			// Release ownership so a future caller could re-wrap a fresh
+			// transport with the same identity (rare; mainly relevant in
+			// long-running tests that reuse fake transports).
+			try {
+				delete (this.transport as unknown as Record<symbol, unknown>)[
+					TRANSPORT_OWNED
+				]
+			} catch {}
+		}
 	}
 
 	private rejectAllInflight(why: string): void {
@@ -544,6 +577,14 @@ export class ExternalConnectionAdapter extends BaseCDPConnection {
 
 	constructor(private externalSession: ExternalCDPSession) {
 		super()
+		const owned = (externalSession as unknown as Record<symbol, unknown>)[
+			SESSION_OWNED
+		]
+		if (owned) {
+			throw new HandstageTransportAlreadyOwnedError("session")
+		}
+		;(externalSession as unknown as Record<symbol, unknown>)[SESSION_OWNED] =
+			this
 		// Listen for flattened child session events if the external wrapper passes them
 		this.on<{ sessionId: string; targetInfo: any }>(
 			"Target.attachedToTarget",
@@ -650,6 +691,12 @@ export class ExternalConnectionAdapter extends BaseCDPConnection {
 		if (this.externalSession.onclose) {
 			this.externalSession.onclose = undefined
 		}
+
+		try {
+			delete (this.externalSession as unknown as Record<symbol, unknown>)[
+				SESSION_OWNED
+			]
+		} catch {}
 
 		// If external session has a close method, invoke it, otherwise no-op.
 		if (typeof this.externalSession.close === "function") {

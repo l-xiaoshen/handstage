@@ -1,9 +1,11 @@
 // Export api.ts under namespace to avoid name collisions
 
-export type {
-	CDPSessionLike,
-	CDPTransport,
-	ExternalCDPSession,
+export {
+	CDPConnection,
+	type CDPConnectionLike,
+	type CDPSessionLike,
+	type CDPTransport,
+	type ExternalCDPSession,
 } from "../../understudy/cdp"
 export type { V3Context } from "../../understudy/context"
 export * as Api from "./api"
