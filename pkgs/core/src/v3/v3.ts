@@ -460,7 +460,11 @@ export class V3 {
 
 		try {
 			try {
-				await this.ctx?.close()
+				const ctx = this.ctx
+				await ctx?.close()
+				if (ctx && !ctx.isDefaultContext) {
+					await ctx.conn.close().catch(() => {})
+				}
 			} catch {}
 
 			if (!keepAlive && this.state.kind === "LOCAL") {
