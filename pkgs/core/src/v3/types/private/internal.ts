@@ -1,10 +1,22 @@
 import type { LaunchedChrome } from "chrome-launcher"
 
-import type { CDPTransport, ExternalCDPSession } from "../../understudy/cdp"
-
+/**
+ * Lifecycle state for a V3 instance.
+ *
+ * - `LAUNCHED`: V3 launched Chrome locally; owns process + temp profile + WS.
+ * - `ATTACHED_WS`: V3 opened a WS to an already-running Chrome via `cdpUrl`;
+ *   owns the WS but not the Chrome process.
+ * - `TRANSPORT`: V3 wrapped a caller-supplied `CDPTransport`; owns the
+ *   transport (will call `transport.close()` on shutdown).
+ * - `SESSION`: V3 wrapped a caller-supplied `ExternalCDPSession`; owns the
+ *   session adapter (will call `session.close()` if available).
+ * - `SHARED_CONNECTION`: V3 attached to a pre-existing `CDPConnectionLike`
+ *   the caller is managing; V3 does NOT close the connection on shutdown.
+ * - `UNINITIALIZED`: post-`close()` terminal state.
+ */
 export type InitState =
 	| {
-			kind: "LOCAL"
+			kind: "LAUNCHED"
 			chrome: LaunchedChrome
 			ws: string
 			userDataDir?: string
@@ -12,12 +24,17 @@ export type InitState =
 			preserveUserDataDir?: boolean
 	  }
 	| {
-			kind: "CUSTOM_CONNECTION"
-			connection: ExternalCDPSession
+			kind: "ATTACHED_WS"
+			ws: string
 	  }
 	| {
-			kind: "CUSTOM_TRANSPORT"
-			transport: CDPTransport
+			kind: "TRANSPORT"
+	  }
+	| {
+			kind: "SESSION"
+	  }
+	| {
+			kind: "SHARED_CONNECTION"
 	  }
 	| {
 			kind: "UNINITIALIZED"

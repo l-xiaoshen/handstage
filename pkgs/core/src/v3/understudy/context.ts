@@ -16,11 +16,7 @@ import {
 	PageNotFoundError,
 	TimeoutError,
 } from "../types/public/sdkErrors"
-import {
-	CDPConnection,
-	type CDPConnectionLike,
-	type CDPSessionLike,
-} from "./cdp"
+import type { CDPConnectionLike, CDPSessionLike } from "./cdp"
 import {
 	cookieMatchesFilter,
 	filterCookies,
@@ -208,26 +204,13 @@ export class V3Context implements TargetRouterDelegate {
 	}
 
 	/**
-	 * Create a Context for a given CDP websocket URL and bootstrap target wiring.
-	 */
-	static async create(
-		wsUrl: string,
-		opts?: {
-			localBrowserLaunchOptions?: LocalBrowserLaunchOptions | null
-			cdpHeaders?: Record<string, string>
-			context?: "isolated" | "default"
-		},
-	): Promise<V3Context> {
-		const conn = await CDPConnection.connect(wsUrl, {
-			headers: opts?.cdpHeaders,
-		})
-		return V3Context.createFromConnection(conn, opts)
-	}
-
-	/**
 	 * Create a Context from an existing CDPConnectionLike.  By default a new
 	 * dedicated browser context is created so multiple Handstage instances can
 	 * share one browser websocket without sharing pages/storage.
+	 *
+	 * V3Context never closes the connection it was handed — connection
+	 * lifecycle is the caller's responsibility (V3 owns it for the
+	 * `connectLocal` / `connectTransport` / `connectSession` paths).
 	 */
 	static async createFromConnection(
 		conn: CDPConnectionLike,
@@ -600,9 +583,14 @@ export class V3Context implements TargetRouterDelegate {
 			)
 		}
 
-		if (this.isDefaultContext) {
-			await this.conn.close()
-		} else if (this.ownsBrowserContext && this.browserContextId) {
+		// Dedicated contexts release their browser-side storage explicitly
+		// so subsequent connections don't see stale cookies/local-storage.
+		// Default contexts are shared with other actors on the same browser,
+		// so we never call Target.disposeBrowserContext for them.
+		//
+		// We NEVER close the underlying CDP connection here — that is V3's
+		// responsibility (or the caller's for shared connections).
+		if (this.ownsBrowserContext && this.browserContextId) {
 			await this.conn
 				.send("Target.disposeBrowserContext", {
 					browserContextId: this.browserContextId,

@@ -32,6 +32,7 @@ import type {
 } from "./types/public/options"
 import {
 	CDPConnection,
+	type CDPConnectionLike,
 	type CDPTransport,
 	type ExternalCDPSession,
 	ExternalConnectionAdapter,
@@ -41,9 +42,20 @@ import { V3Context } from "./understudy/context"
 const DEFAULT_VIEWPORT = { width: 1288, height: 711 }
 
 /**
- * V3
+ * V3 (alias `Handstage`)
  *
- * Launches or attaches to local Chrome over CDP and exposes the CDP-backed {@link V3Context}.
+ * One V3 instance == one CDP connection + one root browser context.
+ *
+ * Connection lifecycle rules:
+ *
+ * - V3 owns the connection it constructs (`connectLocal`, `connectTransport`,
+ *   `connectSession`) and closes it on `close()`.
+ * - V3 does NOT own a connection it attached to via `connectConnection`; the
+ *   caller is responsible for closing the shared connection after all
+ *   attached V3 instances have been closed.
+ *
+ * `V3Context` never closes the underlying CDP connection — that responsibility
+ * lives here.
  */
 export class V3 {
 	private _isClosing = false
@@ -58,14 +70,20 @@ export class V3 {
 	private readonly sessionId: string
 	private keepAlive?: boolean
 	private shutdownSupervisor: ShutdownSupervisorHandle | null = null
+	private connection: CDPConnectionLike | null
+	private readonly ownsConnection: boolean
 
 	private constructor(
 		private state: InitState,
+		connection: CDPConnectionLike,
+		ownsConnection: boolean,
 		private ctx: V3Context | undefined,
 		opts: HandstageSharedOptions,
 		instanceId: string,
 		logSink: Logger,
 	) {
+		this.connection = connection
+		this.ownsConnection = ownsConnection
 		this.logSink = logSink
 		this.verbose = opts.verbose ?? LogLevel.Info
 		this.instanceId = instanceId
@@ -74,7 +92,7 @@ export class V3 {
 
 		bindInstanceLogger(this.instanceId, (line) => this.emitLog(line))
 
-		this.ctx?.conn.onTransportClosed(this._onCDPClosed)
+		this.connection.onTransportClosed(this._onCDPClosed)
 	}
 
 	private static setupContext(opts?: HandstageSharedOptions) {
@@ -121,18 +139,32 @@ export class V3 {
 						message: "Connecting to local browser",
 						level: LogLevel.Info,
 					})
-					const ctx = await V3Context.create(lbo.cdpUrl, {
-						cdpHeaders: lbo.cdpHeaders,
-						context: lbo.context,
+					const conn = await CDPConnection.connect(lbo.cdpUrl, {
+						headers: lbo.cdpHeaders,
 					})
+					let ctx: V3Context
+					try {
+						ctx = await V3Context.createFromConnection(conn, {
+							localBrowserLaunchOptions: lbo,
+							context: lbo.context,
+						})
+					} catch (err) {
+						await conn.close().catch(() => {})
+						throw err
+					}
 					const state: InitState = {
-						kind: "LOCAL",
-						chrome: {
-							kill: async () => {},
-						} as unknown as import("chrome-launcher").LaunchedChrome,
+						kind: "ATTACHED_WS",
 						ws: lbo.cdpUrl,
 					}
-					const v3 = new V3(state, ctx, sharedOpts, instanceId, logSink)
+					const v3 = new V3(
+						state,
+						conn,
+						true,
+						ctx,
+						sharedOpts,
+						instanceId,
+						logSink,
+					)
 					await v3._applyPostConnectLocalOptions(lbo)
 					return v3
 				}
@@ -211,12 +243,27 @@ export class V3 {
 						chrome.process?.unref?.()
 					} catch {}
 				}
-				const ctx = await V3Context.create(ws, {
-					localBrowserLaunchOptions: lbo,
-					context: lbo.context,
-				})
+				const conn = await CDPConnection.connect(ws)
+				let ctx: V3Context
+				try {
+					ctx = await V3Context.createFromConnection(conn, {
+						localBrowserLaunchOptions: lbo,
+						context: lbo.context,
+					})
+				} catch (err) {
+					await conn.close().catch(() => {})
+					try {
+						await chrome.kill()
+					} catch {}
+					if (createdTemp && !lbo.preserveUserDataDir) {
+						try {
+							fs.rmSync(userDataDir, { recursive: true, force: true })
+						} catch {}
+					}
+					throw err
+				}
 				const state: InitState = {
-					kind: "LOCAL",
+					kind: "LAUNCHED",
 					chrome,
 					ws,
 					userDataDir,
@@ -224,7 +271,15 @@ export class V3 {
 					preserveUserDataDir: !!lbo.preserveUserDataDir,
 				}
 
-				const v3 = new V3(state, ctx, sharedOpts, instanceId, logSink)
+				const v3 = new V3(
+					state,
+					conn,
+					true,
+					ctx,
+					sharedOpts,
+					instanceId,
+					logSink,
+				)
 
 				const chromePid = chrome.process?.pid ?? chrome.pid
 				if (!keepAlive && chromePid) {
@@ -270,15 +325,26 @@ export class V3 {
 							acceptDownloads: opts.acceptDownloads,
 						}
 					: {}
-				const ctx = await V3Context.createFromConnection(conn, {
-					localBrowserLaunchOptions: lbo,
-					context: opts?.context,
-				})
-				const state: InitState = {
-					kind: "CUSTOM_TRANSPORT",
-					transport,
+				let ctx: V3Context
+				try {
+					ctx = await V3Context.createFromConnection(conn, {
+						localBrowserLaunchOptions: lbo,
+						context: opts?.context,
+					})
+				} catch (err) {
+					await conn.close().catch(() => {})
+					throw err
 				}
-				const v3 = new V3(state, ctx, sharedOpts, instanceId, logSink)
+				const state: InitState = { kind: "TRANSPORT" }
+				const v3 = new V3(
+					state,
+					conn,
+					true,
+					ctx,
+					sharedOpts,
+					instanceId,
+					logSink,
+				)
 				await v3._applyPostConnectLocalOptions(lbo)
 				return v3
 			})
@@ -312,15 +378,80 @@ export class V3 {
 							acceptDownloads: opts.acceptDownloads,
 						}
 					: {}
-				const ctx = await V3Context.createFromConnection(adapter, {
+				let ctx: V3Context
+				try {
+					ctx = await V3Context.createFromConnection(adapter, {
+						localBrowserLaunchOptions: lbo,
+						context: opts?.context,
+					})
+				} catch (err) {
+					await adapter.close().catch(() => {})
+					throw err
+				}
+				const state: InitState = { kind: "SESSION" }
+				const v3 = new V3(
+					state,
+					adapter,
+					true,
+					ctx,
+					sharedOpts,
+					instanceId,
+					logSink,
+				)
+				await v3._applyPostConnectLocalOptions(lbo)
+				return v3
+			})
+		} catch (error) {
+			try {
+				unbindInstanceLogger(instanceId)
+			} catch {}
+			throw error
+		}
+	}
+
+	/**
+	 * Attach a V3 instance to a pre-existing `CDPConnectionLike` that the
+	 * caller is managing.  V3 will NOT close the connection on `close()` —
+	 * the caller is responsible for the connection's lifetime.
+	 *
+	 * Use this for advanced sharing scenarios (one CDP connection, many V3
+	 * instances).  The `TargetRouter` for the connection is shared automatically.
+	 */
+	static async connectConnection(
+		conn: CDPConnectionLike,
+		opts?: HandstageConnectOptions,
+	): Promise<V3> {
+		const { instanceId, sharedOpts, logSink, logger } = V3.setupContext(opts)
+
+		try {
+			return await withInstanceLogContext(instanceId, async () => {
+				logger({
+					category: "init",
+					message: "Attaching to shared CDP connection",
+					level: LogLevel.Info,
+				})
+				const lbo: LocalBrowserLaunchOptions = opts
+					? {
+							viewport: opts.viewport,
+							deviceScaleFactor: opts.deviceScaleFactor,
+							downloadsPath: opts.downloadsPath,
+							acceptDownloads: opts.acceptDownloads,
+						}
+					: {}
+				const ctx = await V3Context.createFromConnection(conn, {
 					localBrowserLaunchOptions: lbo,
 					context: opts?.context,
 				})
-				const state: InitState = {
-					kind: "CUSTOM_CONNECTION",
-					connection: session,
-				}
-				const v3 = new V3(state, ctx, sharedOpts, instanceId, logSink)
+				const state: InitState = { kind: "SHARED_CONNECTION" }
+				const v3 = new V3(
+					state,
+					conn,
+					false,
+					ctx,
+					sharedOpts,
+					instanceId,
+					logSink,
+				)
 				await v3._applyPostConnectLocalOptions(lbo)
 				return v3
 			})
@@ -409,15 +540,21 @@ export class V3 {
 			.catch(() => {})
 	}
 
-	/** Return the browser-level CDP WebSocket endpoint. Returns empty string for custom transports/connections. */
-	connectURL(): string {
+	/**
+	 * Return the browser-level CDP WebSocket endpoint when this V3 owns one.
+	 *
+	 * Returns `null` for V3 instances created from a custom transport,
+	 * custom session, or a shared connection — those do not expose a
+	 * stable WebSocket URL.
+	 */
+	connectURL(): string | null {
 		if (this.state.kind === "UNINITIALIZED") {
 			throw new Error("Cannot access connectURL: V3 instance is closed")
 		}
-		if (this.state.kind === "LOCAL") {
+		if (this.state.kind === "LAUNCHED" || this.state.kind === "ATTACHED_WS") {
 			return this.state.ws
 		}
-		return ""
+		return null
 	}
 
 	/** Expose the current CDP-backed (default) browser context. */
@@ -453,8 +590,8 @@ export class V3 {
 		const keepAlive = this.keepAlive === true
 
 		try {
-			if (this.ctx?.conn && this._onCDPClosed) {
-				this.ctx.conn.offTransportClosed?.(this._onCDPClosed)
+			if (this.connection && this._onCDPClosed) {
+				this.connection.offTransportClosed?.(this._onCDPClosed)
 			}
 		} catch {}
 
@@ -463,13 +600,19 @@ export class V3 {
 				await this.ctx?.close()
 			} catch {}
 
-			if (!keepAlive && this.state.kind === "LOCAL") {
-				const localState = this.state
+			if (this.ownsConnection && this.connection) {
+				try {
+					await this.connection.close()
+				} catch {}
+			}
+
+			if (!keepAlive && this.state.kind === "LAUNCHED") {
+				const launched = this.state
 				await cleanupLocalBrowser({
-					killChrome: () => localState.chrome.kill(),
-					userDataDir: localState.userDataDir,
-					createdTempProfile: localState.createdTempProfile,
-					preserveUserDataDir: localState.preserveUserDataDir,
+					killChrome: () => launched.chrome.kill(),
+					userDataDir: launched.userDataDir,
+					createdTempProfile: launched.createdTempProfile,
+					preserveUserDataDir: launched.preserveUserDataDir,
 				})
 			}
 		} finally {
@@ -477,6 +620,7 @@ export class V3 {
 
 			this.state = { kind: "UNINITIALIZED" }
 			this.ctx = undefined
+			this.connection = null
 			this._isClosing = false
 			try {
 				unbindInstanceLogger(this.instanceId)
