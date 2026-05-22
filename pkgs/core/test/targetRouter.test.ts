@@ -1,145 +1,16 @@
 import { describe, expect, test } from "bun:test"
-import type { Protocol } from "devtools-protocol"
-import type {
-	CDPConnectionLike,
-	CDPSessionLike,
-} from "../src/v3/understudy/cdp"
 import { V3Context } from "../src/v3/understudy/context"
 import {
 	getTargetRouter,
 	type TargetRouterDelegate,
 } from "../src/v3/understudy/targetRouter"
-
-type Handler = (params: unknown) => void
-
-class FakeSession implements CDPSessionLike {
-	public sent: Array<{ method: string; params?: object }> = []
-	private handlers = new Map<string, Set<Handler>>()
-
-	constructor(public readonly id: string) {}
-
-	async send<R = unknown>(method: string, params?: object): Promise<R> {
-		this.sent.push({ method, params })
-		return {} as R
-	}
-
-	on<P = unknown>(event: string, handler: (params: P) => void): void {
-		const set = this.handlers.get(event) ?? new Set<Handler>()
-		set.add(handler as Handler)
-		this.handlers.set(event, set)
-	}
-
-	off<P = unknown>(event: string, handler: (params: P) => void): void {
-		this.handlers.get(event)?.delete(handler as Handler)
-	}
-
-	async close(): Promise<void> {}
-}
-
-class FakeConnection implements CDPConnectionLike {
-	public readonly id: string | null = null
-	public sent: Array<{ method: string; params?: object }> = []
-	public autoAttachCalls = 0
-	public closed = false
-	public sessions = new Map<string, FakeSession>()
-	public nonDefaultContextIds: string[] = []
-	public targets: Protocol.Target.TargetInfo[] = []
-	private handlers = new Map<string, Set<Handler>>()
-
-	async send<R = unknown>(method: string, params?: object): Promise<R> {
-		this.sent.push({ method, params })
-		if (method === "Target.getBrowserContexts") {
-			return {
-				browserContextIds: this.nonDefaultContextIds,
-			} as R
-		}
-		if (method === "Target.getTargets") {
-			return { targetInfos: this.targets } as R
-		}
-		return {} as R
-	}
-
-	on<P = unknown>(event: string, handler: (params: P) => void): void {
-		const set = this.handlers.get(event) ?? new Set<Handler>()
-		set.add(handler as Handler)
-		this.handlers.set(event, set)
-	}
-
-	off<P = unknown>(event: string, handler: (params: P) => void): void {
-		this.handlers.get(event)?.delete(handler as Handler)
-	}
-
-	async close(): Promise<void> {
-		this.closed = true
-	}
-
-	getSession(sessionId: string): CDPSessionLike | undefined {
-		return this.sessions.get(sessionId)
-	}
-
-	async enableAutoAttach(): Promise<void> {
-		this.autoAttachCalls += 1
-	}
-
-	async attachToTarget(targetId: string): Promise<CDPSessionLike> {
-		const sessionId = `session-${targetId}`
-		const session = new FakeSession(sessionId)
-		this.sessions.set(sessionId, session)
-		return session
-	}
-
-	async getTargets(): Promise<Protocol.Target.TargetInfo[]> {
-		return this.targets
-	}
-
-	onTransportClosed(): void {}
-	offTransportClosed(): void {}
-
-	waitForSessionDispatch(): Promise<void> {
-		return Promise.resolve()
-	}
-
-	emit(event: string, params: unknown): void {
-		for (const handler of this.handlers.get(event) ?? []) {
-			handler(params)
-		}
-	}
-}
-
-function pageTarget(
-	targetId: string,
-	browserContextId?: string,
-): Protocol.Target.TargetInfo {
-	return {
-		targetId,
-		type: "page",
-		title: "",
-		url: "about:blank",
-		attached: false,
-		canAccessOpener: false,
-		browserContextId,
-	} as Protocol.Target.TargetInfo
-}
-
-function attachedEvent(
-	sessionId: string,
-	targetInfo: Protocol.Target.TargetInfo,
-): Protocol.Target.AttachedToTargetEvent {
-	return {
-		sessionId,
-		targetInfo,
-		waitingForDebugger: true,
-	}
-}
-
-async function waitFor(assertion: () => boolean): Promise<void> {
-	const deadline = Date.now() + 500
-	while (Date.now() < deadline) {
-		if (assertion()) return
-		await new Promise((resolve) => setTimeout(resolve, 5))
-	}
-	expect(assertion()).toBe(true)
-}
+import {
+	attachedEvent,
+	FakeConnection,
+	FakeSession,
+	pageTarget,
+	waitFor,
+} from "./_fakes"
 
 describe("TargetRouter", () => {
 	test("resumes and detaches unclaimed auto-attached targets", async () => {
@@ -219,6 +90,55 @@ describe("TargetRouter", () => {
 		).toBe(true)
 		unregisterFirst()
 		unregisterSecond()
+	})
+
+	test("fans router-level debug logs out to every registered delegate", async () => {
+		const conn = new FakeConnection()
+		const session = new FakeSession("s-router-log")
+		conn.sessions.set(session.id, session)
+		const router = getTargetRouter(conn)
+
+		const aLines: string[] = []
+		const bLines: string[] = []
+		const aDelegate: TargetRouterDelegate = {
+			canClaimTarget: () => {
+				throw new Error("a-boom")
+			},
+			onRouterAttachedToTarget: () => {},
+			onRouterDetachedFromTarget: () => {},
+			onRouterTargetDestroyed: () => {},
+		}
+		const bDelegate: TargetRouterDelegate = {
+			canClaimTarget: () => false,
+			onRouterAttachedToTarget: () => {},
+			onRouterDetachedFromTarget: () => {},
+			onRouterTargetDestroyed: () => {},
+		}
+
+		const unA = await router.register(aDelegate, (line) =>
+			aLines.push(line.message),
+		)
+		const unB = await router.register(bDelegate, (line) =>
+			bLines.push(line.message),
+		)
+
+		conn.emit(
+			"Target.attachedToTarget",
+			attachedEvent(
+				session.id,
+				pageTarget("router-log-target", "ctx-router-log"),
+			),
+		)
+
+		await waitFor(() => aLines.length > 0 && bLines.length > 0)
+		expect(
+			aLines.some((m) => m.includes("Target ownership predicate failed")),
+		).toBe(true)
+		expect(
+			bLines.some((m) => m.includes("Target ownership predicate failed")),
+		).toBe(true)
+		unA()
+		unB()
 	})
 })
 

@@ -10,15 +10,46 @@ Handstage is a framework for browser automation designed for AI agent interactio
 
 ## Multi-context CDP model
 
-Handstage is isolated-by-default when launching Chrome or connecting to an
-existing browser websocket. Each `connectLocal()` call creates a dedicated
-browser context, so two Handstage instances can connect to the same CDP endpoint
-without sharing pages, cookies, local storage, init scripts, headers, active-page
-state, or close semantics.
+Handstage is isolated-by-default. Each `connectLocal()` / `connectTransport()`
+/ `connectSession()` call creates its own CDP connection AND its own
+dedicated browser context, so two Handstage instances connected to the same
+Chrome cannot see each other's pages, cookies, local storage, init scripts,
+or extra HTTP headers, and closing one never tears down the other's
+resources.
 
-Contexts start empty; call `context.newPage()` explicitly when a page is needed.
-Advanced users can opt into the browser's shared default context with
-`localBrowserLaunchOptions.context = "default"`, but concurrent clients that
-intentionally drive the same default-context tab can still logically race.
+### Connection ownership
+
+- `V3` (alias `Handstage`) owns the CDP connection it constructs.
+  `V3.close()` closes that connection.
+- `V3Context` never closes a connection it didn't construct. Dedicated
+  contexts call `Target.disposeBrowserContext`; default contexts release
+  nothing browser-side because they're shared with other actors.
+- `V3.connectConnection(existingConnection)` is the explicit entrypoint for
+  sharing one `CDPConnectionLike` across multiple V3 instances. V3 instances
+  created this way do NOT close the shared connection on `close()`. Wrapping
+  the same raw `CDPTransport` or `ExternalCDPSession` in two
+  `CDPConnection` / `ExternalConnectionAdapter` objects throws
+  `HandstageTransportAlreadyOwnedError` — silently clobbering each other's
+  callbacks was the previous behavior and was a multi-context footgun.
+
+### No implicit active page
+
+Contexts start empty and stay empty. Callers track `Page` references they
+received from `newPage()` (or `pages()` / `createBrowserContext().newPage()`)
+explicitly and pass them around — there is no `context.activePage()`
+singleton. To foreground a tab in headful Chrome, call
+`page.bringToFront()` (wraps `Target.activateTarget`).
+
+### Logging per instance
+
+Every `V3` instance has its own `LogSink` plumbed through `V3Context` →
+`Page` → `NetworkManager` / `TargetRouter` / utilities, so two V3
+instances each receive their own debug lines from event-driven code paths.
+Router-level debug lines on a shared connection are broadcast to every
+attached V3's logger.
+
+To opt into the browser's shared default context, set
+`localBrowserLaunchOptions.context = "default"`. Concurrent clients that
+intentionally drive the same default-context tab can still logically race —
 Handstage prevents target-pausing deadlocks and accidental cross-context
-ownership; it does not serialize independent actors controlling one tab.
+ownership, but it does not serialize independent actors controlling one tab.
