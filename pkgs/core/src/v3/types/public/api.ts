@@ -32,7 +32,6 @@ export const LocalBrowserLaunchOptionsSchema = z
 		connectTimeoutMs: z.number().optional(),
 		downloadsPath: z.string().optional(),
 		acceptDownloads: z.boolean().optional(),
-		context: z.enum(["isolated", "default"]).optional(),
 	})
 	.strict()
 	.meta({ id: "LocalBrowserLaunchOptions" })

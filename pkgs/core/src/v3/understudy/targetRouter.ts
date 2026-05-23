@@ -195,11 +195,13 @@ export class TargetRouter {
 	private async findOwner(
 		info: Protocol.Target.TargetInfo,
 	): Promise<TargetRouterDelegate | null> {
+		let owner: TargetRouterDelegate | null = null
 		for (const delegate of this.delegates) {
 			let claimed = false
 			try {
 				claimed = await delegate.canClaimTarget(info)
 			} catch (err) {
+				claimed = false
 				this.log({
 					category: "target-router",
 					message: "Target ownership predicate failed",
@@ -210,9 +212,11 @@ export class TargetRouter {
 					},
 				})
 			}
-			if (claimed) return delegate
+			if (claimed && !owner) {
+				owner = delegate
+			}
 		}
-		return null
+		return owner
 	}
 
 	private async resumeAndDetach(sessionId: SessionId): Promise<void> {

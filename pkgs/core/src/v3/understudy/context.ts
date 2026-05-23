@@ -134,15 +134,6 @@ export class V3Context implements TargetRouterDelegate {
 	private _isClosed = false
 
 	/**
-	 * Child V3Contexts created via `createBrowserContext()`, tracked weakly
-	 * so a forgotten close on a child doesn't keep it alive past GC.  The
-	 * parent's `close()` walks this set and best-effort closes survivors so
-	 * their per-page resources (NetworkManager, console handlers) are
-	 * released before the shared CDP transport is torn down.
-	 */
-	private readonly _children = new Set<WeakRef<V3Context>>()
-
-	/**
 	 * Per-session disposer registry.  Holds every listener (or other
 	 * teardown callback) this V3Context registered against a given child
 	 * session, keyed by sessionId.  Drained both when the session detaches
@@ -225,15 +216,10 @@ export class V3Context implements TargetRouterDelegate {
 		conn: CDPConnectionLike,
 		opts?: {
 			localBrowserLaunchOptions?: LocalBrowserLaunchOptions | null
-			context?: "isolated" | "default"
 			logger?: LogSink
 		},
 	): Promise<V3Context> {
-		const mode = opts?.context ?? opts?.localBrowserLaunchOptions?.context ?? "isolated"
-		if (mode === "default") {
-			return V3Context.createDefaultFromConnection(conn, opts)
-		}
-		return V3Context.createIsolatedFromConnection(conn, opts)
+		return V3Context.createDefaultFromConnection(conn, opts)
 	}
 
 	static async createDefaultFromConnection(
@@ -290,63 +276,6 @@ export class V3Context implements TargetRouterDelegate {
 			await ctx.close().catch(() => {})
 			throw err
 		}
-	}
-
-	/**
-	 * Create a new isolated browser context (similar to an incognito profile).
-	 *
-	 * The new context shares this context's CDP connection but has its own
-	 * cookies, storage, and pages.  By default `disposeOnDetach: true` is set
-	 * so Chrome auto-cleans the context if the connection drops unexpectedly.
-	 *
-	 * Init scripts and extra HTTP headers are NOT inherited from this context
-	 * — call `addInitScript` / `setExtraHTTPHeaders` on the returned context
-	 * if you want them.
-	 *
-	 * The returned context is also tracked weakly by this context so that
-	 * if a caller forgets to `close()` it before the parent connection
-	 * shuts down, `parent.close()` will best-effort close it for them.
-	 *
-	 * Note on scaling: every active V3Context registers its own root-level
-	 * listeners on the shared connection, so each `Target.*` event fans out
-	 * O(N) handlers (each filtering by `browserContextId`).  This is fine
-	 * for a handful of contexts; if you need many dozens, consider sharing
-	 * one context across tasks or batching their lifetimes.
-	 */
-	public async createBrowserContext(
-		options?: CreateContextOptions,
-	): Promise<V3Context> {
-		const opts: CreateContextOptions = {
-			disposeOnDetach: true,
-			...options,
-		}
-		const { browserContextId } = await this.conn.send<{
-			browserContextId: string
-		}>("Target.createBrowserContext", opts)
-		const ctx = new V3Context(
-			this.conn,
-			this.localBrowserLaunchOptions,
-			browserContextId,
-			false,
-			true,
-			this.logger,
-		)
-		try {
-			await ctx.bootstrap()
-			this._trackChild(ctx)
-			return ctx
-		} catch (err) {
-			await ctx.close().catch(() => {})
-			throw err
-		}
-	}
-
-	private _trackChild(child: V3Context): void {
-		// Sweep dead refs opportunistically to keep the set bounded.
-		for (const ref of this._children) {
-			if (!ref.deref()) this._children.delete(ref)
-		}
-		this._children.add(new WeakRef(child))
 	}
 
 	private async ensurePiercer(session: CDPSessionLike): Promise<boolean> {
@@ -555,23 +484,6 @@ export class V3Context implements TargetRouterDelegate {
 		if (this._isClosed) return
 		this._isClosed = true
 
-		// Drain any still-alive child contexts FIRST so their per-page
-		// resources (NetworkManager, console handlers) are released before
-		// the shared CDP transport goes away under them.  Errors during
-		// child cleanup are swallowed by Promise.allSettled — a forgotten
-		// child shouldn't block the parent's shutdown path.
-		if (this._children.size > 0) {
-			const liveChildren: V3Context[] = []
-			for (const ref of this._children) {
-				const child = ref.deref()
-				if (child && !child._isClosed) liveChildren.push(child)
-			}
-			this._children.clear()
-			if (liveChildren.length > 0) {
-				await Promise.allSettled(liveChildren.map((c) => c.close()))
-			}
-		}
-
 		this.routerUnsubscribe?.()
 		this.routerUnsubscribe = null
 
@@ -656,9 +568,16 @@ export class V3Context implements TargetRouterDelegate {
 			return true
 		}
 
+		// Fast path cache check
+		if (this.knownNonDefaultBrowserContextIds?.has(targetContextId)) return false
+
+		// For default context routing, if the target has an explicit browserContextId
+		// that we haven't seen, we must verify if it's a known non-default context
+		// before claiming it. If we can't fetch contexts, we fall back to learning.
 		let nonDefaultIds = await this.getNonDefaultBrowserContextIds()
 		if (nonDefaultIds?.has(targetContextId)) return false
 		if (nonDefaultIds) {
+			// Cache miss - maybe it's a newly created context? Refresh and check again.
 			nonDefaultIds = await this.refreshNonDefaultBrowserContextIds()
 			if (nonDefaultIds?.has(targetContextId)) return false
 		}

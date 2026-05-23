@@ -71,6 +71,8 @@ describe("V3 connection lifecycle", () => {
 
 	test("two V3s on a shared connection each receive their own router-level logs", async () => {
 		const conn = new FakeConnection()
+		// Make sure it doesn't try to look up browser contexts
+		conn.nonDefaultContextIds = []
 		const aLines: string[] = []
 		const bLines: string[] = []
 		// Verbose=Debug so the router-level Debug line actually reaches the
@@ -98,6 +100,7 @@ describe("V3 connection lifecycle", () => {
 		}
 		await router.register(throwingDelegate, () => {})
 
+		// Make sure a default context target triggers a claim check on the throwing delegate.
 		const sessionId = "s-shared-log"
 		conn.sessions.set(sessionId, new FakeSession(sessionId))
 		conn.emit("Target.attachedToTarget", {
@@ -109,15 +112,14 @@ describe("V3 connection lifecycle", () => {
 				url: "about:blank",
 				attached: false,
 				canAccessOpener: false,
-				browserContextId: "ctx-unowned",
+				// Not defining browserContextId so it's treated as default
 			},
 			waitingForDebugger: true,
 		})
 
-		const sawA = () =>
-			aLines.some((m) => m.includes("Target ownership predicate failed"))
-		const sawB = () =>
-			bLines.some((m) => m.includes("Target ownership predicate failed"))
+		const sawA = () => aLines.some((m) => m.includes("Target ownership predicate failed"))
+		const sawB = () => bLines.some((m) => m.includes("Target ownership predicate failed"))
+		
 		await waitFor(() => sawA() && sawB())
 		expect(sawA()).toBe(true)
 		expect(sawB()).toBe(true)

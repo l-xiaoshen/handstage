@@ -68,7 +68,7 @@ export namespace HandstageAgent {
 }
 
 /**
- * Browser context exposed by Handstage (`V3.context` after init). Implementations
+ * Browser context exposed by Handstage (`V3.defaultBrowserContext()`). Implementations
  * of {@link HandstageAgentToolHandlers} typically hold this.
  *
  * There is no implicit "active page" — callers track Page references they
