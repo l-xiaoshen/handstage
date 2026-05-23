@@ -28,6 +28,7 @@ import {
 	ExternalConnectionAdapter,
 } from "./understudy/cdp"
 import { V3Context } from "./understudy/context"
+import { Page } from "./understudy/page"
 
 const DEFAULT_VIEWPORT = { width: 1288, height: 711 }
 
@@ -63,18 +64,23 @@ export class V3 {
 	private shutdownSupervisor: ShutdownSupervisorHandle | null = null
 	private connection: CDPConnectionLike | null
 	private readonly ownsConnection: boolean
+	private readonly _contexts = new Set<V3Context>()
+	private readonly defaultContext: V3Context
 
 	private constructor(
 		private state: InitState,
 		connection: CDPConnectionLike,
 		ownsConnection: boolean,
-		private ctx: V3Context | undefined,
+		defaultContext: V3Context,
 		opts: HandstageSharedOptions,
 		instanceId: string,
 		logSink: LogSink,
 	) {
 		this.connection = connection
 		this.ownsConnection = ownsConnection
+		this.defaultContext = defaultContext
+		this._contexts.add(this.defaultContext)
+		
 		this.logSink = logSink
 		this.verbose = opts.verbose ?? LogLevel.Info
 		this.instanceId = instanceId
@@ -128,7 +134,6 @@ export class V3 {
 					try {
 						ctx = await V3Context.createFromConnection(conn, {
 							localBrowserLaunchOptions: lbo,
-							context: lbo.context,
 							logger: logSink,
 						})
 					} catch (err) {
@@ -231,7 +236,6 @@ export class V3 {
 				try {
 					ctx = await V3Context.createFromConnection(conn, {
 						localBrowserLaunchOptions: lbo,
-						context: lbo.context,
 						logger: logSink,
 					})
 				} catch (err) {
@@ -306,7 +310,6 @@ export class V3 {
 				try {
 					ctx = await V3Context.createFromConnection(conn, {
 						localBrowserLaunchOptions: lbo,
-						context: opts?.context,
 						logger: logSink,
 					})
 				} catch (err) {
@@ -353,7 +356,6 @@ export class V3 {
 				try {
 					ctx = await V3Context.createFromConnection(adapter, {
 						localBrowserLaunchOptions: lbo,
-						context: opts?.context,
 						logger: logSink,
 					})
 				} catch (err) {
@@ -405,7 +407,6 @@ export class V3 {
 					: {}
 				const ctx = await V3Context.createFromConnection(conn, {
 					localBrowserLaunchOptions: lbo,
-					context: opts?.context,
 					logger: logSink,
 				})
 				const state: InitState = { kind: "SHARED_CONNECTION" }
@@ -484,8 +485,7 @@ export class V3 {
 	private async _applyPostConnectLocalOptions(
 		lbo: LocalBrowserLaunchOptions,
 	): Promise<void> {
-		if (!this.ctx) return
-		await this.ctx
+		await this.defaultContext
 			.setDownloadBehavior({
 				downloadPath: lbo.downloadsPath,
 				acceptDownloads: lbo.acceptDownloads,
@@ -510,12 +510,9 @@ export class V3 {
 		return null
 	}
 
-	/** Expose the current CDP-backed (default) browser context. */
-	public get context(): V3Context {
-		if (!this.ctx) {
-			throw new Error("Cannot access context: V3 instance is closed")
-		}
-		return this.ctx
+	/** Expose the root default browser context. */
+	public defaultBrowserContext(): V3Context {
+		return this.defaultContext
 	}
 
 	/**
@@ -527,12 +524,50 @@ export class V3 {
 	 *
 	 * @example
 	 * const handstage = await V3.connectLocal()
-	 * const isolated = await handstage.create({ disposeOnDetach: true })
+	 * const isolated = await handstage.createBrowserContext({ disposeOnDetach: true })
 	 * await isolated.newPage("https://example.com")
 	 * await isolated.close()
 	 */
-	public async create(options?: CreateContextOptions): Promise<V3Context> {
-		return this.context.createBrowserContext(options)
+	public async createBrowserContext(options?: CreateContextOptions): Promise<V3Context> {
+		if (!this.connection) {
+			throw new Error("Cannot create browser context: V3 instance is closed")
+		}
+		const ctx = await V3Context.createIsolatedFromConnection(this.connection, {
+			createOptions: options,
+			logger: this.logSink,
+		})
+		this._contexts.add(ctx)
+		return ctx
+	}
+
+	/**
+	 * Returns an array of all open browser contexts.
+	 * In a newly created browser, this will return a single instance of the default browser context.
+	 */
+	public browserContexts(): V3Context[] {
+		const contexts: V3Context[] = []
+		for (const ctx of this._contexts) {
+			contexts.push(ctx)
+		}
+		return contexts
+	}
+
+	/**
+	 * Create a new page in the default browser context.
+	 */
+	public async newPage(url?: string): Promise<Page> {
+		return this.defaultBrowserContext().newPage(url)
+	}
+
+	/**
+	 * Returns an array of all pages across all browser contexts.
+	 */
+	public pages(): Page[] {
+		const allPages: Page[] = []
+		for (const ctx of this._contexts) {
+			allPages.push(...ctx.pages())
+		}
+		return allPages
 	}
 
 	/** Best-effort cleanup of context and launched resources. */
@@ -550,7 +585,11 @@ export class V3 {
 
 		try {
 			try {
-				await this.ctx?.close()
+				const closes = []
+				for (const ctx of this._contexts) {
+					closes.push(ctx.close())
+				}
+				await Promise.allSettled(closes)
 			} catch {}
 
 			if (this.ownsConnection && this.connection) {
@@ -572,7 +611,7 @@ export class V3 {
 			this.stopShutdownSupervisor()
 
 			this.state = { kind: "UNINITIALIZED" }
-			this.ctx = undefined
+			this._contexts.clear()
 			this.connection = null
 			this._isClosing = false
 		}

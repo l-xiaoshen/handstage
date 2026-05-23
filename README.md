@@ -49,7 +49,7 @@ Router-level debug lines on a shared connection are broadcast to every
 attached V3's logger.
 
 To opt into the browser's shared default context, set
-`localBrowserLaunchOptions.context = "default"`. Concurrent clients that
+This is handled natively by Handstage. Concurrent clients that
 intentionally drive the same default-context tab can still logically race —
 Handstage prevents target-pausing deadlocks and accidental cross-context
 ownership, but it does not serialize independent actors controlling one tab.

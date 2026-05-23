@@ -32,7 +32,7 @@ resumed/detached at the target router rather than left paused.
 
 To intentionally attach to the shared default context (and accept that
 other actors may race with you on a shared tab), set
-`localBrowserLaunchOptions.context = "default"`.
+This is handled natively by Handstage.
 
 ## Active page is gone
 
