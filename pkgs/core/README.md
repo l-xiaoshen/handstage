@@ -24,15 +24,11 @@ that responsibility lives with `V3` or, for shared connections, the caller.
 
 ## Default-context attach
 
-`connectLocal()` creates an isolated browser context by default, including
-when `localBrowserLaunchOptions.cdpUrl` points at an already-running browser.
-Two Handstage clients on the same CDP websocket therefore can't see each
-other's pages or storage. Targets owned by other browser contexts are
-resumed/detached at the target router rather than left paused.
+Handstage creates instances containing the `defaultBrowserContext()` by default (which aligns with Puppeteer's `puppeteer.connect` and `puppeteer.launch`).
+Two Handstage clients on the same CDP websocket therefore share the default browser context natively without breaking. If you want isolation, call `v3.createBrowserContext()`, which returns an isolated browser context. Targets owned by other browser contexts are resumed/detached at the target router rather than left paused.
 
 To intentionally attach to the shared default context (and accept that
-other actors may race with you on a shared tab), set
-This is handled natively by Handstage.
+other actors may race with you on a shared tab), simply use the default browser context (i.e. `v3.newPage()`).
 
 ## Active page is gone
 
