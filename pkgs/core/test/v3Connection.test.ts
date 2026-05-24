@@ -98,7 +98,11 @@ describe("V3 connection lifecycle", () => {
 			onRouterDetachedFromTarget: () => {},
 			onRouterTargetDestroyed: () => {},
 		}
-		await router.register(throwingDelegate, () => {})
+		// Insert at the front so it definitely gets called before a/b return true
+		;(router as any).delegates.unshift(throwingDelegate)
+		if ((router as any).loggers) {
+			;(router as any).loggers.set(throwingDelegate, () => {})
+		}
 
 		// Make sure a default context target triggers a claim check on the throwing delegate.
 		const sessionId = "s-shared-log"
@@ -112,7 +116,6 @@ describe("V3 connection lifecycle", () => {
 				url: "about:blank",
 				attached: false,
 				canAccessOpener: false,
-				// Not defining browserContextId so it's treated as default
 			},
 			waitingForDebugger: true,
 		})

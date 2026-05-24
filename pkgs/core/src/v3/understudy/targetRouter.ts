@@ -195,7 +195,6 @@ export class TargetRouter {
 	private async findOwner(
 		info: Protocol.Target.TargetInfo,
 	): Promise<TargetRouterDelegate | null> {
-		let owner: TargetRouterDelegate | null = null
 		for (const delegate of this.delegates) {
 			let claimed = false
 			try {
@@ -212,11 +211,11 @@ export class TargetRouter {
 					},
 				})
 			}
-			if (claimed && !owner) {
-				owner = delegate
+			if (claimed) {
+				return delegate
 			}
 		}
-		return owner
+		return null
 	}
 
 	private async resumeAndDetach(sessionId: SessionId): Promise<void> {
