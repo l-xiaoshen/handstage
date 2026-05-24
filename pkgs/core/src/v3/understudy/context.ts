@@ -569,7 +569,8 @@ export class V3Context implements TargetRouterDelegate {
 		}
 
 		// Fast path cache check
-		if (this.knownNonDefaultBrowserContextIds?.has(targetContextId)) return false
+		if (this.knownNonDefaultBrowserContextIds?.has(targetContextId))
+			return false
 
 		// For default context routing, if the target has an explicit browserContextId
 		// that we haven't seen, we must verify if it's a known non-default context
@@ -650,10 +651,7 @@ export class V3Context implements TargetRouterDelegate {
 	 * - Clean up on detach/destroy.
 	 */
 	private async bootstrap(): Promise<void> {
-		this.routerUnsubscribe = await this.targetRouter.register(
-			this,
-			this.logger,
-		)
+		this.routerUnsubscribe = await this.targetRouter.register(this, this.logger)
 
 		const targets = await this.conn.getTargets()
 		for (const t of targets) {

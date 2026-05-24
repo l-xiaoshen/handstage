@@ -1,11 +1,9 @@
 import { describe, expect, test } from "bun:test"
-import { V3 } from "../src/v3/v3"
+import { LogLevel } from "../src/v3/types/public/logs"
+import { HandstageTransportAlreadyOwnedError } from "../src/v3/types/public/sdkErrors"
 import { CDPConnection } from "../src/v3/understudy/cdp"
 import { getTargetRouter } from "../src/v3/understudy/targetRouter"
-import { LogLevel } from "../src/v3/types/public/logs"
-import {
-	HandstageTransportAlreadyOwnedError,
-} from "../src/v3/types/public/sdkErrors"
+import { V3 } from "../src/v3/v3"
 import {
 	FakeConnection,
 	FakeSession,
@@ -120,9 +118,11 @@ describe("V3 connection lifecycle", () => {
 			waitingForDebugger: true,
 		})
 
-		const sawA = () => aLines.some((m) => m.includes("Target ownership predicate failed"))
-		const sawB = () => bLines.some((m) => m.includes("Target ownership predicate failed"))
-		
+		const sawA = () =>
+			aLines.some((m) => m.includes("Target ownership predicate failed"))
+		const sawB = () =>
+			bLines.some((m) => m.includes("Target ownership predicate failed"))
+
 		await waitFor(() => sawA() && sawB())
 		expect(sawA()).toBe(true)
 		expect(sawB()).toBe(true)

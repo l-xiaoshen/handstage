@@ -480,7 +480,8 @@ export class CDPConnection extends BaseCDPConnection {
 					// connection; fan-out keeps target tracking consistent.
 					if (method.startsWith("Target.")) {
 						const handlers = this.eventHandlers.get(method)
-						if (handlers) for (const h of handlers) invokeEventHandler(h, params)
+						if (handlers)
+							for (const h of handlers) invokeEventHandler(h, params)
 					}
 					return
 				}

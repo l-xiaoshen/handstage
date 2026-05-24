@@ -28,7 +28,7 @@ import {
 	ExternalConnectionAdapter,
 } from "./understudy/cdp"
 import { V3Context } from "./understudy/context"
-import { Page } from "./understudy/page"
+import type { Page } from "./understudy/page"
 
 const DEFAULT_VIEWPORT = { width: 1288, height: 711 }
 
@@ -80,7 +80,7 @@ export class V3 {
 		this.ownsConnection = ownsConnection
 		this.defaultContext = defaultContext
 		this._contexts.add(this.defaultContext)
-		
+
 		this.logSink = logSink
 		this.verbose = opts.verbose ?? LogLevel.Info
 		this.instanceId = instanceId
@@ -102,136 +102,34 @@ export class V3 {
 		const { instanceId, sharedOpts, logSink, logger } = V3.setupContext(opts)
 
 		return await (async () => {
-				const envHeadless = process.env.HEADLESS
-				if (envHeadless !== undefined) {
-					const normalized = envHeadless.trim().toLowerCase()
-					if (normalized !== "true") {
-						delete process.env.HEADLESS
-					}
+			const envHeadless = process.env.HEADLESS
+			if (envHeadless !== undefined) {
+				const normalized = envHeadless.trim().toLowerCase()
+				if (normalized !== "true") {
+					delete process.env.HEADLESS
 				}
-				const lbo: LocalBrowserLaunchOptions =
-					opts?.localBrowserLaunchOptions ?? {}
+			}
+			const lbo: LocalBrowserLaunchOptions =
+				opts?.localBrowserLaunchOptions ?? {}
 
-				if (lbo.cdpHeaders && !lbo.cdpUrl) {
-					logger({
-						category: "init",
-						message:
-							"`cdpHeaders` was provided but `cdpUrl` is not set — cdpHeaders will be ignored. Set `cdpUrl` to connect to an existing browser via CDP.",
-						level: LogLevel.Debug,
-					})
-				}
-
-				if (lbo.cdpUrl) {
-					logger({
-						category: "init",
-						message: "Connecting to local browser",
-						level: LogLevel.Info,
-					})
-					const conn = await CDPConnection.connect(lbo.cdpUrl, {
-						headers: lbo.cdpHeaders,
-					})
-					let ctx: V3Context
-					try {
-						ctx = await V3Context.createFromConnection(conn, {
-							localBrowserLaunchOptions: lbo,
-							logger: logSink,
-						})
-					} catch (err) {
-						await conn.close().catch(() => {})
-						throw err
-					}
-					const state: InitState = {
-						kind: "ATTACHED_WS",
-						ws: lbo.cdpUrl,
-					}
-					const v3 = new V3(
-						state,
-						conn,
-						true,
-						ctx,
-						sharedOpts,
-						instanceId,
-						logSink,
-					)
-					await v3._applyPostConnectLocalOptions(lbo)
-					return v3
-				}
-
+			if (lbo.cdpHeaders && !lbo.cdpUrl) {
 				logger({
 					category: "init",
-					message: "Launching local browser",
+					message:
+						"`cdpHeaders` was provided but `cdpUrl` is not set — cdpHeaders will be ignored. Set `cdpUrl` to connect to an existing browser via CDP.",
+					level: LogLevel.Debug,
+				})
+			}
+
+			if (lbo.cdpUrl) {
+				logger({
+					category: "init",
+					message: "Connecting to local browser",
 					level: LogLevel.Info,
 				})
-
-				let userDataDir = lbo.userDataDir
-				let createdTemp = false
-				if (!userDataDir) {
-					const base = path.join(os.tmpdir(), "handstage-v3")
-					fs.mkdirSync(base, { recursive: true })
-					userDataDir = fs.mkdtempSync(path.join(base, "profile-"))
-					createdTemp = true
-				}
-
-				const defaults = [
-					"--remote-allow-origins=*",
-					"--no-first-run",
-					"--no-default-browser-check",
-					"--disable-dev-shm-usage",
-					"--site-per-process",
-				]
-				let chromeFlags: string[]
-				const ignore = lbo.ignoreDefaultArgs
-				if (ignore === true) {
-					chromeFlags = []
-				} else if (Array.isArray(ignore)) {
-					chromeFlags = defaults.filter(
-						(f) => !ignore.some((ex) => f.includes(ex)),
-					)
-				} else {
-					chromeFlags = [...defaults]
-				}
-
-				if (lbo.devtools) chromeFlags.push("--auto-open-devtools-for-tabs")
-				if (lbo.locale) chromeFlags.push(`--lang=${lbo.locale}`)
-				if (!lbo.viewport) {
-					lbo.viewport = DEFAULT_VIEWPORT
-				}
-				if (lbo.viewport?.width && lbo.viewport?.height) {
-					chromeFlags.push(
-						`--window-size=${lbo.viewport.width},${lbo.viewport.height + 87}`,
-					)
-				}
-				if (typeof lbo.deviceScaleFactor === "number") {
-					chromeFlags.push(
-						`--force-device-scale-factor=${Math.max(0.1, lbo.deviceScaleFactor)}`,
-					)
-				}
-				if (lbo.hasTouch) chromeFlags.push("--touch-events=enabled")
-				if (lbo.ignoreHTTPSErrors)
-					chromeFlags.push("--ignore-certificate-errors")
-				if (lbo.proxy?.server)
-					chromeFlags.push(`--proxy-server=${lbo.proxy.server}`)
-				if (lbo.proxy?.bypass)
-					chromeFlags.push(`--proxy-bypass-list=${lbo.proxy.bypass}`)
-
-				if (Array.isArray(lbo.args)) chromeFlags.push(...lbo.args)
-
-				const keepAlive = sharedOpts.keepAlive === true
-				const { ws, chrome } = await launchLocalChrome({
-					chromePath: lbo.executablePath,
-					chromeFlags,
-					port: lbo.port,
-					headless: lbo.headless,
-					userDataDir,
-					connectTimeoutMs: lbo.connectTimeoutMs,
-					handleSIGINT: !keepAlive,
+				const conn = await CDPConnection.connect(lbo.cdpUrl, {
+					headers: lbo.cdpHeaders,
 				})
-				if (keepAlive) {
-					try {
-						chrome.process?.unref?.()
-					} catch {}
-				}
-				const conn = await CDPConnection.connect(ws)
 				let ctx: V3Context
 				try {
 					ctx = await V3Context.createFromConnection(conn, {
@@ -240,25 +138,12 @@ export class V3 {
 					})
 				} catch (err) {
 					await conn.close().catch(() => {})
-					try {
-						await chrome.kill()
-					} catch {}
-					if (createdTemp && !lbo.preserveUserDataDir) {
-						try {
-							fs.rmSync(userDataDir, { recursive: true, force: true })
-						} catch {}
-					}
 					throw err
 				}
 				const state: InitState = {
-					kind: "LAUNCHED",
-					chrome,
-					ws,
-					userDataDir,
-					createdTempProfile: createdTemp,
-					preserveUserDataDir: !!lbo.preserveUserDataDir,
+					kind: "ATTACHED_WS",
+					ws: lbo.cdpUrl,
 				}
-
 				const v3 = new V3(
 					state,
 					conn,
@@ -268,20 +153,126 @@ export class V3 {
 					instanceId,
 					logSink,
 				)
-
-				const chromePid = chrome.process?.pid ?? chrome.pid
-				if (!keepAlive && chromePid) {
-					v3.startShutdownSupervisor({
-						kind: "LOCAL",
-						pid: chromePid,
-						userDataDir,
-						createdTempProfile: createdTemp,
-						preserveUserDataDir: !!lbo.preserveUserDataDir,
-					})
-				}
-
 				await v3._applyPostConnectLocalOptions(lbo)
 				return v3
+			}
+
+			logger({
+				category: "init",
+				message: "Launching local browser",
+				level: LogLevel.Info,
+			})
+
+			let userDataDir = lbo.userDataDir
+			let createdTemp = false
+			if (!userDataDir) {
+				const base = path.join(os.tmpdir(), "handstage-v3")
+				fs.mkdirSync(base, { recursive: true })
+				userDataDir = fs.mkdtempSync(path.join(base, "profile-"))
+				createdTemp = true
+			}
+
+			const defaults = [
+				"--remote-allow-origins=*",
+				"--no-first-run",
+				"--no-default-browser-check",
+				"--disable-dev-shm-usage",
+				"--site-per-process",
+			]
+			let chromeFlags: string[]
+			const ignore = lbo.ignoreDefaultArgs
+			if (ignore === true) {
+				chromeFlags = []
+			} else if (Array.isArray(ignore)) {
+				chromeFlags = defaults.filter(
+					(f) => !ignore.some((ex) => f.includes(ex)),
+				)
+			} else {
+				chromeFlags = [...defaults]
+			}
+
+			if (lbo.devtools) chromeFlags.push("--auto-open-devtools-for-tabs")
+			if (lbo.locale) chromeFlags.push(`--lang=${lbo.locale}`)
+			if (!lbo.viewport) {
+				lbo.viewport = DEFAULT_VIEWPORT
+			}
+			if (lbo.viewport?.width && lbo.viewport?.height) {
+				chromeFlags.push(
+					`--window-size=${lbo.viewport.width},${lbo.viewport.height + 87}`,
+				)
+			}
+			if (typeof lbo.deviceScaleFactor === "number") {
+				chromeFlags.push(
+					`--force-device-scale-factor=${Math.max(0.1, lbo.deviceScaleFactor)}`,
+				)
+			}
+			if (lbo.hasTouch) chromeFlags.push("--touch-events=enabled")
+			if (lbo.ignoreHTTPSErrors) chromeFlags.push("--ignore-certificate-errors")
+			if (lbo.proxy?.server)
+				chromeFlags.push(`--proxy-server=${lbo.proxy.server}`)
+			if (lbo.proxy?.bypass)
+				chromeFlags.push(`--proxy-bypass-list=${lbo.proxy.bypass}`)
+
+			if (Array.isArray(lbo.args)) chromeFlags.push(...lbo.args)
+
+			const keepAlive = sharedOpts.keepAlive === true
+			const { ws, chrome } = await launchLocalChrome({
+				chromePath: lbo.executablePath,
+				chromeFlags,
+				port: lbo.port,
+				headless: lbo.headless,
+				userDataDir,
+				connectTimeoutMs: lbo.connectTimeoutMs,
+				handleSIGINT: !keepAlive,
+			})
+			if (keepAlive) {
+				try {
+					chrome.process?.unref?.()
+				} catch {}
+			}
+			const conn = await CDPConnection.connect(ws)
+			let ctx: V3Context
+			try {
+				ctx = await V3Context.createFromConnection(conn, {
+					localBrowserLaunchOptions: lbo,
+					logger: logSink,
+				})
+			} catch (err) {
+				await conn.close().catch(() => {})
+				try {
+					await chrome.kill()
+				} catch {}
+				if (createdTemp && !lbo.preserveUserDataDir) {
+					try {
+						fs.rmSync(userDataDir, { recursive: true, force: true })
+					} catch {}
+				}
+				throw err
+			}
+			const state: InitState = {
+				kind: "LAUNCHED",
+				chrome,
+				ws,
+				userDataDir,
+				createdTempProfile: createdTemp,
+				preserveUserDataDir: !!lbo.preserveUserDataDir,
+			}
+
+			const v3 = new V3(state, conn, true, ctx, sharedOpts, instanceId, logSink)
+
+			const chromePid = chrome.process?.pid ?? chrome.pid
+			if (!keepAlive && chromePid) {
+				v3.startShutdownSupervisor({
+					kind: "LOCAL",
+					pid: chromePid,
+					userDataDir,
+					createdTempProfile: createdTemp,
+					preserveUserDataDir: !!lbo.preserveUserDataDir,
+				})
+			}
+
+			await v3._applyPostConnectLocalOptions(lbo)
+			return v3
 		})()
 	}
 
@@ -292,42 +283,34 @@ export class V3 {
 		const { instanceId, sharedOpts, logSink, logger } = V3.setupContext(opts)
 
 		return await (async () => {
-				logger({
-					category: "init",
-					message: "Connecting via custom transport",
-					level: LogLevel.Info,
+			logger({
+				category: "init",
+				message: "Connecting via custom transport",
+				level: LogLevel.Info,
+			})
+			const conn = new CDPConnection(transport)
+			const lbo: LocalBrowserLaunchOptions = opts
+				? {
+						viewport: opts.viewport,
+						deviceScaleFactor: opts.deviceScaleFactor,
+						downloadsPath: opts.downloadsPath,
+						acceptDownloads: opts.acceptDownloads,
+					}
+				: {}
+			let ctx: V3Context
+			try {
+				ctx = await V3Context.createFromConnection(conn, {
+					localBrowserLaunchOptions: lbo,
+					logger: logSink,
 				})
-				const conn = new CDPConnection(transport)
-				const lbo: LocalBrowserLaunchOptions = opts
-					? {
-							viewport: opts.viewport,
-							deviceScaleFactor: opts.deviceScaleFactor,
-							downloadsPath: opts.downloadsPath,
-							acceptDownloads: opts.acceptDownloads,
-						}
-					: {}
-				let ctx: V3Context
-				try {
-					ctx = await V3Context.createFromConnection(conn, {
-						localBrowserLaunchOptions: lbo,
-						logger: logSink,
-					})
-				} catch (err) {
-					await conn.close().catch(() => {})
-					throw err
-				}
-				const state: InitState = { kind: "TRANSPORT" }
-				const v3 = new V3(
-					state,
-					conn,
-					true,
-					ctx,
-					sharedOpts,
-					instanceId,
-					logSink,
-				)
-				await v3._applyPostConnectLocalOptions(lbo)
-				return v3
+			} catch (err) {
+				await conn.close().catch(() => {})
+				throw err
+			}
+			const state: InitState = { kind: "TRANSPORT" }
+			const v3 = new V3(state, conn, true, ctx, sharedOpts, instanceId, logSink)
+			await v3._applyPostConnectLocalOptions(lbo)
+			return v3
 		})()
 	}
 
@@ -338,42 +321,42 @@ export class V3 {
 		const { instanceId, sharedOpts, logSink, logger } = V3.setupContext(opts)
 
 		return await (async () => {
-				logger({
-					category: "init",
-					message: "Connecting via custom connection",
-					level: LogLevel.Info,
+			logger({
+				category: "init",
+				message: "Connecting via custom connection",
+				level: LogLevel.Info,
+			})
+			const adapter = new ExternalConnectionAdapter(session)
+			const lbo: LocalBrowserLaunchOptions = opts
+				? {
+						viewport: opts.viewport,
+						deviceScaleFactor: opts.deviceScaleFactor,
+						downloadsPath: opts.downloadsPath,
+						acceptDownloads: opts.acceptDownloads,
+					}
+				: {}
+			let ctx: V3Context
+			try {
+				ctx = await V3Context.createFromConnection(adapter, {
+					localBrowserLaunchOptions: lbo,
+					logger: logSink,
 				})
-				const adapter = new ExternalConnectionAdapter(session)
-				const lbo: LocalBrowserLaunchOptions = opts
-					? {
-							viewport: opts.viewport,
-							deviceScaleFactor: opts.deviceScaleFactor,
-							downloadsPath: opts.downloadsPath,
-							acceptDownloads: opts.acceptDownloads,
-						}
-					: {}
-				let ctx: V3Context
-				try {
-					ctx = await V3Context.createFromConnection(adapter, {
-						localBrowserLaunchOptions: lbo,
-						logger: logSink,
-					})
-				} catch (err) {
-					await adapter.close().catch(() => {})
-					throw err
-				}
-				const state: InitState = { kind: "SESSION" }
-				const v3 = new V3(
-					state,
-					adapter,
-					true,
-					ctx,
-					sharedOpts,
-					instanceId,
-					logSink,
-				)
-				await v3._applyPostConnectLocalOptions(lbo)
-				return v3
+			} catch (err) {
+				await adapter.close().catch(() => {})
+				throw err
+			}
+			const state: InitState = { kind: "SESSION" }
+			const v3 = new V3(
+				state,
+				adapter,
+				true,
+				ctx,
+				sharedOpts,
+				instanceId,
+				logSink,
+			)
+			await v3._applyPostConnectLocalOptions(lbo)
+			return v3
 		})()
 	}
 
@@ -392,35 +375,35 @@ export class V3 {
 		const { instanceId, sharedOpts, logSink, logger } = V3.setupContext(opts)
 
 		return await (async () => {
-				logger({
-					category: "init",
-					message: "Attaching to shared CDP connection",
-					level: LogLevel.Info,
-				})
-				const lbo: LocalBrowserLaunchOptions = opts
-					? {
-							viewport: opts.viewport,
-							deviceScaleFactor: opts.deviceScaleFactor,
-							downloadsPath: opts.downloadsPath,
-							acceptDownloads: opts.acceptDownloads,
-						}
-					: {}
-				const ctx = await V3Context.createFromConnection(conn, {
-					localBrowserLaunchOptions: lbo,
-					logger: logSink,
-				})
-				const state: InitState = { kind: "SHARED_CONNECTION" }
-				const v3 = new V3(
-					state,
-					conn,
-					false,
-					ctx,
-					sharedOpts,
-					instanceId,
-					logSink,
-				)
-				await v3._applyPostConnectLocalOptions(lbo)
-				return v3
+			logger({
+				category: "init",
+				message: "Attaching to shared CDP connection",
+				level: LogLevel.Info,
+			})
+			const lbo: LocalBrowserLaunchOptions = opts
+				? {
+						viewport: opts.viewport,
+						deviceScaleFactor: opts.deviceScaleFactor,
+						downloadsPath: opts.downloadsPath,
+						acceptDownloads: opts.acceptDownloads,
+					}
+				: {}
+			const ctx = await V3Context.createFromConnection(conn, {
+				localBrowserLaunchOptions: lbo,
+				logger: logSink,
+			})
+			const state: InitState = { kind: "SHARED_CONNECTION" }
+			const v3 = new V3(
+				state,
+				conn,
+				false,
+				ctx,
+				sharedOpts,
+				instanceId,
+				logSink,
+			)
+			await v3._applyPostConnectLocalOptions(lbo)
+			return v3
 		})()
 	}
 
@@ -528,7 +511,9 @@ export class V3 {
 	 * await isolated.newPage("https://example.com")
 	 * await isolated.close()
 	 */
-	public async createBrowserContext(options?: CreateContextOptions): Promise<V3Context> {
+	public async createBrowserContext(
+		options?: CreateContextOptions,
+	): Promise<V3Context> {
 		if (!this.connection) {
 			throw new Error("Cannot create browser context: V3 instance is closed")
 		}

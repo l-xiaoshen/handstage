@@ -1,5 +1,5 @@
-import type { Protocol } from "devtools-protocol"
 import { promises as fs } from "node:fs"
+import type { Protocol } from "devtools-protocol"
 import { defaultLogger, type LogSink } from "../logger"
 import { withTimeout } from "../timeoutConfig"
 import type { InitScriptSource } from "../types/private/index"

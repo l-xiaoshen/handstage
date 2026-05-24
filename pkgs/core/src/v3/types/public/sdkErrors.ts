@@ -129,11 +129,11 @@ export class HandstageTransportAlreadyOwnedError extends HandstageError {
 		super(
 			kind === "transport"
 				? "CDPTransport already owned by another CDPConnection. " +
-					"Construct the CDPConnection once and share it via V3.connectConnection() " +
-					"instead of wrapping the same transport twice."
+						"Construct the CDPConnection once and share it via V3.connectConnection() " +
+						"instead of wrapping the same transport twice."
 				: "ExternalCDPSession already owned by another ExternalConnectionAdapter. " +
-					"Construct the adapter once and share the resulting CDPConnectionLike via " +
-					"V3.connectConnection() instead of calling connectSession twice with the same session.",
+						"Construct the adapter once and share the resulting CDPConnectionLike via " +
+						"V3.connectConnection() instead of calling connectSession twice with the same session.",
 		)
 	}
 }
