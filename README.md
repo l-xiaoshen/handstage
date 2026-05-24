@@ -48,8 +48,7 @@ instances each receive their own debug lines from event-driven code paths.
 Router-level debug lines on a shared connection are broadcast to every
 attached V3's logger.
 
-To opt into the browser's shared default context, set
-This is handled natively by Handstage. Concurrent clients that
+To opt into the browser's shared default context, just use the provided methods without creating an isolated context. Handstage now aligns natively with Puppeteer. Concurrent clients that
 intentionally drive the same default-context tab can still logically race —
 Handstage prevents target-pausing deadlocks and accidental cross-context
 ownership, but it does not serialize independent actors controlling one tab.
