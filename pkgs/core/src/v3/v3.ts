@@ -111,16 +111,16 @@ export class V3 {
 				close: () => ws.close(),
 			}
 
-			ws.addEventListener("message", (event: any) => {
+			ws.addEventListener("message", (event) => {
 				if (transport.onmessage) transport.onmessage(event.data.toString())
 			})
-			ws.addEventListener("close", (event: any) => {
+			ws.addEventListener("close", (event) => {
 				if (transport.onclose)
 					transport.onclose(`code=${event.code} reason=${event.reason}`)
 			})
-			ws.addEventListener("error", (event: any) => {
+			ws.addEventListener("error", (event) => {
 				if (transport.onerror)
-					transport.onerror(event.error || new Error("WebSocket error"))
+					transport.onerror(new Error("WebSocket error"))
 			})
 
 			const conn = new CDPConnection(transport)
