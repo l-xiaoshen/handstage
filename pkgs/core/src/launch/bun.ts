@@ -13,7 +13,7 @@ export async function launchChromeBun(
 		stdin: "ignore",
 		stdout: "ignore",
 		stderr: "ignore",
-		stdio: [null, null, null, "pipe", "pipe"],
+		stdio: ["ignore", "ignore", "ignore", "pipe", "pipe"],
 	})
 
 	const fd3 = p.stdio[3] // ReadableStream in Bun (because of "pipe")
