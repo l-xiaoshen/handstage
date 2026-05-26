@@ -5,9 +5,6 @@ import { getChromePath, DEFAULT_FLAGS } from "chrome-launcher"
 import type { LaunchedChrome } from "../v3/types/public/launchedChrome"
 import type { LocalBrowserLaunchOptions } from "../v3/types/public/api"
 
-// Use generic global Bun object because importing 'bun' module directly can be restrictive.
-declare const Bun: any
-
 export async function launchChromeBun(
 	opts?: LocalBrowserLaunchOptions,
 ): Promise<LaunchedChrome> {
