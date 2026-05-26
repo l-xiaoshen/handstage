@@ -10,6 +10,7 @@ import type {
 	ShutdownSupervisorHandle,
 } from "./types/private/shutdown"
 import type { CreateContextOptions } from "./types/public/context"
+import type { LaunchedChrome } from "./types/public/launchedChrome"
 import { LogLevel, type LogLine } from "./types/public/logs"
 import type {
 	HandstageConnectOptions,
@@ -17,7 +18,6 @@ import type {
 	HandstageSharedOptions,
 	LocalBrowserLaunchOptions,
 } from "./types/public/options"
-import type { LaunchedChrome } from "./types/public/launchedChrome"
 import {
 	CDPConnection,
 	type CDPConnectionLike,
@@ -119,8 +119,7 @@ export class V3 {
 					transport.onclose(`code=${event.code} reason=${event.reason}`)
 			})
 			ws.addEventListener("error", (event) => {
-				if (transport.onerror)
-					transport.onerror(new Error("WebSocket error"))
+				if (transport.onerror) transport.onerror(new Error("WebSocket error"))
 			})
 
 			const conn = new CDPConnection(transport)
@@ -148,14 +147,7 @@ export class V3 {
 				cleanedUp = true
 				await conn.close().catch(() => {})
 			}
-			const v3 = new V3(
-				conn,
-				cleanup,
-				ctx,
-				sharedOpts,
-				instanceId,
-				logSink,
-			)
+			const v3 = new V3(conn, cleanup, ctx, sharedOpts, instanceId, logSink)
 			await v3._applyPostConnectLocalOptions(lbo)
 			return v3
 		})()
@@ -202,7 +194,7 @@ export class V3 {
 						const { value, done } = await reader.read()
 						if (done) break
 						buffer += textDecoder.decode(value, { stream: true })
-						
+
 						let nullIdx = buffer.indexOf("\0")
 						while (nullIdx !== -1) {
 							const msg = buffer.slice(0, nullIdx)
@@ -215,7 +207,9 @@ export class V3 {
 					}
 				} catch (err) {
 					if (transport.onerror) {
-						transport.onerror(err instanceof Error ? err : new Error(String(err)))
+						transport.onerror(
+							err instanceof Error ? err : new Error(String(err)),
+						)
 					}
 				} finally {
 					if (transport.onclose && !isClosed) {
@@ -226,7 +220,8 @@ export class V3 {
 			})()
 
 			const conn = new CDPConnection(transport)
-			const lbo: LocalBrowserLaunchOptions = opts?.localBrowserLaunchOptions ?? {}
+			const lbo: LocalBrowserLaunchOptions =
+				opts?.localBrowserLaunchOptions ?? {}
 
 			let ctx: V3Context
 			try {
@@ -247,14 +242,7 @@ export class V3 {
 				await conn.close().catch(() => {})
 				await chrome.close().catch(() => {})
 			}
-			const v3 = new V3(
-				conn,
-				cleanup,
-				ctx,
-				sharedOpts,
-				instanceId,
-				logSink,
-			)
+			const v3 = new V3(conn, cleanup, ctx, sharedOpts, instanceId, logSink)
 			await v3._applyPostConnectLocalOptions(lbo)
 			return v3
 		})()
@@ -297,14 +285,7 @@ export class V3 {
 				cleanedUp = true
 				await conn.close().catch(() => {})
 			}
-			const v3 = new V3(
-				conn,
-				cleanup,
-				ctx,
-				sharedOpts,
-				instanceId,
-				logSink,
-			)
+			const v3 = new V3(conn, cleanup, ctx, sharedOpts, instanceId, logSink)
 			await v3._applyPostConnectLocalOptions(lbo)
 			return v3
 		})()
@@ -347,14 +328,7 @@ export class V3 {
 				cleanedUp = true
 				await adapter.close().catch(() => {})
 			}
-			const v3 = new V3(
-				adapter,
-				cleanup,
-				ctx,
-				sharedOpts,
-				instanceId,
-				logSink,
-			)
+			const v3 = new V3(adapter, cleanup, ctx, sharedOpts, instanceId, logSink)
 			await v3._applyPostConnectLocalOptions(lbo)
 			return v3
 		})()
@@ -392,14 +366,7 @@ export class V3 {
 				localBrowserLaunchOptions: lbo,
 				logger: logSink,
 			})
-			const v3 = new V3(
-				conn,
-				undefined,
-				ctx,
-				sharedOpts,
-				instanceId,
-				logSink,
-			)
+			const v3 = new V3(conn, undefined, ctx, sharedOpts, instanceId, logSink)
 			await v3._applyPostConnectLocalOptions(lbo)
 			return v3
 		})()
