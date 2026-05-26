@@ -1,0 +1,71 @@
+import os from "node:os"
+import fs from "node:fs"
+import path from "node:path"
+import { getChromePath, DEFAULT_FLAGS } from "chrome-launcher"
+import type { LocalBrowserLaunchOptions } from "../v3/types/public/api"
+
+export interface PreparedLaunchOptions {
+	chromePath: string
+	finalFlags: string[]
+	userDataDir: string | undefined
+}
+
+export function prepareChromeLaunchOptions(
+	opts?: LocalBrowserLaunchOptions,
+): PreparedLaunchOptions {
+	const lbo = opts ?? {}
+	const chromePath = lbo.executablePath || getChromePath()
+
+	let userDataDir = lbo.userDataDir
+	if (!userDataDir) {
+		const base = path.join(os.tmpdir(), "handstage-v3")
+		fs.mkdirSync(base, { recursive: true })
+		userDataDir = fs.mkdtempSync(path.join(base, "profile-"))
+	}
+
+	const chromeFlags = [
+		...(lbo.headless !== false ? ["--headless=new"] : []),
+		...DEFAULT_FLAGS,
+		"--remote-debugging-pipe",
+	]
+
+	if (lbo.devtools) chromeFlags.push("--auto-open-devtools-for-tabs")
+	if (lbo.locale) chromeFlags.push(`--lang=${lbo.locale}`)
+	if (lbo.viewport?.width && lbo.viewport?.height) {
+		chromeFlags.push(
+			`--window-size=${lbo.viewport.width},${lbo.viewport.height + 87}`,
+		)
+	}
+	if (typeof lbo.deviceScaleFactor === "number") {
+		chromeFlags.push(
+			`--force-device-scale-factor=${Math.max(0.1, lbo.deviceScaleFactor)}`,
+		)
+	}
+	if (lbo.hasTouch) chromeFlags.push("--touch-events=enabled")
+	if (lbo.ignoreHTTPSErrors) chromeFlags.push("--ignore-certificate-errors")
+	if (lbo.proxy?.server) chromeFlags.push(`--proxy-server=${lbo.proxy.server}`)
+	if (lbo.proxy?.bypass)
+		chromeFlags.push(`--proxy-bypass-list=${lbo.proxy.bypass}`)
+	if (userDataDir) chromeFlags.push(`--user-data-dir=${userDataDir}`)
+
+	if (Array.isArray(lbo.args)) chromeFlags.push(...lbo.args)
+
+	const finalFlags = chromeFlags.filter((f): f is string => typeof f === "string")
+
+	return {
+		chromePath,
+		finalFlags,
+		userDataDir,
+	}
+}
+
+export function cleanupUserDataDir(
+	userDataDir: string | undefined,
+	opts?: LocalBrowserLaunchOptions,
+): void {
+	if (!opts?.preserveUserDataDir && !opts?.userDataDir && userDataDir) {
+		try {
+			fs.rmSync(userDataDir, { recursive: true, force: true })
+		} catch {}
+	}
+}
