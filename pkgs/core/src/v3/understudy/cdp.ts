@@ -260,7 +260,7 @@ export class CDPConnection extends BaseCDPConnection {
 		const ws = new WebSocket(wsUrl, { headers })
 		await new Promise<void>((resolve, reject) => {
 			ws.addEventListener("open", () => resolve(), { once: true })
-			ws.addEventListener("error", (e: any) => reject(e.error || e), {
+			ws.addEventListener("error", () => reject(new Error("WebSocket error")), {
 				once: true,
 			})
 		})
@@ -268,16 +268,16 @@ export class CDPConnection extends BaseCDPConnection {
 			send: (message) => ws.send(message),
 			close: () => ws.close(),
 		}
-		ws.addEventListener("message", (event: any) => {
+		ws.addEventListener("message", (event) => {
 			if (transport.onmessage) transport.onmessage(event.data.toString())
 		})
-		ws.addEventListener("close", (event: any) => {
+		ws.addEventListener("close", (event) => {
 			if (transport.onclose)
 				transport.onclose(`code=${event.code} reason=${event.reason}`)
 		})
-		ws.addEventListener("error", (event: any) => {
+		ws.addEventListener("error", () => {
 			if (transport.onerror)
-				transport.onerror(event.error || new Error("WebSocket error"))
+				transport.onerror(new Error("WebSocket error"))
 		})
 		return new CDPConnection(transport)
 	}
