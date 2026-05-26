@@ -60,13 +60,6 @@ describe("V3 connection lifecycle", () => {
 		expect(conn.closed).toBe(false)
 	})
 
-	test("connectURL is null for transport/session/shared and non-null for ws-backed V3s", async () => {
-		const transport = new InMemoryTransport()
-		const v3 = await V3.connectTransport(transport)
-		expect(v3.connectURL()).toBeNull()
-		await v3.close()
-	})
-
 	test("two V3s on a shared connection each receive their own router-level logs", async () => {
 		const conn = new FakeConnection()
 		// Make sure it doesn't try to look up browser contexts

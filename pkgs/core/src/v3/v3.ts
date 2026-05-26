@@ -7,7 +7,6 @@ import { launchLocalChrome } from "./launch/local"
 import { createFilteredLogger, type LogSink } from "./logger"
 import { cleanupLocalBrowser } from "./shutdown/cleanupLocal"
 import { startShutdownSupervisor } from "./shutdown/supervisorClient"
-import type { InitState } from "./types/private/internal"
 import type {
 	ShutdownSupervisorConfig,
 	ShutdownSupervisorHandle,
@@ -60,24 +59,22 @@ export class V3 {
 	public verbose: LogLevel
 	private readonly instanceId: string
 	private readonly sessionId: string
-	private keepAlive?: boolean
 	private shutdownSupervisor: ShutdownSupervisorHandle | null = null
 	private connection: CDPConnectionLike | null
-	private readonly ownsConnection: boolean
+	private readonly cleanup?: () => Promise<void>
 	private readonly _contexts = new Set<V3Context>()
 	private readonly defaultContext: V3Context
 
 	private constructor(
-		private state: InitState,
 		connection: CDPConnectionLike,
-		ownsConnection: boolean,
+		cleanup: (() => Promise<void>) | undefined,
 		defaultContext: V3Context,
 		opts: HandstageSharedOptions,
 		instanceId: string,
 		logSink: LogSink,
 	) {
 		this.connection = connection
-		this.ownsConnection = ownsConnection
+		this.cleanup = cleanup
 		this.defaultContext = defaultContext
 		this._contexts.add(this.defaultContext)
 
@@ -85,7 +82,6 @@ export class V3 {
 		this.verbose = opts.verbose ?? LogLevel.Info
 		this.instanceId = instanceId
 		this.sessionId = opts.sessionId ?? this.instanceId
-		this.keepAlive = opts.keepAlive
 
 		this.connection.onTransportClosed(this._onCDPClosed)
 	}
@@ -140,14 +136,12 @@ export class V3 {
 					await conn.close().catch(() => {})
 					throw err
 				}
-				const state: InitState = {
-					kind: "ATTACHED_WS",
-					ws: lbo.cdpUrl,
+				const cleanup = async () => {
+					await conn.close().catch(() => {})
 				}
 				const v3 = new V3(
-					state,
 					conn,
-					true,
+					cleanup,
 					ctx,
 					sharedOpts,
 					instanceId,
@@ -249,16 +243,26 @@ export class V3 {
 				}
 				throw err
 			}
-			const state: InitState = {
-				kind: "LAUNCHED",
-				chrome,
-				ws,
-				userDataDir,
-				createdTempProfile: createdTemp,
-				preserveUserDataDir: !!lbo.preserveUserDataDir,
+			const cleanup = async () => {
+				await conn.close().catch(() => {})
+				if (!keepAlive) {
+					await cleanupLocalBrowser({
+						killChrome: () => chrome.kill(),
+						userDataDir,
+						createdTempProfile: createdTemp,
+						preserveUserDataDir: !!lbo.preserveUserDataDir,
+					})
+				}
 			}
 
-			const v3 = new V3(state, conn, true, ctx, sharedOpts, instanceId, logSink)
+			const v3 = new V3(
+				conn,
+				cleanup,
+				ctx,
+				sharedOpts,
+				instanceId,
+				logSink,
+			)
 
 			const chromePid = chrome.process?.pid ?? chrome.pid
 			if (!keepAlive && chromePid) {
@@ -307,8 +311,17 @@ export class V3 {
 				await conn.close().catch(() => {})
 				throw err
 			}
-			const state: InitState = { kind: "TRANSPORT" }
-			const v3 = new V3(state, conn, true, ctx, sharedOpts, instanceId, logSink)
+			const cleanup = async () => {
+				await conn.close().catch(() => {})
+			}
+			const v3 = new V3(
+				conn,
+				cleanup,
+				ctx,
+				sharedOpts,
+				instanceId,
+				logSink,
+			)
 			await v3._applyPostConnectLocalOptions(lbo)
 			return v3
 		})()
@@ -345,11 +358,12 @@ export class V3 {
 				await adapter.close().catch(() => {})
 				throw err
 			}
-			const state: InitState = { kind: "SESSION" }
+			const cleanup = async () => {
+				await adapter.close().catch(() => {})
+			}
 			const v3 = new V3(
-				state,
 				adapter,
-				true,
+				cleanup,
 				ctx,
 				sharedOpts,
 				instanceId,
@@ -392,11 +406,9 @@ export class V3 {
 				localBrowserLaunchOptions: lbo,
 				logger: logSink,
 			})
-			const state: InitState = { kind: "SHARED_CONNECTION" }
 			const v3 = new V3(
-				state,
 				conn,
-				false,
+				undefined,
 				ctx,
 				sharedOpts,
 				instanceId,
@@ -476,23 +488,6 @@ export class V3 {
 			.catch(() => {})
 	}
 
-	/**
-	 * Return the browser-level CDP WebSocket endpoint when this V3 owns one.
-	 *
-	 * Returns `null` for V3 instances created from a custom transport,
-	 * custom session, or a shared connection — those do not expose a
-	 * stable WebSocket URL.
-	 */
-	connectURL(): string | null {
-		if (this.state.kind === "UNINITIALIZED") {
-			throw new Error("Cannot access connectURL: V3 instance is closed")
-		}
-		if (this.state.kind === "LAUNCHED" || this.state.kind === "ATTACHED_WS") {
-			return this.state.ws
-		}
-		return null
-	}
-
 	/** Expose the root default browser context. */
 	public defaultBrowserContext(): V3Context {
 		return this.defaultContext
@@ -560,8 +555,6 @@ export class V3 {
 		if (this._isClosing && !opts?.force) return
 		this._isClosing = true
 
-		const keepAlive = this.keepAlive === true
-
 		try {
 			if (this.connection && this._onCDPClosed) {
 				this.connection.offTransportClosed?.(this._onCDPClosed)
@@ -577,25 +570,10 @@ export class V3 {
 				await Promise.allSettled(closes)
 			} catch {}
 
-			if (this.ownsConnection && this.connection) {
-				try {
-					await this.connection.close()
-				} catch {}
-			}
-
-			if (!keepAlive && this.state.kind === "LAUNCHED") {
-				const launched = this.state
-				await cleanupLocalBrowser({
-					killChrome: () => launched.chrome.kill(),
-					userDataDir: launched.userDataDir,
-					createdTempProfile: launched.createdTempProfile,
-					preserveUserDataDir: launched.preserveUserDataDir,
-				})
-			}
+			await this.cleanup?.()
 		} finally {
 			this.stopShutdownSupervisor()
 
-			this.state = { kind: "UNINITIALIZED" }
 			this._contexts.clear()
 			this.connection = null
 			this._isClosing = false
