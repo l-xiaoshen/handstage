@@ -1,35 +1,53 @@
-import type { LaunchedChrome } from "../v3/types/public/launchedChrome"
 import type { LocalBrowserLaunchOptions } from "../v3/types/public/api"
-import { prepareChromeLaunchOptions, cleanupUserDataDir } from "./utils"
+import type { LaunchedChrome } from "../v3/types/public/launchedChrome"
+import { cleanupUserDataDir, prepareChromeLaunchOptions } from "./utils"
 
 export async function launchChromeBun(
 	opts?: LocalBrowserLaunchOptions,
 ): Promise<LaunchedChrome> {
 	const lbo = opts ?? {}
-	const { chromePath, finalFlags, userDataDir } = prepareChromeLaunchOptions(lbo)
+	const { chromePath, finalFlags, userDataDir } =
+		prepareChromeLaunchOptions(lbo)
 
 	const p = Bun.spawn([chromePath, ...finalFlags], {
-		stdio: ["ignore", "ignore", "ignore", "pipe", "pipe"],
+		stdin: "ignore",
+		stdout: "ignore",
+		stderr: "ignore",
+		stdio: [null, null, null, "pipe", "pipe"],
 	})
 
-	const fd3 = p.stdio[3] // ReadableStream in Bun
-	const fd4 = p.stdio[4] // WritableStream in Bun
+	const fd3 = p.stdio[3] // ReadableStream in Bun (because of "pipe")
+	const fd4 = p.stdio[4] // FileSink (Writable) in Bun (because of "pipe")
 
 	if (!fd3 || !fd4) {
 		throw new Error("Failed to map Chrome pipes to Bun stdio streams")
 	}
 
+	const stdin = new WritableStream<Uint8Array>({
+		write(chunk) {
+			fd4.write(chunk)
+			fd4.flush()
+		},
+		close() {
+			fd4.end()
+		},
+		abort() {
+			fd4.end()
+		},
+	})
+
 	const close = async () => {
 		try {
+			fd4.end()
 			p.kill()
-			
+
 			cleanupUserDataDir(userDataDir, lbo)
 		} catch {}
 	}
 
 	return {
-		stdout: fd3 as ReadableStream<Uint8Array>,
-		stdin: fd4 as WritableStream<Uint8Array>,
+		stdout: fd3,
+		stdin,
 		close,
 	}
 }

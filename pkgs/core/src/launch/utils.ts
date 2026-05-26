@@ -1,7 +1,7 @@
-import os from "node:os"
 import fs from "node:fs"
+import os from "node:os"
 import path from "node:path"
-import { getChromePath, DEFAULT_FLAGS } from "chrome-launcher"
+import { DEFAULT_FLAGS, getChromePath } from "chrome-launcher"
 import type { LocalBrowserLaunchOptions } from "../v3/types/public/api"
 
 export interface PreparedLaunchOptions {
@@ -50,7 +50,9 @@ export function prepareChromeLaunchOptions(
 
 	if (Array.isArray(lbo.args)) chromeFlags.push(...lbo.args)
 
-	const finalFlags = chromeFlags.filter((f): f is string => typeof f === "string")
+	const finalFlags = chromeFlags.filter(
+		(f): f is string => typeof f === "string",
+	)
 
 	return {
 		chromePath,

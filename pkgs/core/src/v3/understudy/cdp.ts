@@ -276,8 +276,7 @@ export class CDPConnection extends BaseCDPConnection {
 				transport.onclose(`code=${event.code} reason=${event.reason}`)
 		})
 		ws.addEventListener("error", () => {
-			if (transport.onerror)
-				transport.onerror(new Error("WebSocket error"))
+			if (transport.onerror) transport.onerror(new Error("WebSocket error"))
 		})
 		return new CDPConnection(transport)
 	}

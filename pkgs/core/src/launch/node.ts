@@ -1,13 +1,14 @@
-import { spawn, type ChildProcess } from "node:child_process"
-import type { LaunchedChrome } from "../v3/types/public/launchedChrome"
+import { type ChildProcess, spawn } from "node:child_process"
 import type { LocalBrowserLaunchOptions } from "../v3/types/public/api"
-import { prepareChromeLaunchOptions, cleanupUserDataDir } from "./utils"
+import type { LaunchedChrome } from "../v3/types/public/launchedChrome"
+import { cleanupUserDataDir, prepareChromeLaunchOptions } from "./utils"
 
 export async function launchChromeNode(
 	opts?: LocalBrowserLaunchOptions,
 ): Promise<LaunchedChrome> {
 	const lbo = opts ?? {}
-	const { chromePath, finalFlags, userDataDir } = prepareChromeLaunchOptions(lbo)
+	const { chromePath, finalFlags, userDataDir } =
+		prepareChromeLaunchOptions(lbo)
 
 	const p: ChildProcess = spawn(chromePath, finalFlags, {
 		stdio: ["ignore", "ignore", "ignore", "pipe", "pipe"],
@@ -65,7 +66,7 @@ export async function launchChromeNode(
 			fd3.destroy()
 			fd4.destroy()
 			p.kill()
-			
+
 			cleanupUserDataDir(userDataDir, lbo)
 		} catch {}
 	}

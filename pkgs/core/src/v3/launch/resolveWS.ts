@@ -23,7 +23,7 @@ export async function resolveWebSocketDebuggerUrl(
 	// We pass down either the endpoint (if it was a Request) or the built URL string
 	const target = endpoint instanceof Request ? endpoint : urlStr
 	const response = await fetch(target, init)
-	
+
 	if (!response.ok) {
 		throw new Error(
 			`Failed to fetch WebSocket debugger URL: ${response.status} ${response.statusText}`,
