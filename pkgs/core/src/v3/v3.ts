@@ -136,7 +136,10 @@ export class V3 {
 					await conn.close().catch(() => {})
 					throw err
 				}
+				let cleanedUp = false
 				const cleanup = async () => {
+					if (cleanedUp) return
+					cleanedUp = true
 					await conn.close().catch(() => {})
 				}
 				const v3 = new V3(
@@ -243,7 +246,10 @@ export class V3 {
 				}
 				throw err
 			}
+			let cleanedUp = false
 			const cleanup = async () => {
+				if (cleanedUp) return
+				cleanedUp = true
 				await conn.close().catch(() => {})
 				if (!keepAlive) {
 					await cleanupLocalBrowser({
@@ -311,7 +317,10 @@ export class V3 {
 				await conn.close().catch(() => {})
 				throw err
 			}
+			let cleanedUp = false
 			const cleanup = async () => {
+				if (cleanedUp) return
+				cleanedUp = true
 				await conn.close().catch(() => {})
 			}
 			const v3 = new V3(
@@ -358,7 +367,10 @@ export class V3 {
 				await adapter.close().catch(() => {})
 				throw err
 			}
+			let cleanedUp = false
 			const cleanup = async () => {
+				if (cleanedUp) return
+				cleanedUp = true
 				await adapter.close().catch(() => {})
 			}
 			const v3 = new V3(
