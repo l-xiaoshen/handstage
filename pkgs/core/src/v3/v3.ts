@@ -3,9 +3,7 @@ import os from "node:os"
 import path from "node:path"
 import process from "node:process"
 import { v7 as uuidv7 } from "uuid"
-import { launchLocalChrome } from "./launch/local"
 import { createFilteredLogger, type LogSink } from "./logger"
-import { cleanupLocalBrowser } from "./shutdown/cleanupLocal"
 import { startShutdownSupervisor } from "./shutdown/supervisorClient"
 import type {
 	ShutdownSupervisorConfig,
@@ -19,6 +17,7 @@ import type {
 	HandstageSharedOptions,
 	LocalBrowserLaunchOptions,
 } from "./types/public/options"
+import type { LaunchedChrome } from "./types/public/launchedChrome"
 import {
 	CDPConnection,
 	type CDPConnectionLike,
@@ -94,140 +93,45 @@ export class V3 {
 		return { instanceId, sharedOpts, logSink, logger }
 	}
 
-	static async connectLocal(opts?: HandstageLocalOptions): Promise<V3> {
+	static async connectWS(
+		ws: WebSocket,
+		opts?: HandstageConnectOptions,
+	): Promise<V3> {
 		const { instanceId, sharedOpts, logSink, logger } = V3.setupContext(opts)
 
 		return await (async () => {
-			const envHeadless = process.env.HEADLESS
-			if (envHeadless !== undefined) {
-				const normalized = envHeadless.trim().toLowerCase()
-				if (normalized !== "true") {
-					delete process.env.HEADLESS
-				}
-			}
-			const lbo: LocalBrowserLaunchOptions =
-				opts?.localBrowserLaunchOptions ?? {}
-
-			if (lbo.cdpHeaders && !lbo.cdpUrl) {
-				logger({
-					category: "init",
-					message:
-						"`cdpHeaders` was provided but `cdpUrl` is not set — cdpHeaders will be ignored. Set `cdpUrl` to connect to an existing browser via CDP.",
-					level: LogLevel.Debug,
-				})
-			}
-
-			if (lbo.cdpUrl) {
-				logger({
-					category: "init",
-					message: "Connecting to local browser",
-					level: LogLevel.Info,
-				})
-				const conn = await CDPConnection.connect(lbo.cdpUrl, {
-					headers: lbo.cdpHeaders,
-				})
-				let ctx: V3Context
-				try {
-					ctx = await V3Context.createFromConnection(conn, {
-						localBrowserLaunchOptions: lbo,
-						logger: logSink,
-					})
-				} catch (err) {
-					await conn.close().catch(() => {})
-					throw err
-				}
-				let cleanedUp = false
-				const cleanup = async () => {
-					if (cleanedUp) return
-					cleanedUp = true
-					await conn.close().catch(() => {})
-				}
-				const v3 = new V3(
-					conn,
-					cleanup,
-					ctx,
-					sharedOpts,
-					instanceId,
-					logSink,
-				)
-				await v3._applyPostConnectLocalOptions(lbo)
-				return v3
-			}
-
 			logger({
 				category: "init",
-				message: "Launching local browser",
+				message: "Connecting via WebSocket",
 				level: LogLevel.Info,
 			})
 
-			let userDataDir = lbo.userDataDir
-			let createdTemp = false
-			if (!userDataDir) {
-				const base = path.join(os.tmpdir(), "handstage-v3")
-				fs.mkdirSync(base, { recursive: true })
-				userDataDir = fs.mkdtempSync(path.join(base, "profile-"))
-				createdTemp = true
+			const transport: CDPTransport = {
+				send: (message) => ws.send(message),
+				close: () => ws.close(),
 			}
 
-			const defaults = [
-				"--remote-allow-origins=*",
-				"--no-first-run",
-				"--no-default-browser-check",
-				"--disable-dev-shm-usage",
-				"--site-per-process",
-			]
-			let chromeFlags: string[]
-			const ignore = lbo.ignoreDefaultArgs
-			if (ignore === true) {
-				chromeFlags = []
-			} else if (Array.isArray(ignore)) {
-				chromeFlags = defaults.filter(
-					(f) => !ignore.some((ex) => f.includes(ex)),
-				)
-			} else {
-				chromeFlags = [...defaults]
-			}
-
-			if (lbo.devtools) chromeFlags.push("--auto-open-devtools-for-tabs")
-			if (lbo.locale) chromeFlags.push(`--lang=${lbo.locale}`)
-			if (!lbo.viewport) {
-				lbo.viewport = DEFAULT_VIEWPORT
-			}
-			if (lbo.viewport?.width && lbo.viewport?.height) {
-				chromeFlags.push(
-					`--window-size=${lbo.viewport.width},${lbo.viewport.height + 87}`,
-				)
-			}
-			if (typeof lbo.deviceScaleFactor === "number") {
-				chromeFlags.push(
-					`--force-device-scale-factor=${Math.max(0.1, lbo.deviceScaleFactor)}`,
-				)
-			}
-			if (lbo.hasTouch) chromeFlags.push("--touch-events=enabled")
-			if (lbo.ignoreHTTPSErrors) chromeFlags.push("--ignore-certificate-errors")
-			if (lbo.proxy?.server)
-				chromeFlags.push(`--proxy-server=${lbo.proxy.server}`)
-			if (lbo.proxy?.bypass)
-				chromeFlags.push(`--proxy-bypass-list=${lbo.proxy.bypass}`)
-
-			if (Array.isArray(lbo.args)) chromeFlags.push(...lbo.args)
-
-			const keepAlive = sharedOpts.keepAlive === true
-			const { ws, chrome } = await launchLocalChrome({
-				chromePath: lbo.executablePath,
-				chromeFlags,
-				port: lbo.port,
-				headless: lbo.headless,
-				userDataDir,
-				connectTimeoutMs: lbo.connectTimeoutMs,
-				handleSIGINT: !keepAlive,
+			ws.addEventListener("message", (event: any) => {
+				if (transport.onmessage) transport.onmessage(event.data.toString())
 			})
-			if (keepAlive) {
-				try {
-					chrome.process?.unref?.()
-				} catch {}
-			}
-			const conn = await CDPConnection.connect(ws)
+			ws.addEventListener("close", (event: any) => {
+				if (transport.onclose)
+					transport.onclose(`code=${event.code} reason=${event.reason}`)
+			})
+			ws.addEventListener("error", (event: any) => {
+				if (transport.onerror)
+					transport.onerror(event.error || new Error("WebSocket error"))
+			})
+
+			const conn = new CDPConnection(transport)
+			const lbo: LocalBrowserLaunchOptions = opts
+				? {
+						viewport: opts.viewport,
+						deviceScaleFactor: opts.deviceScaleFactor,
+						downloadsPath: opts.downloadsPath,
+						acceptDownloads: opts.acceptDownloads,
+					}
+				: {}
 			let ctx: V3Context
 			try {
 				ctx = await V3Context.createFromConnection(conn, {
@@ -236,14 +140,6 @@ export class V3 {
 				})
 			} catch (err) {
 				await conn.close().catch(() => {})
-				try {
-					await chrome.kill()
-				} catch {}
-				if (createdTemp && !lbo.preserveUserDataDir) {
-					try {
-						fs.rmSync(userDataDir, { recursive: true, force: true })
-					} catch {}
-				}
 				throw err
 			}
 			let cleanedUp = false
@@ -251,16 +147,7 @@ export class V3 {
 				if (cleanedUp) return
 				cleanedUp = true
 				await conn.close().catch(() => {})
-				if (!keepAlive) {
-					await cleanupLocalBrowser({
-						killChrome: () => chrome.kill(),
-						userDataDir,
-						createdTempProfile: createdTemp,
-						preserveUserDataDir: !!lbo.preserveUserDataDir,
-					})
-				}
 			}
-
 			const v3 = new V3(
 				conn,
 				cleanup,
@@ -269,18 +156,105 @@ export class V3 {
 				instanceId,
 				logSink,
 			)
+			await v3._applyPostConnectLocalOptions(lbo)
+			return v3
+		})()
+	}
 
-			const chromePid = chrome.process?.pid ?? chrome.pid
-			if (!keepAlive && chromePid) {
-				v3.startShutdownSupervisor({
-					kind: "LOCAL",
-					pid: chromePid,
-					userDataDir,
-					createdTempProfile: createdTemp,
-					preserveUserDataDir: !!lbo.preserveUserDataDir,
-				})
+	static async connectLocal(
+		chrome: LaunchedChrome,
+		opts?: HandstageLocalOptions,
+	): Promise<V3> {
+		const { instanceId, sharedOpts, logSink, logger } = V3.setupContext(opts)
+
+		return await (async () => {
+			logger({
+				category: "init",
+				message: "Connecting via LaunchedChrome (pipe)",
+				level: LogLevel.Info,
+			})
+
+			const reader = chrome.stdout.getReader()
+			const writer = chrome.stdin.getWriter()
+			const textDecoder = new TextDecoder()
+			const textEncoder = new TextEncoder()
+
+			let isClosed = false
+			const transport: CDPTransport = {
+				send: (message) => {
+					if (isClosed) return
+					// Write as null-terminated string over pipe
+					writer.write(textEncoder.encode(message + "\0")).catch(() => {})
+				},
+				close: () => {
+					if (isClosed) return
+					isClosed = true
+					writer.close().catch(() => {})
+					chrome.close().catch(() => {})
+				},
 			}
 
+			// Read loop
+			void (async () => {
+				let buffer = ""
+				try {
+					while (!isClosed) {
+						const { value, done } = await reader.read()
+						if (done) break
+						buffer += textDecoder.decode(value, { stream: true })
+						
+						let nullIdx = buffer.indexOf("\0")
+						while (nullIdx !== -1) {
+							const msg = buffer.slice(0, nullIdx)
+							buffer = buffer.slice(nullIdx + 1)
+							if (transport.onmessage) {
+								transport.onmessage(msg)
+							}
+							nullIdx = buffer.indexOf("\0")
+						}
+					}
+				} catch (err) {
+					if (transport.onerror) {
+						transport.onerror(err instanceof Error ? err : new Error(String(err)))
+					}
+				} finally {
+					if (transport.onclose && !isClosed) {
+						transport.onclose("Pipe closed")
+					}
+					isClosed = true
+				}
+			})()
+
+			const conn = new CDPConnection(transport)
+			const lbo: LocalBrowserLaunchOptions = opts?.localBrowserLaunchOptions ?? {}
+
+			let ctx: V3Context
+			try {
+				ctx = await V3Context.createFromConnection(conn, {
+					localBrowserLaunchOptions: lbo,
+					logger: logSink,
+				})
+			} catch (err) {
+				await conn.close().catch(() => {})
+				await chrome.close().catch(() => {})
+				throw err
+			}
+
+			let cleanedUp = false
+			const cleanup = async () => {
+				if (cleanedUp) return
+				cleanedUp = true
+				await conn.close().catch(() => {})
+				await chrome.close().catch(() => {})
+			}
+			const v3 = new V3(
+				conn,
+				cleanup,
+				ctx,
+				sharedOpts,
+				instanceId,
+				logSink,
+			)
 			await v3._applyPostConnectLocalOptions(lbo)
 			return v3
 		})()
