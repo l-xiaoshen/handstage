@@ -16,8 +16,8 @@ export async function launchChromeBun(
 		stdio: ["ignore", "ignore", "ignore", "pipe", "pipe"],
 	})
 
-	const fd3 = p.stdio[3] // ReadableStream in Bun (because of "pipe")
-	const fd4 = p.stdio[4] // FileSink (Writable) in Bun (because of "pipe")
+	const fd3 = p.stdio[3] // FileSink (Writable) in Bun (Chrome's read pipe)
+	const fd4 = p.stdio[4] // ReadableStream in Bun (Chrome's write pipe)
 
 	if (!fd3 || !fd4) {
 		throw new Error("Failed to map Chrome pipes to Bun stdio streams")
@@ -25,20 +25,20 @@ export async function launchChromeBun(
 
 	const stdin = new WritableStream<Uint8Array>({
 		write(chunk) {
-			fd4.write(chunk)
-			fd4.flush()
+			fd3.write(chunk)
+			fd3.flush()
 		},
 		close() {
-			fd4.end()
+			fd3.end()
 		},
 		abort() {
-			fd4.end()
+			fd3.end()
 		},
 	})
 
 	const close = async () => {
 		try {
-			fd4.end()
+			fd3.end()
 			p.kill()
 
 			cleanupUserDataDir(userDataDir, createdTemp, lbo)
@@ -46,7 +46,7 @@ export async function launchChromeBun(
 	}
 
 	return {
-		stdout: fd3,
+		stdout: fd4,
 		stdin,
 		close,
 		pid: p.pid,
