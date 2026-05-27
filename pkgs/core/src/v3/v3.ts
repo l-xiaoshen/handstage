@@ -243,10 +243,6 @@ export class V3 {
 				if (cleanedUp) return
 				cleanedUp = true
 				await conn.close().catch(() => {})
-				const keepAlive = sharedOpts.keepAlive === true
-				if (!keepAlive) {
-					await chrome.close().catch(() => {})
-				}
 			}
 			const v3 = new V3(conn, cleanup, ctx, sharedOpts, instanceId, logSink)
 
