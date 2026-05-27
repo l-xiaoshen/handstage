@@ -38,7 +38,7 @@ export async function launchChromeBun(
 
 	const close = async () => {
 		try {
-			writer.end()
+			fd4.end()
 			p.kill()
 
 			cleanupUserDataDir(userDataDir, createdTemp, lbo)
