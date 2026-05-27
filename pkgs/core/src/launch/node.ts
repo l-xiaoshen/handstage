@@ -7,7 +7,7 @@ export async function launchChromeNode(
 	opts?: LocalBrowserLaunchOptions,
 ): Promise<LaunchedChrome> {
 	const lbo = opts ?? {}
-	const { chromePath, finalFlags, userDataDir } =
+	const { chromePath, finalFlags, userDataDir, createdTemp } =
 		prepareChromeLaunchOptions(lbo)
 
 	const p: ChildProcess = spawn(chromePath, finalFlags, {
@@ -57,7 +57,7 @@ export async function launchChromeNode(
 			})
 		},
 		abort(err) {
-			fd4.destroy(typeof err === "error" ? err : new Error(String(err)))
+			fd4.destroy(err instanceof Error ? err : new Error(String(err)))
 		},
 	})
 
@@ -67,7 +67,7 @@ export async function launchChromeNode(
 			fd4.destroy()
 			p.kill()
 
-			cleanupUserDataDir(userDataDir, lbo)
+			cleanupUserDataDir(userDataDir, createdTemp, lbo)
 		} catch {}
 	}
 
@@ -75,5 +75,8 @@ export async function launchChromeNode(
 		stdout,
 		stdin,
 		close,
+		pid: p.pid,
+		userDataDir,
+		createdTempProfile: createdTemp,
 	}
 }

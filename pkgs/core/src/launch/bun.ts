@@ -6,7 +6,7 @@ export async function launchChromeBun(
 	opts?: LocalBrowserLaunchOptions,
 ): Promise<LaunchedChrome> {
 	const lbo = opts ?? {}
-	const { chromePath, finalFlags, userDataDir } =
+	const { chromePath, finalFlags, userDataDir, createdTemp } =
 		prepareChromeLaunchOptions(lbo)
 
 	const p = Bun.spawn([chromePath, ...finalFlags], {
@@ -38,10 +38,10 @@ export async function launchChromeBun(
 
 	const close = async () => {
 		try {
-			fd4.end()
+			writer.end()
 			p.kill()
 
-			cleanupUserDataDir(userDataDir, lbo)
+			cleanupUserDataDir(userDataDir, createdTemp, lbo)
 		} catch {}
 	}
 
@@ -49,5 +49,8 @@ export async function launchChromeBun(
 		stdout: fd3,
 		stdin,
 		close,
+		pid: p.pid,
+		userDataDir,
+		createdTempProfile: createdTemp,
 	}
 }

@@ -240,9 +240,24 @@ export class V3 {
 				if (cleanedUp) return
 				cleanedUp = true
 				await conn.close().catch(() => {})
-				await chrome.close().catch(() => {})
+				const keepAlive = sharedOpts.keepAlive === true
+				if (!keepAlive) {
+					await chrome.close().catch(() => {})
+				}
 			}
 			const v3 = new V3(conn, cleanup, ctx, sharedOpts, instanceId, logSink)
+
+			const keepAlive = sharedOpts.keepAlive === true
+			if (!keepAlive && chrome.pid) {
+				v3.startShutdownSupervisor({
+					kind: "LOCAL",
+					pid: chrome.pid,
+					userDataDir: chrome.userDataDir,
+					createdTempProfile: !!chrome.createdTempProfile,
+					preserveUserDataDir: !!lbo.preserveUserDataDir,
+				})
+			}
+
 			await v3._applyPostConnectLocalOptions(lbo)
 			return v3
 		})()

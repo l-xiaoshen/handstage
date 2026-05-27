@@ -8,6 +8,7 @@ export interface PreparedLaunchOptions {
 	chromePath: string
 	finalFlags: string[]
 	userDataDir: string | undefined
+	createdTemp: boolean
 }
 
 export function prepareChromeLaunchOptions(
@@ -17,10 +18,12 @@ export function prepareChromeLaunchOptions(
 	const chromePath = lbo.executablePath || getChromePath()
 
 	let userDataDir = lbo.userDataDir
+	let createdTemp = false
 	if (!userDataDir) {
 		const base = path.join(os.tmpdir(), "handstage-v3")
 		fs.mkdirSync(base, { recursive: true })
 		userDataDir = fs.mkdtempSync(path.join(base, "profile-"))
+		createdTemp = true
 	}
 
 	const chromeFlags = [
@@ -58,14 +61,16 @@ export function prepareChromeLaunchOptions(
 		chromePath,
 		finalFlags,
 		userDataDir,
+		createdTemp,
 	}
 }
 
 export function cleanupUserDataDir(
 	userDataDir: string | undefined,
+	createdTemp: boolean,
 	opts?: LocalBrowserLaunchOptions,
 ): void {
-	if (!opts?.preserveUserDataDir && !opts?.userDataDir && userDataDir) {
+	if (createdTemp && !opts?.preserveUserDataDir && userDataDir) {
 		try {
 			fs.rmSync(userDataDir, { recursive: true, force: true })
 		} catch {}
