@@ -182,7 +182,10 @@ export class V3 {
 					if (isClosed) return
 					isClosed = true
 					writer.close().catch(() => {})
-					chrome.close().catch(() => {})
+					const keepAlive = sharedOpts.keepAlive === true
+					if (!keepAlive) {
+						chrome.close().catch(() => {})
+					}
 				},
 			}
 

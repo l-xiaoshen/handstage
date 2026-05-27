@@ -14,8 +14,8 @@ export async function launchChromeNode(
 		stdio: ["ignore", "ignore", "ignore", "pipe", "pipe"],
 	})
 
-	const fd3 = p.stdio[3]
-	const fd4 = p.stdio[4]
+	const fd3 = p.stdio[3] // Chrome's read pipe (our WritableStream)
+	const fd4 = p.stdio[4] // Chrome's write pipe (our ReadableStream)
 
 	if (!fd3 || !fd4) {
 		throw new Error("Failed to map Chrome pipes to stdio")
@@ -23,25 +23,25 @@ export async function launchChromeNode(
 
 	const stdout = new ReadableStream<Uint8Array>({
 		start(controller) {
-			fd3.on("data", (chunk: Buffer) => {
+			fd4.on("data", (chunk: Buffer) => {
 				controller.enqueue(new Uint8Array(chunk))
 			})
-			fd3.on("end", () => {
+			fd4.on("end", () => {
 				controller.close()
 			})
-			fd3.on("error", (err) => {
+			fd4.on("error", (err) => {
 				controller.error(err)
 			})
 		},
 		cancel() {
-			fd3.destroy()
+			fd4.destroy()
 		},
 	})
 
 	const stdin = new WritableStream<Uint8Array>({
 		write(chunk, controller) {
 			return new Promise((resolve, reject) => {
-				fd4.write(chunk, (err) => {
+				fd3.write(chunk, (err) => {
 					if (err) {
 						controller.error(err)
 						reject(err)
@@ -53,11 +53,11 @@ export async function launchChromeNode(
 		},
 		close() {
 			return new Promise((resolve) => {
-				fd4.end(resolve)
+				fd3.end(resolve)
 			})
 		},
 		abort(err) {
-			fd4.destroy(err instanceof Error ? err : new Error(String(err)))
+			fd3.destroy(err instanceof Error ? err : new Error(String(err)))
 		},
 	})
 
