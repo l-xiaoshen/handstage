@@ -1,10 +1,10 @@
 export interface LaunchedChrome {
 	/**
-	 * Reads from Chrome's CDP pipe (fd 3).
+	 * Reads from Chrome's CDP pipe (fd 4).
 	 */
 	stdout: ReadableStream<Uint8Array>
 	/**
-	 * Writes to Chrome's CDP pipe (fd 4).
+	 * Writes to Chrome's CDP pipe (fd 3).
 	 */
 	stdin: WritableStream<Uint8Array>
 	/**

@@ -26,9 +26,21 @@ export function prepareChromeLaunchOptions(
 		createdTemp = true
 	}
 
+	let baseChromeFlags: string[] = []
+	const ignore = lbo.ignoreDefaultArgs
+	if (ignore === true) {
+		baseChromeFlags = []
+	} else if (Array.isArray(ignore)) {
+		baseChromeFlags = DEFAULT_FLAGS.filter(
+			(f) => !ignore.some((ex) => f.includes(ex)),
+		)
+	} else {
+		baseChromeFlags = [...DEFAULT_FLAGS]
+	}
+
 	const chromeFlags = [
 		...(lbo.headless !== false ? ["--headless=new"] : []),
-		...DEFAULT_FLAGS,
+		...baseChromeFlags,
 		"--remote-debugging-pipe",
 	]
 

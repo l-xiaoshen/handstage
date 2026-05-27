@@ -10,9 +10,6 @@ export async function launchChromeBun(
 		prepareChromeLaunchOptions(lbo)
 
 	const p = Bun.spawn([chromePath, ...finalFlags], {
-		stdin: "ignore",
-		stdout: "ignore",
-		stderr: "ignore",
 		stdio: ["ignore", "ignore", "ignore", "pipe", "pipe"],
 	})
 
