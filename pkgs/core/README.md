@@ -6,17 +6,22 @@ browser automation.
 
 ## Connection ownership
 
-`V3` (alias `Handstage`) owns the CDP connection it constructs:
+Connection subpath factories own the CDP connection they construct:
 
-- `V3.connectLocal({ cdpUrl?, ... })` — opens (or attaches via WS) and owns
-  the connection. `close()` closes the WebSocket.
-- `V3.connectTransport(transport)` — wraps and owns a raw `CDPTransport`.
-  Wrapping the same `transport` again throws
-  `HandstageTransportAlreadyOwnedError`.
-- `V3.connectSession(session)` — wraps and owns an `ExternalCDPSession`.
-  Same ownership rule as transports.
-- `V3.connectConnection(existingConnection)` — explicit sharing entrypoint.
-  V3 does NOT close the connection on `close()`; the caller does.
+- `connectLocal(chrome)` from `@handstage/core/connect/local` — attaches to
+  a launched Chrome pipe and owns the connection.
+- `connectWS(ws)` from `@handstage/core/connect/ws` — wraps a browser
+  WebSocket and owns the connection. `close()` closes the WebSocket.
+- `connectTransport(transport)` from `@handstage/core/connect/transport` —
+  wraps and owns a raw `CDPTransport`.
+- `connectSession(session)` from `@handstage/core/connect/session` — wraps
+  and owns an `ExternalCDPSession`.
+- `connectConnection(existingConnection)` from
+  `@handstage/core/connect/connection` — explicit sharing entrypoint. V3 does
+  NOT close the connection on `close()`; the caller does.
+
+Wrapping the same `transport` or `session` again throws
+`HandstageTransportAlreadyOwnedError`.
 
 `V3Context.close()` only ever calls `Target.disposeBrowserContext` (for
 dedicated contexts). It never tears down the underlying CDP connection —
@@ -39,7 +44,7 @@ Contexts no longer auto-create an initial page and there is no
 
 ## Per-instance logging
 
-Pass `logger:` to any `V3.connect*` factory and that logger receives every
-log from that V3's contexts / pages / network managers / target-router
-delegate. Two V3 instances on a shared connection each receive router-level
-debug lines via broadcast.
+Pass `logger:` to any connection factory and that logger receives every log
+from that V3's contexts / pages / network managers / target-router delegate.
+Two V3 instances on a shared connection each receive router-level debug lines
+via broadcast.

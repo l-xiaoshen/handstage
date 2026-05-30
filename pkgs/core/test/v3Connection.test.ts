@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test"
+import { connectConnection } from "../src/v3/connect/connection"
+import { connectTransport } from "../src/v3/connect/transport"
 import { LogLevel } from "../src/v3/types/public/logs"
 import { HandstageTransportAlreadyOwnedError } from "../src/v3/types/public/sdkErrors"
 import { CDPConnection } from "../src/v3/understudy/cdp"
@@ -34,10 +36,16 @@ describe("CDPConnection transport ownership", () => {
 })
 
 describe("V3 connection lifecycle", () => {
+	test("connection factories live outside the V3 class", () => {
+		expect((V3 as unknown as Record<string, unknown>).connectTransport).toBe(
+			undefined,
+		)
+	})
+
 	test("connectTransport twice with the same transport is rejected", async () => {
 		const transport = new InMemoryTransport()
-		const first = await V3.connectTransport(transport)
-		await expect(V3.connectTransport(transport)).rejects.toBeInstanceOf(
+		const first = await connectTransport(transport)
+		await expect(connectTransport(transport)).rejects.toBeInstanceOf(
 			HandstageTransportAlreadyOwnedError,
 		)
 		await first.close()
@@ -45,7 +53,7 @@ describe("V3 connection lifecycle", () => {
 
 	test("V3.close calls transport.close exactly once when V3 owns it", async () => {
 		const transport = new InMemoryTransport()
-		const v3 = await V3.connectTransport(transport)
+		const v3 = await connectTransport(transport)
 		expect(transport.closeCalls).toBe(0)
 		await v3.close()
 		expect(transport.closeCalls).toBe(1)
@@ -53,7 +61,7 @@ describe("V3 connection lifecycle", () => {
 
 	test("connectConnection does not close the shared connection", async () => {
 		const conn = new FakeConnection()
-		const v3 = await V3.connectConnection(conn)
+		const v3 = await connectConnection(conn)
 		const before = conn.closeCalls
 		await v3.close()
 		expect(conn.closeCalls).toBe(before)
@@ -68,11 +76,11 @@ describe("V3 connection lifecycle", () => {
 		const bLines: string[] = []
 		// Verbose=Debug so the router-level Debug line actually reaches the
 		// user logger (the default Info filter would swallow it).
-		const a = await V3.connectConnection(conn, {
+		const a = await connectConnection(conn, {
 			logger: (line) => aLines.push(line.message),
 			verbose: LogLevel.Debug,
 		})
-		const b = await V3.connectConnection(conn, {
+		const b = await connectConnection(conn, {
 			logger: (line) => bLines.push(line.message),
 			verbose: LogLevel.Debug,
 		})

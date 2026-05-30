@@ -150,7 +150,7 @@ export function attachedEvent(
  * {@link InMemoryTransport.closeCalls}.
  *
  * The transport understands a small set of CDP methods that the V3 init
- * paths invoke synchronously so tests that go through `V3.connectTransport`
+ * paths invoke synchronously so tests that go through `connectTransport`
  * don't deadlock waiting for browser responses:
  *
  * - `Target.createBrowserContext` → synthesises an incrementing context id

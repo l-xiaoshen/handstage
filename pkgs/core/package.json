@@ -14,6 +14,30 @@
 		"./launch/bun": {
 			"types": "./src/launch/bun.ts",
 			"import": "./dist/launch/bun.js"
+		},
+		"./connect": {
+			"types": "./src/v3/connect/index.ts",
+			"import": "./dist/v3/connect/index.js"
+		},
+		"./connect/ws": {
+			"types": "./src/v3/connect/ws.ts",
+			"import": "./dist/v3/connect/ws.js"
+		},
+		"./connect/local": {
+			"types": "./src/v3/connect/local.ts",
+			"import": "./dist/v3/connect/local.js"
+		},
+		"./connect/transport": {
+			"types": "./src/v3/connect/transport.ts",
+			"import": "./dist/v3/connect/transport.js"
+		},
+		"./connect/session": {
+			"types": "./src/v3/connect/session.ts",
+			"import": "./dist/v3/connect/session.js"
+		},
+		"./connect/connection": {
+			"types": "./src/v3/connect/connection.ts",
+			"import": "./dist/v3/connect/connection.js"
 		}
 	},
 	"files": [

@@ -19,12 +19,13 @@ resources.
 
 ### Connection ownership
 
-- `V3` (alias `Handstage`) owns the CDP connection it constructs.
-  `V3.close()` closes that connection.
+- Connection factories in `@handstage/core/connect/*` decide ownership.
+  `V3.close()` closes owned connections.
 - `V3Context` never closes a connection it didn't construct. Dedicated
   contexts call `Target.disposeBrowserContext`; default contexts release
   nothing browser-side because they're shared with other actors.
-- `V3.connectConnection(existingConnection)` is the explicit entrypoint for
+- `connectConnection(existingConnection)` from
+  `@handstage/core/connect/connection` is the explicit entrypoint for
   sharing one `CDPConnectionLike` across multiple V3 instances. V3 instances
   created this way do NOT close the shared connection on `close()`. Wrapping
   the same raw `CDPTransport` or `ExternalCDPSession` in two
