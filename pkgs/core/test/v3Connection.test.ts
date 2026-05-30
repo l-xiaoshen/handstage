@@ -80,10 +80,14 @@ class SplitResponsePipeChrome implements LaunchedChrome {
 		const payload = `${response}\0${unhandledEvent}\0`
 		const splitAt = Math.max(1, Math.floor(payload.length / 2))
 
-		this.stdoutController.enqueue(this.encoder.encode(payload.slice(0, splitAt)))
+		this.stdoutController.enqueue(
+			this.encoder.encode(payload.slice(0, splitAt)),
+		)
 		queueMicrotask(() => {
 			try {
-				this.stdoutController.enqueue(this.encoder.encode(payload.slice(splitAt)))
+				this.stdoutController.enqueue(
+					this.encoder.encode(payload.slice(splitAt)),
+				)
 			} catch {}
 		})
 	}
