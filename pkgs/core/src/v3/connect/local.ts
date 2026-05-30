@@ -5,6 +5,46 @@ import { CDPConnection, type CDPTransport } from "../understudy/cdp"
 import type { V3 } from "../v3"
 import { createOwnedHandstage, setupConnectContext } from "./shared"
 
+const textEncoder = new TextEncoder()
+
+async function* readNullDelimitedMessages(
+	stream: ReadableStream<Uint8Array>,
+): AsyncGenerator<string> {
+	const reader = stream.pipeThrough(new TextDecoderStream()).getReader()
+	let pending = ""
+
+	try {
+		while (true) {
+			const { value, done } = await reader.read()
+			if (done) break
+
+			pending += value
+			let frameStart = 0
+
+			while (true) {
+				const frameEnd = pending.indexOf("\0", frameStart)
+				if (frameEnd === -1) break
+
+				yield pending.slice(frameStart, frameEnd)
+				frameStart = frameEnd + 1
+			}
+
+			if (frameStart > 0) {
+				pending = pending.slice(frameStart)
+			}
+		}
+	} finally {
+		reader.releaseLock()
+	}
+}
+
+function encodeNullDelimitedMessage(message: string): Uint8Array {
+	const encoded = textEncoder.encode(message)
+	const framed = new Uint8Array(encoded.byteLength + 1)
+	framed.set(encoded)
+	return framed
+}
+
 export async function connectLocal(
 	chrome: LaunchedChrome,
 	opts?: HandstageLocalOptions,
@@ -16,16 +56,13 @@ export async function connectLocal(
 		level: LogLevel.Info,
 	})
 
-	const reader = chrome.stdout.getReader()
 	const writer = chrome.stdin.getWriter()
-	const textDecoder = new TextDecoder()
-	const textEncoder = new TextEncoder()
 
 	let isClosed = false
 	const transport: CDPTransport = {
 		send: (message) => {
 			if (isClosed) return
-			writer.write(textEncoder.encode(`${message}\0`)).catch(() => {})
+			writer.write(encodeNullDelimitedMessage(message)).catch(() => {})
 		},
 		close: () => {
 			if (isClosed) return
@@ -39,22 +76,10 @@ export async function connectLocal(
 	}
 
 	void (async () => {
-		let buffer = ""
 		try {
-			while (!isClosed) {
-				const { value, done } = await reader.read()
-				if (done) break
-				buffer += textDecoder.decode(value, { stream: true })
-
-				let nullIdx = buffer.indexOf("\0")
-				while (nullIdx !== -1) {
-					const msg = buffer.slice(0, nullIdx)
-					buffer = buffer.slice(nullIdx + 1)
-					if (transport.onmessage) {
-						transport.onmessage(msg)
-					}
-					nullIdx = buffer.indexOf("\0")
-				}
+			for await (const message of readNullDelimitedMessages(chrome.stdout)) {
+				if (isClosed) break
+				if (transport.onmessage) transport.onmessage(message)
 			}
 		} catch (err) {
 			if (transport.onerror) {
