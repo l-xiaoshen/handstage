@@ -155,7 +155,9 @@ describe("V3 connection lifecycle", () => {
 
 	test("connectLocal parses split and coalesced pipe messages", async () => {
 		const chrome = new SplitResponsePipeChrome()
-		const v3 = await connectLocal(chrome)
+		const v3 = await connectLocal(chrome, {
+			localBrowserLaunchOptions: { acceptDownloads: true },
+		})
 
 		expect(chrome.sentMethods).toContain("Target.setAutoAttach")
 		expect(chrome.sentMethods).toContain("Target.getTargets")
