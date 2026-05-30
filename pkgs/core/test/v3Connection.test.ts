@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test"
 import { connectConnection } from "../src/v3/connect/connection"
+import { connectLocal } from "../src/v3/connect/local"
 import { connectTransport } from "../src/v3/connect/transport"
+import type { LaunchedChrome } from "../src/v3/types/public/launchedChrome"
 import { LogLevel } from "../src/v3/types/public/logs"
 import { HandstageTransportAlreadyOwnedError } from "../src/v3/types/public/sdkErrors"
 import { CDPConnection } from "../src/v3/understudy/cdp"
@@ -12,6 +14,98 @@ import {
 	InMemoryTransport,
 	waitFor,
 } from "./_fakes"
+
+class SplitResponsePipeChrome implements LaunchedChrome {
+	public readonly sentMethods: string[] = []
+	public closeCalls = 0
+	public readonly stdout: ReadableStream<Uint8Array>
+	public readonly stdin: WritableStream<Uint8Array>
+	private readonly decoder = new TextDecoder()
+	private readonly encoder = new TextEncoder()
+	private requestBuffer = ""
+	private stdoutController!: ReadableStreamDefaultController<Uint8Array>
+
+	constructor() {
+		this.stdout = new ReadableStream<Uint8Array>({
+			start: (controller) => {
+				this.stdoutController = controller
+			},
+		})
+		this.stdin = new WritableStream<Uint8Array>({
+			write: (chunk) => {
+				this.requestBuffer += this.decoder.decode(chunk, { stream: true })
+				this.flushRequests()
+			},
+		})
+	}
+
+	close = async (): Promise<void> => {
+		this.closeCalls += 1
+		try {
+			this.stdoutController.close()
+		} catch {}
+	}
+
+	private flushRequests(): void {
+		let frameStart = 0
+
+		while (true) {
+			const frameEnd = this.requestBuffer.indexOf("\0", frameStart)
+			if (frameEnd === -1) break
+
+			const raw = this.requestBuffer.slice(frameStart, frameEnd)
+			frameStart = frameEnd + 1
+			if (raw) this.replyTo(raw)
+		}
+
+		if (frameStart > 0) {
+			this.requestBuffer = this.requestBuffer.slice(frameStart)
+		}
+	}
+
+	private replyTo(raw: string): void {
+		const request = JSON.parse(raw) as { id?: number; method?: string }
+		if (typeof request.id !== "number") return
+
+		const method = request.method ?? ""
+		this.sentMethods.push(method)
+		const response = JSON.stringify({
+			id: request.id,
+			result: this.synthesize(method),
+		})
+		const unhandledEvent = JSON.stringify({
+			method: "HandstageTest.unhandled",
+			params: { method },
+		})
+		const payload = `${response}\0${unhandledEvent}\0`
+		const splitAt = Math.max(1, Math.floor(payload.length / 2))
+
+		this.stdoutController.enqueue(this.encoder.encode(payload.slice(0, splitAt)))
+		queueMicrotask(() => {
+			try {
+				this.stdoutController.enqueue(this.encoder.encode(payload.slice(splitAt)))
+			} catch {}
+		})
+	}
+
+	private synthesize(method: string): object {
+		switch (method) {
+			case "Target.createBrowserContext":
+				return { browserContextId: "ctx-pipe-1" }
+			case "Target.getTargets":
+				return { targetInfos: [] }
+			case "Target.getBrowserContexts":
+				return { browserContextIds: [] }
+			case "Target.setAutoAttach":
+			case "Target.setDiscoverTargets":
+			case "Browser.setDownloadBehavior":
+			case "Target.disposeBrowserContext":
+				return {}
+			default:
+				return {}
+		}
+	}
+}
 
 describe("CDPConnection transport ownership", () => {
 	test("wrapping the same transport twice throws", () => {
@@ -57,6 +151,18 @@ describe("V3 connection lifecycle", () => {
 		expect(transport.closeCalls).toBe(0)
 		await v3.close()
 		expect(transport.closeCalls).toBe(1)
+	})
+
+	test("connectLocal parses split and coalesced pipe messages", async () => {
+		const chrome = new SplitResponsePipeChrome()
+		const v3 = await connectLocal(chrome)
+
+		expect(chrome.sentMethods).toContain("Target.setAutoAttach")
+		expect(chrome.sentMethods).toContain("Target.getTargets")
+		expect(chrome.sentMethods).toContain("Browser.setDownloadBehavior")
+
+		await v3.close()
+		expect(chrome.closeCalls).toBe(1)
 	})
 
 	test("connectConnection does not close the shared connection", async () => {
