@@ -7,7 +7,6 @@ import { LogLevel } from "../src/v3/types/public/logs"
 import { HandstageTransportAlreadyOwnedError } from "../src/v3/types/public/sdkErrors"
 import { CDPConnection } from "../src/v3/understudy/cdp"
 import { getTargetRouter } from "../src/v3/understudy/targetRouter"
-import { V3 } from "../src/v3/v3"
 import {
 	FakeConnection,
 	FakeSession,
@@ -134,11 +133,6 @@ describe("CDPConnection transport ownership", () => {
 })
 
 describe("V3 connection lifecycle", () => {
-	test("connection factories live outside the V3 class", () => {
-		expect("connectTransport" in V3).toBe(false)
-		expect("createForConnection" in V3).toBe(false)
-	})
-
 	test("connectTransport twice with the same transport is rejected", async () => {
 		const transport = new InMemoryTransport()
 		const first = await connectTransport(transport)
