@@ -11,6 +11,8 @@ import type { CDPConnectionLike } from "./understudy/cdp"
 import { V3Context } from "./understudy/context"
 import type { Page } from "./understudy/page"
 
+const V3_CONSTRUCTOR_TOKEN: unique symbol = Symbol("handstage.v3.constructor")
+
 /**
  * V3 (alias `Handstage`)
  *
@@ -44,14 +46,23 @@ export class V3 {
 	private readonly _contexts = new Set<V3Context>()
 	private readonly defaultContext: V3Context
 
-	private constructor(
+	/** @internal Use connection subpath factories instead. */
+	constructor(
+		token: typeof V3_CONSTRUCTOR_TOKEN,
 		connection: CDPConnectionLike,
 		cleanup: (() => Promise<void>) | undefined,
 		defaultContext: V3Context,
 		opts: HandstageSharedOptions,
 		instanceId: string,
 		logSink: LogSink,
+		shutdownSupervisorConfig?: ShutdownSupervisorConfig,
 	) {
+		if (token !== V3_CONSTRUCTOR_TOKEN) {
+			throw new TypeError(
+				"Use @handstage/core/connect/* factories to create V3",
+			)
+		}
+
 		this.connection = connection
 		this.cleanup = cleanup
 		this.defaultContext = defaultContext
@@ -63,6 +74,9 @@ export class V3 {
 		this.sessionId = opts.sessionId ?? this.instanceId
 
 		this.connection.onTransportClosed(this._onCDPClosed)
+		if (shutdownSupervisorConfig) {
+			this.startShutdownSupervisor(shutdownSupervisorConfig)
+		}
 	}
 
 	private emitLog(line: LogLine): void {
@@ -233,16 +247,14 @@ export function createV3ForConnection(params: {
 	logSink: LogSink
 	shutdownSupervisorConfig?: ShutdownSupervisorConfig
 }): V3 {
-	const v3 = new V3(
+	return new V3(
+		V3_CONSTRUCTOR_TOKEN,
 		params.connection,
 		params.cleanup,
 		params.defaultContext,
 		params.opts,
 		params.instanceId,
 		params.logSink,
+		params.shutdownSupervisorConfig,
 	)
-	if (params.shutdownSupervisorConfig) {
-		v3.startShutdownSupervisor(params.shutdownSupervisorConfig)
-	}
-	return v3
 }
