@@ -1,5 +1,5 @@
-import { LogLevel } from "../types/public/logs"
 import type { LaunchedChrome } from "../types/public/launchedChrome"
+import { LogLevel } from "../types/public/logs"
 import type { HandstageLocalOptions } from "../types/public/options"
 import { CDPConnection, type CDPTransport } from "../understudy/cdp"
 import type { V3 } from "../v3"
