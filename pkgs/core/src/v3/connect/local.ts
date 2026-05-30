@@ -10,7 +10,10 @@ const textEncoder = new TextEncoder()
 async function* readNullDelimitedMessages(
 	stream: ReadableStream<Uint8Array>,
 ): AsyncGenerator<string> {
-	const reader = stream.pipeThrough(new TextDecoderStream()).getReader()
+	const decodedStream = (stream as ReadableStream<BufferSource>).pipeThrough(
+		new TextDecoderStream(),
+	)
+	const reader = decodedStream.getReader()
 	let pending = ""
 
 	try {
