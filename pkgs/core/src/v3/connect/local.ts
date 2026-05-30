@@ -7,12 +7,23 @@ import { createOwnedHandstage, setupConnectContext } from "./shared"
 
 const textEncoder = new TextEncoder()
 
+function createUtf8DecoderStream(): TransformStream<Uint8Array, string> {
+	const decoder = new TextDecoder()
+	return new TransformStream<Uint8Array, string>({
+		transform(chunk, controller) {
+			controller.enqueue(decoder.decode(chunk, { stream: true }))
+		},
+		flush(controller) {
+			const trailing = decoder.decode()
+			if (trailing) controller.enqueue(trailing)
+		},
+	})
+}
+
 async function* readNullDelimitedMessages(
 	stream: ReadableStream<Uint8Array>,
 ): AsyncGenerator<string> {
-	const decodedStream = (stream as ReadableStream<BufferSource>).pipeThrough(
-		new TextDecoderStream(),
-	)
+	const decodedStream = stream.pipeThrough(createUtf8DecoderStream())
 	const reader = decodedStream.getReader()
 	let pending = ""
 
