@@ -8,7 +8,7 @@ import type {
 } from "../types/public/options"
 import type { CDPConnectionLike } from "../understudy/cdp"
 import { V3Context } from "../understudy/context"
-import { V3 } from "../v3"
+import { createV3ForConnection, type V3 } from "../v3"
 
 export function setupConnectContext(opts?: HandstageSharedOptions) {
 	const instanceId = uuidv7()
@@ -64,7 +64,7 @@ export async function createOwnedHandstage(params: {
 	const cleanup = onceAsync(async () => {
 		await params.conn.close().catch(() => {})
 	})
-	const v3 = V3.createForConnection({
+	const v3 = createV3ForConnection({
 		connection: params.conn,
 		cleanup,
 		defaultContext: ctx,
@@ -88,7 +88,7 @@ export async function createSharedHandstage(params: {
 		localBrowserLaunchOptions: params.lbo,
 		logger: params.logSink,
 	})
-	const v3 = V3.createForConnection({
+	const v3 = createV3ForConnection({
 		connection: params.conn,
 		defaultContext: ctx,
 		opts: params.sharedOpts,

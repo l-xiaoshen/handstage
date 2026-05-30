@@ -65,30 +65,6 @@ export class V3 {
 		this.connection.onTransportClosed(this._onCDPClosed)
 	}
 
-	/** @internal Used by connection subpath factories. */
-	static createForConnection(params: {
-		connection: CDPConnectionLike
-		cleanup?: () => Promise<void>
-		defaultContext: V3Context
-		opts: HandstageSharedOptions
-		instanceId: string
-		logSink: LogSink
-		shutdownSupervisorConfig?: ShutdownSupervisorConfig
-	}): V3 {
-		const v3 = new V3(
-			params.connection,
-			params.cleanup,
-			params.defaultContext,
-			params.opts,
-			params.instanceId,
-			params.logSink,
-		)
-		if (params.shutdownSupervisorConfig) {
-			v3.startShutdownSupervisor(params.shutdownSupervisorConfig)
-		}
-		return v3
-	}
-
 	private emitLog(line: LogLine): void {
 		this.logSink(line)
 	}
@@ -245,4 +221,28 @@ export class V3 {
 			this.emitLog(logLine)
 		}
 	}
+}
+
+/** @internal Used by connection subpath factories. */
+export function createV3ForConnection(params: {
+	connection: CDPConnectionLike
+	cleanup?: () => Promise<void>
+	defaultContext: V3Context
+	opts: HandstageSharedOptions
+	instanceId: string
+	logSink: LogSink
+	shutdownSupervisorConfig?: ShutdownSupervisorConfig
+}): V3 {
+	const v3 = new V3(
+		params.connection,
+		params.cleanup,
+		params.defaultContext,
+		params.opts,
+		params.instanceId,
+		params.logSink,
+	)
+	if (params.shutdownSupervisorConfig) {
+		v3.startShutdownSupervisor(params.shutdownSupervisorConfig)
+	}
+	return v3
 }

@@ -135,9 +135,8 @@ describe("CDPConnection transport ownership", () => {
 
 describe("V3 connection lifecycle", () => {
 	test("connection factories live outside the V3 class", () => {
-		expect((V3 as unknown as Record<string, unknown>).connectTransport).toBe(
-			undefined,
-		)
+		expect("connectTransport" in V3).toBe(false)
+		expect("createForConnection" in V3).toBe(false)
 	})
 
 	test("connectTransport twice with the same transport is rejected", async () => {
