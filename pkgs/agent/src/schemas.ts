@@ -17,6 +17,8 @@ export const NewPageInputSchema = z.object({
 
 export const BringToFrontInputSchema = z.object({ pageId: PageIdSchema })
 
+export const ClosePageInputSchema = z.object({ pageId: PageIdSchema })
+
 export const GotoInputSchema = z.object({
 	pageId: PageIdSchema,
 	url: z.string().min(1),
@@ -43,7 +45,7 @@ export const GoForwardInputSchema = z.object({
 	timeoutMs: z.number().positive().optional(),
 })
 
-export const SnapshotInputSchema = z.object({
+export const SnapshotDomInputSchema = z.object({
 	pageId: PageIdSchema,
 	includeIframes: z.boolean().optional(),
 })
@@ -105,6 +107,36 @@ export const HoverOnInputSchema = z.object({
 	select: z.string().min(1).describe("CSS selector or XPath"),
 })
 
+/** Encoded node id from snapshot_dom (e.g. `1-42` — frameOrdinal-backendNodeId). */
+export const A11yEncodedIdSchema = z
+	.string()
+	.min(1)
+	.regex(/^\d+-\d+$/, "Expected frameOrdinal-backendNodeId from snapshot_dom")
+	.describe("Encoded node id from snapshot_dom (bracketed id in the a11y tree)")
+
+export const ClickOnIdInputSchema = z.object({
+	pageId: PageIdSchema,
+	id: A11yEncodedIdSchema,
+})
+
+export const FillOnIdInputSchema = z.object({
+	pageId: PageIdSchema,
+	id: A11yEncodedIdSchema,
+	value: z.string(),
+})
+
+export const TypeOnIdInputSchema = z.object({
+	pageId: PageIdSchema,
+	id: A11yEncodedIdSchema,
+	text: z.string(),
+	delay: z.number().nonnegative().optional(),
+})
+
+export const HoverOnIdInputSchema = z.object({
+	pageId: PageIdSchema,
+	id: A11yEncodedIdSchema,
+})
+
 /** Shared `{ ok: true } | { ok: false; error }` tool result shape */
 export const HandstageAgentOkOrErrOutputSchema = z.discriminatedUnion("ok", [
 	z.object({ ok: z.literal(true) }),
@@ -125,6 +157,8 @@ export const NewPageOutputSchema = z.object({ pageId: z.string() })
 
 export const BringToFrontOutputSchema = HandstageAgentOkOrErrOutputSchema
 
+export const ClosePageOutputSchema = HandstageAgentOkOrErrOutputSchema
+
 export const GotoOutputSchema = z.discriminatedUnion("ok", [
 	z.object({ ok: z.literal(true), url: z.string() }),
 	z.object({ ok: z.literal(false), error: z.string() }),
@@ -141,7 +175,7 @@ export const HistoryNavOutputSchema = z.discriminatedUnion("ok", [
 	z.object({ ok: z.literal(false), error: z.string() }),
 ])
 
-export const SnapshotOutputSchema = z.discriminatedUnion("ok", [
+export const SnapshotDomOutputSchema = z.discriminatedUnion("ok", [
 	z.object({
 		ok: z.literal(true),
 		tree: z.string(),
