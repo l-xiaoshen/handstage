@@ -30,7 +30,7 @@ import type {
 
 type DeepLocator = ReturnType<Page["deepLocator"]>
 
-class ContextHandstageAgentToolHandlers implements HandstageAgentToolHandlers {
+export class HandstageContextAgentToolHandlers implements HandstageAgentToolHandlers {
 	constructor(private readonly ctx: Context) {}
 
 	async pages(_input: PagesInput): Promise<PagesOutput> {
@@ -153,8 +153,8 @@ class ContextHandstageAgentToolHandlers implements HandstageAgentToolHandlers {
 	}
 }
 
-export function createContextHandstageAgentToolHandlers(
+export function createHandstageContextAgentToolHandlers(
 	ctx: Context,
 ): HandstageAgentToolHandlers {
-	return new ContextHandstageAgentToolHandlers(ctx)
+	return new HandstageContextAgentToolHandlers(ctx)
 }
