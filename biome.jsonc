@@ -2,7 +2,7 @@
 	"$schema": "https://biomejs.dev/schemas/2.4.15/schema.json",
 	"files": {
 		"ignoreUnknown": false,
-		"includes": ["**/*.ts", "**/*.json"]
+		"includes": ["**/*.ts", "**/*.json", "!pkgs/dom/src/build/*.generated.ts"]
 	},
 	"formatter": {
 		"enabled": true

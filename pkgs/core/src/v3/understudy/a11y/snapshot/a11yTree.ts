@@ -74,7 +74,8 @@ export async function a11yForFrame(
 			const keep = new Set<string>([target.nodeId])
 			const queue: Protocol.Accessibility.AXNode[] = [target]
 			while (queue.length) {
-				const cur = queue.shift()!
+				const cur = queue.shift()
+				if (!cur) throw new Error("AX traversal queue unexpectedly empty")
 				for (const id of cur.childIds ?? []) {
 					if (keep.has(id)) continue
 					keep.add(id)
@@ -122,7 +123,7 @@ export function decorateRoles(
 		const tag = encodedId ? opts.tagNameMap[encodedId] : undefined
 		const isHtmlElement = tag === "html"
 		if ((domIsScrollable || isHtmlElement) && tag !== "#document") {
-			const tagLabel = tag && tag.startsWith("#") ? tag.slice(1) : tag
+			const tagLabel = tag?.startsWith("#") ? tag.slice(1) : tag
 			role = tagLabel
 				? `scrollable, ${tagLabel}`
 				: `scrollable${role ? `, ${role}` : ""}`
@@ -150,9 +151,7 @@ export async function buildHierarchicalTree(
 
 	for (const n of nodes) {
 		const keep =
-			!!(n.name && n.name.trim()) ||
-			!!(n.childIds && n.childIds.length) ||
-			!isStructural(n.role)
+			!!n.name?.trim() || !!n.childIds?.length || !isStructural(n.role)
 		if (!keep) continue
 		nodeMap.set(n.nodeId, { ...n })
 	}
@@ -161,12 +160,20 @@ export async function buildHierarchicalTree(
 		if (!n.parentId) continue
 		const parent = nodeMap.get(n.parentId)
 		const cur = nodeMap.get(n.nodeId)
-		if (parent && cur) (parent.children ??= []).push(cur)
+		if (parent && cur) {
+			const children = parent.children ?? []
+			children.push(cur)
+			parent.children = children
+		}
 	}
 
 	const roots = nodes
 		.filter((n) => !n.parentId && nodeMap.has(n.nodeId))
-		.map((n) => nodeMap.get(n.nodeId)!) as A11yNode[]
+		.map((n) => {
+			const node = nodeMap.get(n.nodeId)
+			if (!node) throw new Error(`AX root node missing from map: ${n.nodeId}`)
+			return node
+		})
 
 	const cleaned = (await Promise.all(roots.map(pruneStructuralSafe))).filter(
 		Boolean,
@@ -189,7 +196,11 @@ export async function buildHierarchicalTree(
 		const prunedStatic = removeRedundantStaticTextChildren(node, cleanedKids)
 
 		if (isStructural(node.role)) {
-			if (prunedStatic.length === 1) return prunedStatic[0]!
+			if (prunedStatic.length === 1) {
+				const onlyChild = prunedStatic[0]
+				if (!onlyChild) throw new Error("pruned AX child is unexpectedly empty")
+				return onlyChild
+			}
 			if (prunedStatic.length === 0) return null
 		}
 

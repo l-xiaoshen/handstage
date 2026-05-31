@@ -78,7 +78,7 @@ export function prefixXPath(parentAbs: string, child: string): string {
 export function normalizeXPath(x?: string): string {
 	if (!x) return ""
 	let s = x.trim().replace(/^xpath=/i, "")
-	if (!s.startsWith("/")) s = "/" + s
+	if (!s.startsWith("/")) s = `/${s}`
 	if (s.length > 1 && s.endsWith("/")) s = s.slice(0, -1)
 	return s
 }
@@ -90,7 +90,8 @@ export function buildChildXPathSegments(kids: Protocol.DOM.Node[]): string[] {
 	for (const child of kids) {
 		const tag = String(child.nodeName).toLowerCase()
 		const key = `${child.nodeType}:${tag}`
-		const idx = (ctr[key] = (ctr[key] ?? 0) + 1)
+		const idx = (ctr[key] ?? 0) + 1
+		ctr[key] = idx
 		if (child.nodeType === 3) {
 			segs.push(`text()[${idx}]`)
 		} else if (child.nodeType === 8) {

@@ -55,9 +55,6 @@ function shellFrame(id: FrameId): Protocol.Page.Frame {
 }
 
 export class FrameRegistry {
-	/** Owner target id (top-level target); informational only */
-	private readonly ownerTargetId: string
-
 	/** Current main/root frame id (changes on root swaps) */
 	private rootFrameId: FrameId
 
@@ -67,8 +64,7 @@ export class FrameRegistry {
 	/** sessionId → Set<frameId> (inverse map for diagnostics/fast membership checks) */
 	private framesBySession = new Map<SessionId, Set<FrameId>>()
 
-	constructor(ownerTargetId: string, mainFrameId: FrameId) {
-		this.ownerTargetId = ownerTargetId
+	constructor(_ownerTargetId: string, mainFrameId: FrameId) {
 		this.rootFrameId = mainFrameId
 		this.ensureNode(mainFrameId)
 	}
@@ -94,11 +90,11 @@ export class FrameRegistry {
 		this.ensureNode(frameId)
 		if (parentId) this.ensureNode(parentId)
 
-		const info = this.frames.get(frameId)!
+		const info = this.requireNode(frameId)
 		info.parentId = parentId ?? null
 
 		if (parentId) {
-			this.frames.get(parentId)!.children.add(frameId)
+			this.requireNode(parentId).children.add(frameId)
 		}
 
 		this.setOwnerSessionIdInternal(frameId, sessionId)
@@ -110,7 +106,7 @@ export class FrameRegistry {
 	 */
 	onFrameNavigated(frame: Protocol.Page.Frame, sessionId: SessionId): void {
 		this.ensureNode(frame.id)
-		const info = this.frames.get(frame.id)!
+		const info = this.requireNode(frame.id)
 		info.lastSeen = frame
 
 		this.setOwnerSessionIdInternal(frame.id, sessionId)
@@ -129,7 +125,7 @@ export class FrameRegistry {
 		sessionId: SessionId,
 	): void {
 		this.ensureNode(frameId)
-		const info = this.frames.get(frameId)!
+		const info = this.requireNode(frameId)
 		const lastSeen = info.lastSeen ?? shellFrame(frameId)
 		info.lastSeen = { ...lastSeen, url }
 		this.setOwnerSessionIdInternal(frameId, sessionId)
@@ -201,10 +197,11 @@ export class FrameRegistry {
 	): void {
 		const walk = (tree: Protocol.Page.FrameTree, parent: FrameId | null) => {
 			this.ensureNode(tree.frame.id)
-			this.frames.get(tree.frame.id)!.parentId = parent
-			if (parent) this.frames.get(parent)!.children.add(tree.frame.id)
-			this.frames.get(tree.frame.id)!.lastSeen = tree.frame
-			if (!this.frames.get(tree.frame.id)!.ownerSessionId) {
+			const info = this.requireNode(tree.frame.id)
+			info.parentId = parent
+			if (parent) this.requireNode(parent).children.add(tree.frame.id)
+			info.lastSeen = tree.frame
+			if (!info.ownerSessionId) {
 				this.setOwnerSessionIdInternal(tree.frame.id, sessionId)
 			}
 			for (const c of tree.childFrames ?? []) walk(c, tree.frame.id)
@@ -218,7 +215,7 @@ export class FrameRegistry {
 	 */
 	setOwnerBackendNodeId(childFrameId: FrameId, backendNodeId: number): void {
 		this.ensureNode(childFrameId)
-		this.frames.get(childFrameId)!.ownerBackendNodeId = backendNodeId
+		this.requireNode(childFrameId).ownerBackendNodeId = backendNodeId
 	}
 
 	mainFrameId(): FrameId {
@@ -305,11 +302,17 @@ export class FrameRegistry {
 		})
 	}
 
+	private requireNode(fid: FrameId): FrameInfo {
+		const info = this.frames.get(fid)
+		if (!info) throw new Error(`FrameRegistry missing frame node ${fid}`)
+		return info
+	}
+
 	private renameNodeId(oldId: FrameId, newId: FrameId): void {
 		if (oldId === newId) return
 		this.ensureNode(oldId)
 
-		const info = this.frames.get(oldId)!
+		const info = this.requireNode(oldId)
 
 		this.frames.delete(oldId)
 		this.frames.set(newId, { ...info })
@@ -341,7 +344,7 @@ export class FrameRegistry {
 		sessionId: SessionId,
 	): void {
 		this.ensureNode(frameId)
-		const info = this.frames.get(frameId)!
+		const info = this.requireNode(frameId)
 
 		if (info.ownerSessionId === sessionId) return
 

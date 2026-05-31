@@ -1269,7 +1269,10 @@ export class Context implements TargetRouterDelegate {
 		}
 
 		const current = await this.cookies()
-		const toKeep = current.filter((c) => !cookieMatchesFilter(c, options!))
+		if (!options) {
+			throw new CookieValidationError("clearCookies filter options are missing")
+		}
+		const toKeep = current.filter((c) => !cookieMatchesFilter(c, options))
 
 		if (toKeep.length === current.length) return
 

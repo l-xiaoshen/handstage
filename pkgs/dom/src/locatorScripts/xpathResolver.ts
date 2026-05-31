@@ -213,7 +213,10 @@ function composedDescendants(
 
 		const children = composedChildren(next, getClosedRoot)
 		for (let i = children.length - 1; i >= 0; i -= 1) {
-			stack.push(children[i]!)
+			const child = children[i]
+			if (!child)
+				throw new Error("XPath composed child missing during traversal")
+			stack.push(child)
 		}
 	}
 

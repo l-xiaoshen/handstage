@@ -52,10 +52,10 @@ export function resolveMaskRect(
 		if (maskToken) {
 			try {
 				const existing = root.getAttribute("data-handstage-mask-root")
-				if (existing && existing.startsWith(maskToken)) {
+				if (existing?.startsWith(maskToken)) {
 					rootToken = existing
 				} else {
-					rootToken = maskToken + "_root_" + Math.random().toString(36).slice(2)
+					rootToken = `${maskToken}_root_${Math.random().toString(36).slice(2)}`
 					root.setAttribute("data-handstage-mask-root", rootToken)
 				}
 			} catch {

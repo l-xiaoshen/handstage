@@ -155,7 +155,7 @@ export class NavigationResponseTracker {
 		event: Protocol.Network.ResponseReceivedEvent,
 	): void {
 		if (!this.page.isCurrentNavigationCommand(this.navigationCommandId)) return
-		if (!event || !event.response) return
+		if (!event?.response) return
 		if (event.type !== "Document") return
 		if (event.frameId !== this.page.mainFrameId()) return
 
@@ -187,7 +187,7 @@ export class NavigationResponseTracker {
 	private onResponseReceivedExtraInfo(
 		event: Protocol.Network.ResponseReceivedExtraInfoEvent,
 	): void {
-		if (!event || !event.requestId) return
+		if (!event?.requestId) return
 		if (this.selectedRequestId && event.requestId === this.selectedRequestId) {
 			this.selectedResponse?.applyExtraInfo(event)
 			return
@@ -199,7 +199,7 @@ export class NavigationResponseTracker {
 	private onLoadingFinished(
 		event: Protocol.Network.LoadingFinishedEvent,
 	): void {
-		if (!event || !event.requestId) return
+		if (!event?.requestId) return
 		if (event.requestId !== this.selectedRequestId) return
 		this.selectedResponse?.markFinished(null)
 	}
@@ -207,7 +207,7 @@ export class NavigationResponseTracker {
 	/** Resolve the response's finished promise with an error on failure. */
 	private onLoadingFailed(event: Protocol.Network.LoadingFailedEvent): void {
 		// Ignore malformed events or ones without a request id
-		if (!event || !event.requestId) return
+		if (!event?.requestId) return
 		// Only the tracked document request should toggle the response state
 		if (event.requestId !== this.selectedRequestId) return
 		// Surface Chrome's failure text through response.finished()

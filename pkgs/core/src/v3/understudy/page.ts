@@ -1096,7 +1096,7 @@ export class Page {
 					cleanupTasks.push(await hideCaret(frames))
 				}
 
-				if (opts.style && opts.style.trim()) {
+				if (opts.style?.trim()) {
 					cleanupTasks.push(
 						await applyStyleToFrames(frames, opts.style, "custom"),
 					)
@@ -1157,10 +1157,18 @@ export class Page {
 		)
 
 		// get list of objects containing results & corresponding session IDs
-		const pairs = results.map((result, index) => ({
-			result,
-			id: sessions[index]!.id,
-		}))
+		const pairs = results.map((result, index) => {
+			const session = sessions[index]
+			if (!session) {
+				throw new HandstageSetExtraHTTPHeadersError([
+					`missing CDP session for result index ${index}`,
+				])
+			}
+			return {
+				result,
+				id: session.id,
+			}
+		})
 
 		const filtered = pairs.filter(
 			(pair): pair is { result: PromiseRejectedResult; id: string | null } =>
@@ -1717,7 +1725,7 @@ export class Page {
 				"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 .,;:'\"!?@#$%^&*()-_=+[]{}<>/\\|`~"
 			let c = avoid
 			while (c === avoid) {
-				c = pool[Math.floor(Math.random() * pool.length)]!
+				c = pool.charAt(Math.floor(Math.random() * pool.length))
 			}
 			return c
 		}
@@ -1789,7 +1797,10 @@ export class Page {
 		if (tokens.length === 0) {
 			throw new HandstageInvalidArgumentError("Invalid key combination")
 		}
-		const mainKey = tokens[tokens.length - 1]!
+		const mainKey = tokens.at(-1)
+		if (!mainKey) {
+			throw new HandstageInvalidArgumentError("Invalid key combination")
+		}
 		const modifierKeys = tokens.slice(0, -1)
 
 		try {
@@ -1802,7 +1813,13 @@ export class Page {
 			await this.keyUp(mainKey)
 
 			for (let i = modifierKeys.length - 1; i >= 0; i--) {
-				await this.keyUp(modifierKeys[i]!)
+				const modifierKey = modifierKeys[i]
+				if (!modifierKey) {
+					throw new HandstageInvalidArgumentError(
+						"Invalid key combination modifier",
+					)
+				}
+				await this.keyUp(modifierKey)
 			}
 		} catch (error) {
 			// Clear stuck modifiers on error to prevent affecting subsequent keyPress calls

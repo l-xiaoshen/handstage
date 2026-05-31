@@ -8,6 +8,7 @@ import type {
 	SnapshotOptions,
 } from "../../../types/private/index"
 import { LogLevel } from "../../../types/public/logs"
+import { HandstageSnapshotError } from "../../../types/public/sdkErrors"
 import type { CDPSessionLike } from "../../cdp"
 import type { Page } from "../../page"
 import { a11yForFrame } from "./a11yTree"
@@ -355,8 +356,18 @@ export async function computeFramePrefixes(
 	}
 
 	while (queue.length) {
-		const parent = queue.shift()!
-		const parentAbs = absPrefix.get(parent)!
+		const parent = queue.shift()
+		if (!parent) {
+			throw new HandstageSnapshotError(
+				"frame prefix traversal queue unexpectedly empty",
+			)
+		}
+		const parentAbs = absPrefix.get(parent)
+		if (parentAbs === undefined) {
+			throw new HandstageSnapshotError(
+				`missing absolute XPath prefix for frame ${parent}`,
+			)
+		}
 
 		for (const child of context.frames) {
 			if (!included.has(child)) continue

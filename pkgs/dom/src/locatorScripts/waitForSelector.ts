@@ -76,8 +76,7 @@ const deepQuerySelector = (
 				currentRoot,
 				NodeFilter.SHOW_ELEMENT,
 			)
-			let node: Node | null
-			while ((node = walker.nextNode())) {
+			for (let node = walker.nextNode(); node; node = walker.nextNode()) {
 				if (!(node instanceof Element)) continue
 				const shadowRoot = getShadowRoot(node)
 				if (shadowRoot && !seenRoots.has(shadowRoot)) {
@@ -260,7 +259,10 @@ export function waitForSelector(
 		const observeRoot = document.body || document.documentElement
 		if (!observeRoot) {
 			domReadyHandler = (): void => {
-				document.removeEventListener("DOMContentLoaded", domReadyHandler!)
+				if (!domReadyHandler) {
+					throw new Error("DOMContentLoaded handler missing during cleanup")
+				}
+				document.removeEventListener("DOMContentLoaded", domReadyHandler)
 				domReadyHandler = null
 				check()
 				setupObservers()

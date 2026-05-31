@@ -64,7 +64,9 @@ export async function hydrateDomTree(
 	const expandedBackendIds = new Set<number>()
 
 	while (stack.length) {
-		const node = stack.pop()!
+		const node = stack.pop()
+		if (!node)
+			throw new HandstageDomProcessError("DOM stack unexpectedly empty")
 		const nodeId =
 			typeof node.nodeId === "number" && node.nodeId > 0
 				? node.nodeId
@@ -85,7 +87,7 @@ export async function hydrateDomTree(
 		if (needsExpansion && (nodeId || backendId)) {
 			const describeParamsBase = nodeId
 				? { nodeId }
-				: { backendNodeId: backendId! }
+				: { backendNodeId: backendId }
 			let expanded = false
 			for (const depth of DESCRIBE_DEPTH_ATTEMPTS) {
 				try {
@@ -215,7 +217,10 @@ export async function domMapsForSession(
 	const stack: StackEntry[] = [{ node: startNode, xpath: "" }]
 
 	while (stack.length) {
-		const { node, xpath } = stack.pop()!
+		const entry = stack.pop()
+		if (!entry)
+			throw new HandstageDomProcessError("DOM map stack unexpectedly empty")
+		const { node, xpath } = entry
 
 		if (node.backendNodeId) {
 			const encId = encode(frameId, node.backendNodeId)
@@ -229,8 +234,13 @@ export async function domMapsForSession(
 		if (kids.length) {
 			const segs = buildChildXPathSegments(kids)
 			for (let i = kids.length - 1; i >= 0; i--) {
-				const child = kids[i]!
-				const step = segs[i]!
+				const child = kids[i]
+				const step = segs[i]
+				if (!child || !step) {
+					throw new HandstageDomProcessError(
+						"DOM child XPath segment missing for traversal node",
+					)
+				}
 				stack.push({
 					node: child,
 					xpath: joinXPath(xpath, step),
@@ -268,11 +278,18 @@ export async function buildSessionDomIndex(
 	const contentDocRootByIframe = new Map<number, number>()
 
 	type Entry = { node: Protocol.DOM.Node; xp: string; docRootBe: number }
-	const rootBe = root.backendNodeId!
+	const rootBe = root.backendNodeId
+	if (typeof rootBe !== "number") {
+		throw new HandstageDomProcessError("DOM root is missing a backendNodeId")
+	}
 	const stack: Entry[] = [{ node: root, xp: "/", docRootBe: rootBe }]
 
 	while (stack.length) {
-		const { node, xp, docRootBe } = stack.pop()!
+		const entry = stack.pop()
+		if (!entry) {
+			throw new HandstageDomProcessError("DOM index stack unexpectedly empty")
+		}
+		const { node, xp, docRootBe } = entry
 		if (node.backendNodeId) {
 			absByBe.set(node.backendNodeId, xp || "/")
 			tagByBe.set(node.backendNodeId, String(node.nodeName).toLowerCase())
@@ -284,8 +301,13 @@ export async function buildSessionDomIndex(
 		if (kids.length) {
 			const segs = buildChildXPathSegments(kids)
 			for (let i = kids.length - 1; i >= 0; i--) {
-				const child = kids[i]!
-				const step = segs[i]!
+				const child = kids[i]
+				const step = segs[i]
+				if (!child || !step) {
+					throw new HandstageDomProcessError(
+						"DOM child XPath segment missing for index node",
+					)
+				}
 				stack.push({ node: child, xp: joinXPath(xp, step), docRootBe })
 			}
 		}
@@ -296,7 +318,12 @@ export async function buildSessionDomIndex(
 
 		const cd = node.contentDocument as Protocol.DOM.Node | undefined
 		if (cd && typeof cd.backendNodeId === "number") {
-			contentDocRootByIframe.set(node.backendNodeId!, cd.backendNodeId)
+			if (typeof node.backendNodeId !== "number") {
+				throw new HandstageDomProcessError(
+					"iframe content document found without an iframe backendNodeId",
+				)
+			}
+			contentDocRootByIframe.set(node.backendNodeId, cd.backendNodeId)
 			stack.push({ node: cd, xp, docRootBe: cd.backendNodeId })
 		}
 	}
@@ -335,7 +362,9 @@ export function findNodeByBackendId(
 ): Protocol.DOM.Node | undefined {
 	const stack: Protocol.DOM.Node[] = [root]
 	while (stack.length) {
-		const n = stack.pop()!
+		const n = stack.pop()
+		if (!n)
+			throw new HandstageDomProcessError("DOM search stack unexpectedly empty")
 		if (n.backendNodeId === backendNodeId) return n
 		if (n.children) for (const c of n.children) stack.push(c)
 		if (n.shadowRoots) for (const s of n.shadowRoots) stack.push(s)

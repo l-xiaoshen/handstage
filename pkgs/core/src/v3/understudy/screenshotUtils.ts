@@ -126,7 +126,9 @@ export async function applyStyleToFrames(
 							const nodes = doc.querySelectorAll(
 								`[data-handstage-style="${token}"]`,
 							)
-							nodes.forEach((node) => node.remove())
+							for (const node of nodes) {
+								node.remove()
+							}
 						} catch {}
 					}, token)
 					.catch(() => {}),
@@ -298,7 +300,9 @@ export async function applyMaskOverlays(
 								const nodes = doc.querySelectorAll(
 									`[data-handstage-mask="${token}"]`,
 								)
-								nodes.forEach((node) => node.remove())
+								for (const node of nodes) {
+									node.remove()
+								}
 								for (const rootToken of rootTokens) {
 									const root = doc.querySelector(
 										`[data-handstage-mask-root="${rootToken}"]`,

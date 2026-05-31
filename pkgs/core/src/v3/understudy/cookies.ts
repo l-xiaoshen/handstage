@@ -28,8 +28,8 @@ export function filterCookies(cookies: Cookie[], urls: string[]): Cookie[] {
 	return cookies.filter((c) => {
 		for (const url of parsed) {
 			let domain = c.domain
-			if (!domain.startsWith(".")) domain = "." + domain
-			if (!("." + url.hostname).endsWith(domain)) continue
+			if (!domain.startsWith(".")) domain = `.${domain}`
+			if (!`.${url.hostname}`.endsWith(domain)) continue
 			// Path must match on a "/" boundary: cookie path "/foo" should match
 			// "/foo" and "/foo/bar" but NOT "/foobar".
 			const p = url.pathname

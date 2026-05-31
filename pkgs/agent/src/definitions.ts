@@ -39,7 +39,9 @@ export type HandstageAgentToolSet = ReturnType<
 	typeof createHandstageAgentToolDefinitions
 >
 
-function pagesToXml(pages: Array<{ pageId: string; url: string; title: string }>): string {
+function pagesToXml(
+	pages: Array<{ pageId: string; url: string; title: string }>,
+): string {
 	return `<pages>\n${pages
 		.map(
 			(page) =>

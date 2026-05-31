@@ -450,7 +450,13 @@ export function applyPredicates(
 
 		if (predicate.type === "index") {
 			const idx = predicate.index - 1
-			current = idx >= 0 && idx < current.length ? [current[idx]!] : []
+			if (idx >= 0 && idx < current.length) {
+				const indexed = current[idx]
+				if (!indexed) throw new Error("XPath predicate index resolved empty")
+				current = [indexed]
+			} else {
+				current = []
+			}
 			continue
 		}
 

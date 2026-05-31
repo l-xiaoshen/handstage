@@ -28,13 +28,18 @@ export function injectSubtrees(
 	const stack: Frame[] = [{ lines: rootOutline.split("\n"), i: 0 }]
 
 	while (stack.length) {
-		const top = stack[stack.length - 1]!
+		const top = stack[stack.length - 1]
+		if (!top) throw new Error("injectSubtrees stack unexpectedly empty")
 		if (top.i >= top.lines.length) {
 			stack.pop()
 			continue
 		}
 
-		const raw = top.lines[top.i++]!
+		const raw = top.lines[top.i]
+		top.i += 1
+		if (raw === undefined) {
+			throw new Error("injectSubtrees advanced past the current frame")
+		}
 		out.push(raw)
 
 		const indent = raw.match(/^(\s*)/)?.[1] ?? ""
@@ -43,14 +48,17 @@ export function injectSubtrees(
 		const m = content.match(/^\[([^\]]+)]/)
 		if (!m) continue
 
-		const encId = m[1]!
+		const encId = m[1]
+		if (!encId) {
+			throw new Error("tree outline id match did not include an encoded id")
+		}
 		const childOutline = idToTree.get(encId)
 		if (!childOutline || visited.has(encId)) continue
 
 		visited.add(encId)
 
 		const fullyInjectedChild = injectSubtrees(childOutline, idToTree)
-		out.push(indentBlock(fullyInjectedChild.trimEnd(), indent + "  "))
+		out.push(indentBlock(fullyInjectedChild.trimEnd(), `${indent}  `))
 	}
 
 	return out.join("\n")
@@ -91,10 +99,14 @@ export function diffCombinedTrees(prevTree: string, nextTree: string): string {
 	for (const l of added) {
 		if (!l.trim()) continue
 		const m = l.match(/^\s*/)
-		const indentLen = m ? m[0]!.length : 0
+		const indent = m?.[0]
+		if (indent === undefined) {
+			throw new Error("whitespace match did not include an indent segment")
+		}
+		const indentLen = indent.length
 		if (indentLen < minIndent) minIndent = indentLen
 	}
-	if (!isFinite(minIndent)) minIndent = 0
+	if (!Number.isFinite(minIndent)) minIndent = 0
 
 	const out = added.map((l) => (l.length >= minIndent ? l.slice(minIndent) : l))
 	return out.join("\n")
@@ -120,8 +132,9 @@ export function cleanText(input: string): string {
 			}
 			continue
 		}
-		out += input[i]
-		prevSpace = input[i] === " "
+		const ch = input.charAt(i)
+		out += ch
+		prevSpace = ch === " "
 	}
 	return out.trim()
 }
@@ -134,7 +147,7 @@ export function normaliseSpaces(s: string): string {
 	let out = ""
 	let inWs = false
 	for (let i = 0; i < s.length; i++) {
-		const ch = s[i]!
+		const ch = s.charAt(i)
 		const isWs = /\s/.test(ch)
 		if (isWs) {
 			if (!inWs) {

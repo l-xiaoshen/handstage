@@ -148,15 +148,18 @@ export async function resolveCssFocusFrameAndTail(
 	const absPrefix = ""
 
 	for (let i = 0; i < Math.max(0, parts.length - 1); i++) {
+		const part = parts[i]
+		if (!part) {
+			throw new HandstageIframeError(
+				rawSelector,
+				"CSS iframe hop index was unexpectedly missing",
+			)
+		}
 		const parentSess = page.getSessionForFrame(ctxFrameId)
-		const objectId = await resolveObjectIdForCss(
-			parentSess,
-			parts[i]!,
-			ctxFrameId,
-		)
+		const objectId = await resolveObjectIdForCss(parentSess, part, ctxFrameId)
 		if (!objectId)
 			throw new HandstageIframeError(
-				parts[i]!,
+				part,
 				"Failed to resolve iframe via CSS hop",
 			)
 		try {
@@ -180,7 +183,7 @@ export async function resolveCssFocusFrameAndTail(
 			}
 			if (!childFrameId)
 				throw new HandstageIframeError(
-					parts[i]!,
+					part,
 					"Could not map CSS iframe hop to child frameId",
 				)
 			ctxFrameId = childFrameId

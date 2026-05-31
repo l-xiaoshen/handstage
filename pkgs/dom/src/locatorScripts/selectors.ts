@@ -34,8 +34,7 @@ const collectCssMatches = (selector: string, limit: number): Element[] => {
 				root,
 				NodeFilter.SHOW_ELEMENT,
 			)
-			let node: Node | null
-			while ((node = walker.nextNode())) {
+			for (let node = walker.nextNode(); node; node = walker.nextNode()) {
 				if (!(node instanceof Element)) continue
 				const open = node.shadowRoot
 				if (open) queue.push(open)
@@ -114,8 +113,7 @@ export function resolveCssSelectorPierce(
 				root,
 				NodeFilter.SHOW_ELEMENT,
 			)
-			let node: Node | null
-			while ((node = walker.nextNode())) {
+			for (let node = walker.nextNode(); node; node = walker.nextNode()) {
 				if (!(node instanceof Element)) continue
 				const open = node.shadowRoot
 				if (open) queue.push(open)
@@ -241,8 +239,7 @@ export function resolveTextSelector(
 		const walker = walkerFor(root)
 		if (!walker) continue
 
-		let node: Node | null
-		while ((node = walker.nextNode())) {
+		for (let node = walker.nextNode(); node; node = walker.nextNode()) {
 			if (!(node instanceof Element)) continue
 
 			if (matches(node)) {

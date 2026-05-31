@@ -6,7 +6,10 @@ import type { LaunchedChrome } from "../src/v3/types/public/launchedChrome"
 import { LogLevel } from "../src/v3/types/public/logs"
 import { HandstageTransportAlreadyOwnedError } from "../src/v3/types/public/sdkErrors"
 import { CDPConnection } from "../src/v3/understudy/cdp"
-import { getTargetRouter } from "../src/v3/understudy/targetRouter"
+import {
+	getTargetRouter,
+	type TargetRouterDelegate,
+} from "../src/v3/understudy/targetRouter"
 import {
 	FakeConnection,
 	FakeSession,
@@ -194,7 +197,7 @@ describe("Handstage connection lifecycle", () => {
 		// "Target ownership predicate failed" log path; the router broadcasts
 		// that line to every registered delegate's logger.
 		const router = getTargetRouter(conn)
-		const throwingDelegate = {
+		const throwingDelegate: TargetRouterDelegate = {
 			canClaimTarget: () => {
 				throw new Error("boom-shared")
 			},
@@ -202,10 +205,14 @@ describe("Handstage connection lifecycle", () => {
 			onRouterDetachedFromTarget: () => {},
 			onRouterTargetDestroyed: () => {},
 		}
+		const routerInternals = router as unknown as {
+			delegates: TargetRouterDelegate[]
+			loggers?: Map<TargetRouterDelegate, () => void>
+		}
 		// Insert at the front so it definitely gets called before a/b return true
-		;(router as any).delegates.unshift(throwingDelegate)
-		if ((router as any).loggers) {
-			;(router as any).loggers.set(throwingDelegate, () => {})
+		routerInternals.delegates.unshift(throwingDelegate)
+		if (routerInternals.loggers) {
+			routerInternals.loggers.set(throwingDelegate, () => {})
 		}
 
 		// Make sure a default context target triggers a claim check on the throwing delegate.

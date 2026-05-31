@@ -46,7 +46,7 @@ export class NetworkManager {
 		if (this.sessions.has(sid)) return
 
 		const onRequest = (evt: Protocol.Network.RequestWillBeSentEvent) => {
-			if (!evt || !evt.requestId) return
+			if (!evt?.requestId) return
 
 			const info: NetworkRequestInfo = {
 				sessionId: sid,

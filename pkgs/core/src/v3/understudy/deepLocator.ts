@@ -74,12 +74,19 @@ export async function resolveLocatorTarget(
 		.filter(Boolean)
 
 	if (parts.length > 1) {
-		let fl = frameLocatorFromFrame(page, root, parts[0]!)
-		for (let i = 1; i < parts.length - 1; i++) {
-			fl = fl.frameLocator(parts[i]!)
+		const firstPart = parts[0]
+		const targetSelector = parts.at(-1)
+		if (!firstPart || !targetSelector) {
+			throw new HandstageInvalidArgumentError(
+				"Deep locator iframe hop selector is missing a segment",
+			)
+		}
+		let fl = frameLocatorFromFrame(page, root, firstPart)
+		for (const part of parts.slice(1, -1)) {
+			fl = fl.frameLocator(part)
 		}
 		const targetFrame = await fl.resolveFrame()
-		return { frame: targetFrame, selector: parts[parts.length - 1]! }
+		return { frame: targetFrame, selector: targetSelector }
 	}
 
 	const isXPath = sel.startsWith("xpath=") || sel.startsWith("/")
@@ -241,7 +248,7 @@ async function resolveDeepXPathTarget(
 ): Promise<ResolvedLocatorTarget> {
 	let path = xpathOrSelector.trim()
 	if (path.startsWith("xpath=")) path = path.slice("xpath=".length).trim()
-	if (!path.startsWith("/")) path = "/" + path
+	if (!path.startsWith("/")) path = `/${path}`
 
 	const steps = parseXPath(path)
 	let fl: FrameLocator | undefined
@@ -249,7 +256,7 @@ async function resolveDeepXPathTarget(
 
 	const flushIntoFrameLocator = () => {
 		if (!buf.length) return
-		const selectorForIframe = "xpath=" + buildXPathFromSteps(buf)
+		const selectorForIframe = `xpath=${buildXPathFromSteps(buf)}`
 		fl = fl
 			? fl.frameLocator(selectorForIframe)
 			: frameLocatorFromFrame(page, root, selectorForIframe)
@@ -261,7 +268,7 @@ async function resolveDeepXPathTarget(
 		if (IFRAME_STEP_RE.test(st.name)) flushIntoFrameLocator()
 	}
 
-	const finalSelector = "xpath=" + buildXPathFromSteps(buf)
+	const finalSelector = `xpath=${buildXPathFromSteps(buf)}`
 	const targetFrame = fl ? await fl.resolveFrame() : root
 	return { frame: targetFrame, selector: finalSelector }
 }

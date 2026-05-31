@@ -35,7 +35,7 @@ export function resolveDeepActiveElement(): Element | null {
 	try {
 		const deepActive = (doc: Document | ShadowRoot): Element | null => {
 			let el: Element | null = doc.activeElement ?? null
-			while (el && el.shadowRoot && el.shadowRoot.activeElement) {
+			while (el?.shadowRoot?.activeElement) {
 				el = el.shadowRoot.activeElement
 			}
 			return el ?? null
@@ -50,7 +50,7 @@ export function nodeToAbsoluteXPath(this: Node | null | undefined): string {
 	const compute = (node: Node | null | undefined): string => {
 		try {
 			const sibIndex = (n: Node | null | undefined): number => {
-				if (!n || !n.parentNode) return 1
+				if (!n?.parentNode) return 1
 				let i = 1
 				const targetKey = `${n.nodeType}:${(n.nodeName || "").toLowerCase()}`
 				for (let p = n.previousSibling; p; p = p.previousSibling) {

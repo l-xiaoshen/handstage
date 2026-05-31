@@ -1,6 +1,3 @@
-// Avoid .js extension so bundlers resolve TS source
-import { HANDSTAGE_VERSION } from "../../../version"
-
 export class HandstageError extends Error {
 	public override readonly cause?: unknown
 
@@ -19,17 +16,9 @@ export class HandstageInvalidArgumentError extends HandstageError {
 	}
 }
 
-export class CookieValidationError extends HandstageError {
-	constructor(message: string) {
-		super(message)
-	}
-}
+export class CookieValidationError extends HandstageError {}
 
-export class CookieSetError extends HandstageError {
-	constructor(message: string) {
-		super(message)
-	}
-}
+export class CookieSetError extends HandstageError {}
 
 export class HandstageElementNotFoundError extends HandstageError {
 	constructor(xpaths: string[]) {
