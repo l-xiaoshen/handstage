@@ -1,4 +1,3 @@
-import type { Protocol } from "devtools-protocol"
 import type {
 	Axis,
 	FrameParentIndex,
@@ -87,18 +86,15 @@ export async function resolveFocusFrameAndTail(
 
 		try {
 			await parentSess.send("DOM.enable").catch(() => {})
-			const desc = await parentSess.send<Protocol.DOM.DescribeNodeResponse>(
-				"DOM.describeNode",
-				{ objectId },
-			)
+			const desc = await parentSess.send("DOM.describeNode", { objectId })
 			const iframeBackendNodeId = desc.node.backendNodeId
 
 			let childFrameId: string | undefined
 			for (const fid of listChildrenOf(parentByFrame, ctxFrameId)) {
 				try {
-					const { backendNodeId } = await parentSess.send<{
-						backendNodeId: number
-					}>("DOM.getFrameOwner", { frameId: fid })
+					const { backendNodeId } = await parentSess.send("DOM.getFrameOwner", {
+						frameId: fid,
+					})
 					if (backendNodeId === iframeBackendNodeId) {
 						childFrameId = fid
 						break
@@ -164,17 +160,14 @@ export async function resolveCssFocusFrameAndTail(
 			)
 		try {
 			await parentSess.send("DOM.enable").catch(() => {})
-			const desc = await parentSess.send<Protocol.DOM.DescribeNodeResponse>(
-				"DOM.describeNode",
-				{ objectId },
-			)
+			const desc = await parentSess.send("DOM.describeNode", { objectId })
 			const iframeBackendNodeId = desc.node.backendNodeId
 			let childFrameId: string | undefined
 			for (const fid of listChildrenOf(parentByFrame, ctxFrameId)) {
 				try {
-					const { backendNodeId } = await parentSess.send<{
-						backendNodeId: number
-					}>("DOM.getFrameOwner", { frameId: fid })
+					const { backendNodeId } = await parentSess.send("DOM.getFrameOwner", {
+						frameId: fid,
+					})
 					if (backendNodeId === iframeBackendNodeId) {
 						childFrameId = fid
 						break
@@ -220,10 +213,7 @@ export async function resolveObjectIdForXPath(
 		JSON.stringify(xpath),
 		"0",
 	])
-	const { result, exceptionDetails } = await session.send<{
-		result: { objectId?: string | undefined }
-		exceptionDetails?: Protocol.Runtime.ExceptionDetails
-	}>("Runtime.evaluate", {
+	const { result, exceptionDetails } = await session.send("Runtime.evaluate", {
 		expression: expr,
 		returnByValue: false,
 		contextId,
@@ -261,15 +251,15 @@ export async function resolveObjectIdForCss(
 	])
 
 	const evaluate = async (expression: string): Promise<string | null> => {
-		const { result, exceptionDetails } = await session.send<{
-			result: { objectId?: string | undefined }
-			exceptionDetails?: Protocol.Runtime.ExceptionDetails
-		}>("Runtime.evaluate", {
-			expression,
-			returnByValue: false,
-			contextId,
-			awaitPromise: true,
-		})
+		const { result, exceptionDetails } = await session.send(
+			"Runtime.evaluate",
+			{
+				expression,
+				returnByValue: false,
+				contextId,
+				awaitPromise: true,
+			},
+		)
 		if (exceptionDetails) return null
 		return result?.objectId ?? null
 	}

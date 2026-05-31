@@ -287,10 +287,9 @@ export async function collectPerFrameMaps(
 		let docRootBe = idx.rootBackend
 		if (sameSessionAsParent) {
 			try {
-				const { backendNodeId } = await sess.send<{ backendNodeId?: number }>(
-					"DOM.getFrameOwner",
-					{ frameId },
-				)
+				const { backendNodeId } = await sess.send("DOM.getFrameOwner", {
+					frameId,
+				})
 				if (typeof backendNodeId === "number") {
 					const cdBe = idx.contentDocRootByIframe.get(backendNodeId)
 					if (typeof cdBe === "number") docRootBe = cdBe
@@ -378,9 +377,9 @@ export async function computeFramePrefixes(
 
 			const ownerBackendNodeId = await (async () => {
 				try {
-					const { backendNodeId } = await parentSess.send<{
-						backendNodeId?: number
-					}>("DOM.getFrameOwner", { frameId: child })
+					const { backendNodeId } = await parentSess.send("DOM.getFrameOwner", {
+						frameId: child,
+					})
 					return backendNodeId
 				} catch {
 					return undefined

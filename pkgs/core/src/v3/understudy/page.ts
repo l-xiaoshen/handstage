@@ -29,7 +29,13 @@ import {
 	captureHybridSnapshot,
 	resolveXpathForLocation,
 } from "./a11y/snapshot/index"
-import type { CDPConnectionLike, CDPSessionLike } from "./cdp"
+import type {
+	CDPCommand,
+	CDPCommandParams,
+	CDPCommandResult,
+	CDPConnectionLike,
+	CDPSessionLike,
+} from "./cdp"
 import { type ConsoleListener, ConsoleMessage } from "./consoleMessage"
 import { deepLocatorFromPage, resolveLocatorTarget } from "./deepLocator"
 import { executionContexts } from "./executionContextRegistry"
@@ -308,9 +314,7 @@ export class Page {
 		void session
 			.send("Page.setLifecycleEventsEnabled", { enabled: true })
 			.catch(() => {})
-		const { frameTree } = await session.send<{
-			frameTree: Protocol.Page.FrameTree
-		}>("Page.getFrameTree")
+		const { frameTree } = await session.send("Page.getFrameTree")
 		const mainFrameId = frameTree.frame.id
 
 		const page = new Page(conn, session, targetId, mainFrameId, logger)
@@ -453,10 +457,7 @@ export class Page {
 		void (async () => {
 			try {
 				await childSession.send("Page.enable").catch(() => {})
-				let { frameTree } =
-					await childSession.send<Protocol.Page.GetFrameTreeResponse>(
-						"Page.getFrameTree",
-					)
+				let { frameTree } = await childSession.send("Page.getFrameTree")
 
 				// Normalize: ensure the child’s reported root id matches our known main id
 				if (frameTree.frame.id !== childMainFrameId) {
@@ -585,23 +586,23 @@ export class Page {
 	 * Send a CDP command through the main session.
 	 * Allows external consumers to execute arbitrary Chrome DevTools Protocol commands.
 	 *
-	 * @param method - The CDP method name (e.g., "Page.enable", "Runtime.evaluate")
-	 * @param params - Optional parameters for the CDP command
-	 * @returns Promise resolving to the typed CDP response
+	 * @param method - The typed CDP method name (e.g., "Page.enable", "Runtime.evaluate")
+	 * @param params - Parameters required by the selected CDP command
+	 * @returns Promise resolving to the protocol response for the selected method
 	 *
 	 * @example
 	 * // Enable the Runtime domain
 	 * await page.sendCDP("Runtime.enable");
 	 *
 	 * @example
-	 * // Evaluate JavaScript with typed response
-	 * const result = await page.sendCDP<Protocol.Runtime.EvaluateResponse>(
-	 *   "Runtime.evaluate",
-	 *   { expression: "1 + 1" }
-	 * );
+	 * // Evaluate JavaScript with the response inferred from "Runtime.evaluate"
+	 * const result = await page.sendCDP("Runtime.evaluate", { expression: "1 + 1" });
 	 */
-	public sendCDP<T = unknown>(method: string, params?: object): Promise<T> {
-		return this.mainSession.send<T>(method, params)
+	public sendCDP<M extends CDPCommand>(
+		method: M,
+		...params: CDPCommandParams<M>
+	): Promise<CDPCommandResult<M>> {
+		return this.mainSession.send(method, ...params)
 	}
 
 	/** Seed the cached URL before navigation events converge. */
@@ -709,10 +710,7 @@ export class Page {
 			this.emitConsole(evt)
 		}
 
-		session.on<Protocol.Runtime.ConsoleAPICalledEvent>(
-			"Runtime.consoleAPICalled",
-			handler,
-		)
+		session.on("Runtime.consoleAPICalled", handler)
 
 		this.consoleHandlers.set(key, handler)
 	}
@@ -799,11 +797,7 @@ export class Page {
 		})
 
 		try {
-			const response =
-				await this.mainSession.send<Protocol.Page.NavigateResponse>(
-					"Page.navigate",
-					{ url },
-				)
+			const response = await this.mainSession.send("Page.navigate", { url })
 			this._currentUrl = url
 			if (response?.loaderId) {
 				watcher.setExpectedLoaderId(response.loaderId)
@@ -870,10 +864,9 @@ export class Page {
 		waitUntil?: LoadState
 		timeoutMs?: number
 	}): Promise<Response | null> {
-		const { entries, currentIndex } =
-			await this.mainSession.send<Protocol.Page.GetNavigationHistoryResponse>(
-				"Page.getNavigationHistory",
-			)
+		const { entries, currentIndex } = await this.mainSession.send(
+			"Page.getNavigationHistory",
+		)
 		const prev = entries[currentIndex - 1]
 		if (!prev) return null // nothing to do
 		const waitUntil = options?.waitUntil
@@ -922,10 +915,9 @@ export class Page {
 		waitUntil?: LoadState
 		timeoutMs?: number
 	}): Promise<Response | null> {
-		const { entries, currentIndex } =
-			await this.mainSession.send<Protocol.Page.GetNavigationHistoryResponse>(
-				"Page.getNavigationHistory",
-			)
+		const { entries, currentIndex } = await this.mainSession.send(
+			"Page.getNavigationHistory",
+		)
 		const next = entries[currentIndex + 1]
 		if (!next) return null // nothing to do
 		const waitUntil = options?.waitUntil
@@ -993,23 +985,18 @@ export class Page {
 		try {
 			await this.mainSession.send("Runtime.enable").catch(() => {})
 			const ctxId = await this.mainWorldExecutionContextId()
-			const { result } =
-				await this.mainSession.send<Protocol.Runtime.EvaluateResponse>(
-					"Runtime.evaluate",
-					{
-						expression: "document.title",
-						contextId: ctxId,
-						returnByValue: true,
-					},
-				)
+			const { result } = await this.mainSession.send("Runtime.evaluate", {
+				expression: "document.title",
+				contextId: ctxId,
+				returnByValue: true,
+			})
 			return String(result?.value ?? "")
 		} catch {
 			// Fallback: use navigation history entry title
 			try {
-				const { entries, currentIndex } =
-					await this.mainSession.send<Protocol.Page.GetNavigationHistoryResponse>(
-						"Page.getNavigationHistory",
-					)
+				const { entries, currentIndex } = await this.mainSession.send(
+					"Page.getNavigationHistory",
+				)
 				return entries[currentIndex]?.title ?? ""
 			} catch {
 				return ""
@@ -1315,16 +1302,15 @@ export class Page {
         })()`
 		}
 
-		const { result, exceptionDetails } =
-			await this.mainSession.send<Protocol.Runtime.EvaluateResponse>(
-				"Runtime.evaluate",
-				{
-					expression,
-					contextId: ctxId,
-					returnByValue: true,
-					awaitPromise: true,
-				},
-			)
+		const { result, exceptionDetails } = await this.mainSession.send(
+			"Runtime.evaluate",
+			{
+				expression,
+				contextId: ctxId,
+				returnByValue: true,
+				awaitPromise: true,
+			},
+		)
 
 		if (exceptionDetails) {
 			const msg =
@@ -1358,7 +1344,7 @@ export class Page {
 				positionX: 0,
 				positionY: 0,
 				scale: 1,
-			} as Protocol.Emulation.SetDeviceMetricsOverrideRequest)
+			})
 			.catch(() => {})
 
 		// Best-effort ensure visible size in headless
@@ -1418,32 +1404,32 @@ export class Page {
 		await this.updateCursor(x, y)
 		const dispatches: Array<Promise<unknown>> = []
 		dispatches.push(
-			this.mainSession.send<never>("Input.dispatchMouseEvent", {
+			this.mainSession.send("Input.dispatchMouseEvent", {
 				type: "mouseMoved",
 				x,
 				y,
 				button: "none",
-			} as Protocol.Input.DispatchMouseEventRequest),
+			}),
 		)
 
 		for (let i = 1; i <= clickCount; i++) {
 			dispatches.push(
-				this.mainSession.send<never>("Input.dispatchMouseEvent", {
+				this.mainSession.send("Input.dispatchMouseEvent", {
 					type: "mousePressed",
 					x,
 					y,
 					button,
 					clickCount: i,
-				} as Protocol.Input.DispatchMouseEventRequest),
+				}),
 			)
 			dispatches.push(
-				this.mainSession.send<never>("Input.dispatchMouseEvent", {
+				this.mainSession.send("Input.dispatchMouseEvent", {
 					type: "mouseReleased",
 					x,
 					y,
 					button,
 					clickCount: i,
-				} as Protocol.Input.DispatchMouseEventRequest),
+				}),
 			)
 		}
 		await Promise.all(dispatches)
@@ -1490,12 +1476,12 @@ export class Page {
 		}
 
 		await this.updateCursor(x, y)
-		await this.mainSession.send<never>("Input.dispatchMouseEvent", {
+		await this.mainSession.send("Input.dispatchMouseEvent", {
 			type: "mouseMoved",
 			x,
 			y,
 			button: "none",
-		} as Protocol.Input.DispatchMouseEventRequest)
+		})
 
 		return xpathResult ?? ""
 	}
@@ -1516,21 +1502,21 @@ export class Page {
 		}
 
 		await this.updateCursor(x, y)
-		await this.mainSession.send<never>("Input.dispatchMouseEvent", {
+		await this.mainSession.send("Input.dispatchMouseEvent", {
 			type: "mouseMoved",
 			x,
 			y,
 			button: "none",
-		} as Protocol.Input.DispatchMouseEventRequest)
+		})
 
-		await this.mainSession.send<never>("Input.dispatchMouseEvent", {
+		await this.mainSession.send("Input.dispatchMouseEvent", {
 			type: "mouseWheel",
 			x,
 			y,
 			button: "none",
 			deltaX,
 			deltaY,
-		} as Protocol.Input.DispatchMouseEventRequest)
+		})
 
 		return xpathResult ?? ""
 	}
@@ -1586,22 +1572,22 @@ export class Page {
 
 		// Move to start
 		await this.updateCursor(fromX, fromY)
-		await this.mainSession.send<never>("Input.dispatchMouseEvent", {
+		await this.mainSession.send("Input.dispatchMouseEvent", {
 			type: "mouseMoved",
 			x: fromX,
 			y: fromY,
 			button: "none",
-		} as Protocol.Input.DispatchMouseEventRequest)
+		})
 
 		// Press
-		await this.mainSession.send<never>("Input.dispatchMouseEvent", {
+		await this.mainSession.send("Input.dispatchMouseEvent", {
 			type: "mousePressed",
 			x: fromX,
 			y: fromY,
 			button,
 			buttons: buttonMask(button),
 			clickCount: 1,
-		} as Protocol.Input.DispatchMouseEventRequest)
+		})
 
 		// Intermediate moves
 		for (let i = 1; i <= steps; i++) {
@@ -1609,26 +1595,26 @@ export class Page {
 			const x = fromX + (toX - fromX) * t
 			const y = fromY + (toY - fromY) * t
 			await this.updateCursor(x, y)
-			await this.mainSession.send<never>("Input.dispatchMouseEvent", {
+			await this.mainSession.send("Input.dispatchMouseEvent", {
 				type: "mouseMoved",
 				x,
 				y,
 				button,
 				buttons: buttonMask(button),
-			} as Protocol.Input.DispatchMouseEventRequest)
+			})
 			if (delay) await sleep(delay)
 		}
 
 		// Release at end
 		await this.updateCursor(toX, toY)
-		await this.mainSession.send<never>("Input.dispatchMouseEvent", {
+		await this.mainSession.send("Input.dispatchMouseEvent", {
 			type: "mouseReleased",
 			x: toX,
 			y: toY,
 			button,
 			buttons: buttonMask(button),
 			clickCount: 1,
-		} as Protocol.Input.DispatchMouseEventRequest)
+		})
 
 		return [fromXpath ?? "", toXpath ?? ""]
 	}
@@ -1663,12 +1649,12 @@ export class Page {
 					key: override.key,
 					code: override.code,
 					windowsVirtualKeyCode: override.windowsVirtualKeyCode,
-				} as Protocol.Input.DispatchKeyEventRequest
+				}
 				await this.mainSession.send("Input.dispatchKeyEvent", base)
 				await this.mainSession.send("Input.dispatchKeyEvent", {
 					...base,
 					type: "keyUp",
-				} as Protocol.Input.DispatchKeyEventRequest)
+				})
 				return
 			}
 
@@ -1710,7 +1696,7 @@ export class Page {
 				key,
 				code: code || undefined,
 				windowsVirtualKeyCode,
-			} as Protocol.Input.DispatchKeyEventRequest)
+			})
 		}
 
 		const pressBackspace = async () =>
@@ -1886,7 +1872,7 @@ export class Page {
 						? { windowsVirtualKeyCode: desc.vk }
 						: {}),
 					...(macCommands.length ? { commands: macCommands } : {}),
-				} as Protocol.Input.DispatchKeyEventRequest
+				}
 				await this.mainSession.send("Input.dispatchKeyEvent", req)
 			} else {
 				// Typing path (no non-Shift modifiers): send text to generate input
@@ -1895,7 +1881,7 @@ export class Page {
 					text: normalizedKey,
 					unmodifiedText: normalizedKey,
 					modifiers,
-				} as Protocol.Input.DispatchKeyEventRequest)
+				})
 			}
 			return
 		}
@@ -1917,7 +1903,7 @@ export class Page {
 						}
 					: {}),
 				...(macCommands.length ? { commands: macCommands } : {}),
-			} as Protocol.Input.DispatchKeyEventRequest
+			}
 			await this.mainSession.send("Input.dispatchKeyEvent", keyDown)
 			return
 		}
@@ -1927,7 +1913,7 @@ export class Page {
 			type: "keyDown",
 			key: normalizedKey,
 			modifiers,
-		} as Protocol.Input.DispatchKeyEventRequest)
+		})
 	}
 
 	/** Release a pressed key */
@@ -1956,7 +1942,7 @@ export class Page {
 				windowsVirtualKeyCode:
 					typeof desc.vk === "number" ? desc.vk : undefined,
 				modifiers,
-			} as Protocol.Input.DispatchKeyEventRequest)
+			})
 			return
 		}
 
@@ -1968,7 +1954,7 @@ export class Page {
 				code: entry.code,
 				windowsVirtualKeyCode: entry.vk,
 				modifiers,
-			} as Protocol.Input.DispatchKeyEventRequest)
+			})
 			return
 		}
 
@@ -1977,7 +1963,7 @@ export class Page {
 			type: "keyUp",
 			key: normalizedKey,
 			modifiers,
-		} as Protocol.Input.DispatchKeyEventRequest)
+		})
 	}
 
 	/** Normalize key names to match CDP expectations */
@@ -2183,15 +2169,11 @@ export class Page {
 	): Promise<boolean> {
 		try {
 			const ctxId = await this.mainWorldExecutionContextId()
-			const { result } =
-				await this.mainSession.send<Protocol.Runtime.EvaluateResponse>(
-					"Runtime.evaluate",
-					{
-						expression: "document.readyState",
-						contextId: ctxId,
-						returnByValue: true,
-					},
-				)
+			const { result } = await this.mainSession.send("Runtime.evaluate", {
+				expression: "document.readyState",
+				contextId: ctxId,
+				returnByValue: true,
+			})
 			const readyState = String(result?.value ?? "")
 			if (state === "domcontentloaded") {
 				return readyState === "interactive" || readyState === "complete"

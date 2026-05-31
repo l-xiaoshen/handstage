@@ -47,10 +47,7 @@ export class FrameLocator {
 
 		try {
 			await parentSession.send("DOM.enable").catch(() => {})
-			const desc = await parentSession.send<Protocol.DOM.DescribeNodeResponse>(
-				"DOM.describeNode",
-				{ objectId },
-			)
+			const desc = await parentSession.send("DOM.describeNode", { objectId })
 			const iframeBackendNodeId = desc.node.backendNodeId
 
 			const childIds = await listDirectChildFrameIdsFromRegistry(
@@ -61,10 +58,9 @@ export class FrameLocator {
 
 			for (const fid of childIds) {
 				try {
-					const owner = await parentSession.send<{
-						backendNodeId: Protocol.DOM.BackendNodeId
-						nodeId?: Protocol.DOM.NodeId
-					}>("DOM.getFrameOwner", { frameId: fid as Protocol.Page.FrameId })
+					const owner = await parentSession.send("DOM.getFrameOwner", {
+						frameId: fid,
+					})
 					if (owner.backendNodeId === iframeBackendNodeId) {
 						await ensureChildFrameReady(this.page, parentFrame, fid, 1200)
 						return this.page.frameForId(fid)

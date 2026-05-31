@@ -1,4 +1,5 @@
 import type { Protocol } from "devtools-protocol"
+import type { ProtocolMapping } from "devtools-protocol/types/protocol-mapping"
 import { HANDSTAGE_VERSION } from "../../version"
 import {
 	CDPConnectionClosedError,
@@ -20,6 +21,14 @@ const TRANSPORT_OWNED = Symbol.for("handstage.cdp.transportOwned")
  */
 const SESSION_OWNED = Symbol.for("handstage.cdp.sessionOwned")
 
+export type CDPCommand = Extract<keyof ProtocolMapping.Commands, string>
+export type CDPEvent = Extract<keyof ProtocolMapping.Events, string>
+export type CDPCommandParams<M extends CDPCommand> =
+	ProtocolMapping.Commands[M]["paramsType"]
+export type CDPCommandResult<M extends CDPCommand> =
+	ProtocolMapping.Commands[M]["returnType"]
+export type CDPEventParams<E extends CDPEvent> = ProtocolMapping.Events[E][0]
+
 /**
  * CDP transport & session multiplexer
  *
@@ -29,9 +38,18 @@ const SESSION_OWNED = Symbol.for("handstage.cdp.sessionOwned")
  * This does not interpret Page/DOM/Runtime semantics — callers own that logic.
  */
 export interface CDPSessionLike {
-	send<R = unknown>(method: string, params?: object): Promise<R>
-	on<P = unknown>(event: string, handler: (params: P) => void): void
-	off<P = unknown>(event: string, handler: (params: P) => void): void
+	send<M extends CDPCommand>(
+		method: M,
+		...params: CDPCommandParams<M>
+	): Promise<CDPCommandResult<M>>
+	on<E extends CDPEvent>(
+		event: E,
+		handler: (params: CDPEventParams<E>) => void,
+	): void
+	off<E extends CDPEvent>(
+		event: E,
+		handler: (params: CDPEventParams<E>) => void,
+	): void
 	close(): Promise<void>
 	readonly id: string | null
 }
@@ -45,18 +63,17 @@ export interface CDPTransport {
 }
 
 export interface ExternalCDPSession {
-	send<R = unknown>(
-		method: string,
-		params?: object,
-		sessionId?: string,
-	): Promise<R>
-	on<P = unknown>(
-		event: string,
-		handler: (params: P, sessionId?: string) => void,
+	send<M extends CDPCommand>(
+		method: M,
+		...params: CDPCommandParams<M>
+	): Promise<CDPCommandResult<M>>
+	on<E extends CDPEvent>(
+		event: E,
+		handler: (params: CDPEventParams<E>) => void,
 	): void
-	off<P = unknown>(
-		event: string,
-		handler: (params: P, sessionId?: string) => void,
+	off<E extends CDPEvent>(
+		event: E,
+		handler: (params: CDPEventParams<E>) => void,
 	): void
 	onclose?: (reason: string) => void
 	close?(): Promise<void>
@@ -70,10 +87,10 @@ export interface CDPConnectionLike extends CDPSessionLike {
 	getTargets(): Promise<Protocol.Target.TargetInfo[]>
 	onTransportClosed(handler: (why: string) => void): void
 	offTransportClosed(handler: (why: string) => void): void
-	waitForSessionDispatch(
+	waitForSessionDispatch<M extends CDPCommand>(
 		sessionId: string,
-		method: string,
-		match?: (params?: object) => boolean,
+		method: M,
+		...params: CDPCommandParams<M>
 	): Promise<void>
 }
 
@@ -82,7 +99,7 @@ type Inflight = {
 	reject: (e: Error) => void
 	sessionId?: string | null
 	method: string
-	params?: object
+	params?: unknown
 	stack?: string
 	ts: number
 }
@@ -91,19 +108,27 @@ type EventHandler = (params: unknown) => void
 type SessionDispatchWaiter = {
 	sessionId: string
 	method: string
-	match?: (params?: object) => boolean
+	params?: unknown
 	resolve: () => void
 	reject: (error: Error) => void
 }
 
-type RawMessage =
-	| {
-			id: number
-			result?: unknown
-			error?: { code: number; message: string; data?: unknown }
+type RawResponseMessage = {
+	id: number
+	result?: unknown
+	error?: { code: number; message: string; data?: unknown }
+	sessionId?: string
+}
+
+type RawEventMessage<E extends CDPEvent = CDPEvent> = E extends CDPEvent
+	? {
+			method: E
+			params: CDPEventParams<E>
 			sessionId?: string
-	  }
-	| { method: string; params?: unknown; sessionId?: string }
+		}
+	: never
+
+type RawMessage = RawResponseMessage | RawEventMessage
 
 function invokeEventHandler(handler: EventHandler, params: unknown): void {
 	try {
@@ -120,18 +145,27 @@ function invokeEventHandler(handler: EventHandler, params: unknown): void {
 }
 
 export abstract class BaseCDPConnection implements CDPConnectionLike {
-	abstract send<R = unknown>(method: string, params?: object): Promise<R>
-	abstract on<P = unknown>(event: string, handler: (params: P) => void): void
-	abstract off<P = unknown>(event: string, handler: (params: P) => void): void
+	abstract send<M extends CDPCommand>(
+		method: M,
+		...params: CDPCommandParams<M>
+	): Promise<CDPCommandResult<M>>
+	abstract on<E extends CDPEvent>(
+		event: E,
+		handler: (params: CDPEventParams<E>) => void,
+	): void
+	abstract off<E extends CDPEvent>(
+		event: E,
+		handler: (params: CDPEventParams<E>) => void,
+	): void
 	abstract close(): Promise<void>
 	abstract get id(): string | null
 	abstract getSession(sessionId: string): CDPSessionLike | undefined
 	abstract onTransportClosed(handler: (why: string) => void): void
 	abstract offTransportClosed(handler: (why: string) => void): void
-	abstract waitForSessionDispatch(
+	abstract waitForSessionDispatch<M extends CDPCommand>(
 		sessionId: string,
-		method: string,
-		match?: (params?: object) => boolean,
+		method: M,
+		...params: CDPCommandParams<M>
 	): Promise<void>
 
 	// Memoize the in-flight enable so concurrent Contexts sharing the
@@ -163,10 +197,10 @@ export abstract class BaseCDPConnection implements CDPConnectionLike {
 	}
 
 	async attachToTarget(targetId: string): Promise<CDPSessionLike> {
-		const { sessionId } = (await this.send<{ sessionId: string }>(
-			"Target.attachToTarget",
-			{ targetId, flatten: true },
-		)) as { sessionId: string }
+		const { sessionId } = await this.send("Target.attachToTarget", {
+			targetId,
+			flatten: true,
+		})
 
 		let session = this.getSession(sessionId)
 		if (!session) {
@@ -178,9 +212,7 @@ export abstract class BaseCDPConnection implements CDPConnectionLike {
 	}
 
 	async getTargets(): Promise<Protocol.Target.TargetInfo[]> {
-		const res = await this.send<{
-			targetInfos: Protocol.Target.TargetInfo[]
-		}>("Target.getTargets")
+		const res = await this.send("Target.getTargets")
 		return res.targetInfos
 	}
 
@@ -281,7 +313,10 @@ export class CDPConnection extends BaseCDPConnection {
 		return new CDPConnection(transport)
 	}
 
-	async send<R = unknown>(method: string, params?: object): Promise<R> {
+	send<M extends CDPCommand>(
+		method: M,
+		...params: CDPCommandParams<M>
+	): Promise<CDPCommandResult<M>> {
 		if (this._isClosed) {
 			return Promise.reject(
 				new CDPConnectionClosedError(
@@ -290,15 +325,16 @@ export class CDPConnection extends BaseCDPConnection {
 			)
 		}
 		const id = this.nextId++
-		const payload = { id, method, params }
+		const requestParams = params[0]
+		const payload = { id, method, params: requestParams }
 		const stack = new Error().stack?.split("\n").slice(1, 4).join("\n")
-		const p = new Promise<R>((resolve, reject) => {
+		const p = new Promise<CDPCommandResult<M>>((resolve, reject) => {
 			this.inflight.set(id, {
-				resolve: (v: unknown) => resolve(v as R),
+				resolve: (v: unknown) => resolve(v as CDPCommandResult<M>),
 				reject,
 				sessionId: null,
 				method,
-				params,
+				params: requestParams,
 				stack,
 				ts: Date.now(),
 			})
@@ -309,13 +345,19 @@ export class CDPConnection extends BaseCDPConnection {
 		return p
 	}
 
-	on<P = unknown>(event: string, handler: (params: P) => void): void {
+	on<E extends CDPEvent>(
+		event: E,
+		handler: (params: CDPEventParams<E>) => void,
+	): void {
 		const set = this.eventHandlers.get(event) ?? new Set<EventHandler>()
 		set.add(handler as EventHandler)
 		this.eventHandlers.set(event, set)
 	}
 
-	off<P = unknown>(event: string, handler: (params: P) => void): void {
+	off<E extends CDPEvent>(
+		event: E,
+		handler: (params: CDPEventParams<E>) => void,
+	): void {
 		const set = this.eventHandlers.get(event)
 		if (set) set.delete(handler as EventHandler)
 	}
@@ -350,16 +392,16 @@ export class CDPConnection extends BaseCDPConnection {
 		return this.sessions.get(sessionId)
 	}
 
-	waitForSessionDispatch(
+	waitForSessionDispatch<M extends CDPCommand>(
 		sessionId: string,
-		method: string,
-		match?: (params?: object) => boolean,
+		method: M,
+		...params: CDPCommandParams<M>
 	): Promise<void> {
 		return new Promise<void>((resolve, reject) => {
 			const waiter: SessionDispatchWaiter = {
 				sessionId,
 				method,
-				match,
+				params: params[0],
 				resolve: () => {
 					this.sessionDispatchWaiters.delete(waiter)
 					resolve()
@@ -374,10 +416,10 @@ export class CDPConnection extends BaseCDPConnection {
 	}
 
 	override async attachToTarget(targetId: string): Promise<CDPSession> {
-		const { sessionId } = (await this.send<{ sessionId: string }>(
-			"Target.attachToTarget",
-			{ targetId, flatten: true },
-		)) as { sessionId: string }
+		const { sessionId } = await this.send("Target.attachToTarget", {
+			targetId,
+			flatten: true,
+		})
 
 		let session = this.sessions.get(sessionId)
 		if (!session) {
@@ -389,9 +431,7 @@ export class CDPConnection extends BaseCDPConnection {
 	}
 
 	override async getTargets(): Promise<Protocol.Target.TargetInfo[]> {
-		const res = await this.send<{
-			targetInfos: Protocol.Target.TargetInfo[]
-		}>("Target.getTargets")
+		const res = await this.send("Target.getTargets")
 		return res.targetInfos
 	}
 
@@ -416,88 +456,86 @@ export class CDPConnection extends BaseCDPConnection {
 
 			this.inflight.delete(msg.id)
 
-			if ("error" in msg && msg.error) {
+			if (msg.error) {
 				rec.reject(new Error(`${msg.error.code} ${msg.error.message}`))
 			} else {
-				rec.resolve((msg as { result?: unknown }).result)
+				rec.resolve(msg.result)
 			}
 			return
 		}
 
-		if ("method" in msg) {
-			if (msg.method === "Target.attachedToTarget") {
-				const p = (msg as { params: Protocol.Target.AttachedToTargetEvent })
-					.params
-				if (!this.sessions.has(p.sessionId)) {
-					this.sessions.set(p.sessionId, new CDPSession(this, p.sessionId))
-				}
-				this.sessionToTarget.set(p.sessionId, p.targetInfo.targetId)
-			} else if (msg.method === "Target.detachedFromTarget") {
-				const p = (msg as { params: Protocol.Target.DetachedFromTargetEvent })
-					.params
-				for (const [id, entry] of this.inflight.entries()) {
-					if (entry.sessionId === p.sessionId) {
-						entry.reject(
-							new PageNotFoundError(
-								`target closed before CDP response (sessionId=${p.sessionId}, targetId=${p.targetId})`,
-							),
-						)
-						this.inflight.delete(id)
-					}
-				}
-				for (const waiter of Array.from(this.sessionDispatchWaiters)) {
-					if (waiter.sessionId === p.sessionId) {
-						waiter.reject(
-							new PageNotFoundError(
-								`target closed before CDP send (sessionId=${p.sessionId}, targetId=${p.targetId})`,
-							),
-						)
-					}
-				}
-				this.sessions.delete(p.sessionId)
-				this.sessionToTarget.delete(p.sessionId)
-			} else if (msg.method === "Target.targetDestroyed") {
-				const p = (msg as { params: { targetId: string } }).params
-				// Remove any session mapping for this target
-				for (const [sessionId, targetId] of this.sessionToTarget.entries()) {
-					if (targetId === p.targetId) {
-						this.sessionToTarget.delete(sessionId)
-						break
-					}
+		if (msg.method === "Target.attachedToTarget") {
+			const { params } = msg
+			if (!this.sessions.has(params.sessionId)) {
+				this.sessions.set(
+					params.sessionId,
+					new CDPSession(this, params.sessionId),
+				)
+			}
+			this.sessionToTarget.set(params.sessionId, params.targetInfo.targetId)
+		} else if (msg.method === "Target.detachedFromTarget") {
+			const { params } = msg
+			for (const [id, entry] of this.inflight.entries()) {
+				if (entry.sessionId === params.sessionId) {
+					entry.reject(
+						new PageNotFoundError(
+							`target closed before CDP response (sessionId=${params.sessionId}, targetId=${params.targetId})`,
+						),
+					)
+					this.inflight.delete(id)
 				}
 			}
-
-			const { method, params, sessionId } = msg
-
-			const dispatch = () => {
-				if (sessionId) {
-					const session = this.sessions.get(sessionId)
-					session?.dispatch(method, params)
-
-					// Forward target lifecycle events to root listeners as well.
-					// Some browsers emit these via a parent session rather than the root
-					// connection; fan-out keeps target tracking consistent.
-					if (method.startsWith("Target.")) {
-						const handlers = this.eventHandlers.get(method)
-						if (handlers)
-							for (const h of handlers) invokeEventHandler(h, params)
-					}
-					return
+			for (const waiter of Array.from(this.sessionDispatchWaiters)) {
+				if (waiter.sessionId === params.sessionId) {
+					waiter.reject(
+						new PageNotFoundError(
+							`target closed before CDP send (sessionId=${params.sessionId}, targetId=${params.targetId})`,
+						),
+					)
 				}
-
-				const handlers = this.eventHandlers.get(method)
-				if (handlers) for (const h of handlers) invokeEventHandler(h, params)
 			}
-
-			dispatch()
+			this.sessions.delete(params.sessionId)
+			this.sessionToTarget.delete(params.sessionId)
+		} else if (msg.method === "Target.targetDestroyed") {
+			const { params } = msg
+			// Remove any session mapping for this target
+			for (const [sessionId, targetId] of this.sessionToTarget.entries()) {
+				if (targetId === params.targetId) {
+					this.sessionToTarget.delete(sessionId)
+					break
+				}
+			}
 		}
+
+		const { method, params, sessionId } = msg
+
+		const dispatch = () => {
+			if (sessionId) {
+				const session = this.sessions.get(sessionId)
+				session?.dispatch(method, params)
+
+				// Forward target lifecycle events to root listeners as well.
+				// Some browsers emit these via a parent session rather than the root
+				// connection; fan-out keeps target tracking consistent.
+				if (method.startsWith("Target.")) {
+					const handlers = this.eventHandlers.get(method)
+					if (handlers) for (const h of handlers) invokeEventHandler(h, params)
+				}
+				return
+			}
+
+			const handlers = this.eventHandlers.get(method)
+			if (handlers) for (const h of handlers) invokeEventHandler(h, params)
+		}
+
+		dispatch()
 	}
 
-	_sendViaSession<R = unknown>(
+	_sendViaSession<M extends CDPCommand>(
 		sessionId: string,
-		method: string,
-		params?: object,
-	): Promise<R> {
+		method: M,
+		...params: CDPCommandParams<M>
+	): Promise<CDPCommandResult<M>> {
 		if (this._isClosed) {
 			return Promise.reject(
 				new CDPConnectionClosedError(
@@ -506,15 +544,16 @@ export class CDPConnection extends BaseCDPConnection {
 			)
 		}
 		const id = this.nextId++
-		const payload = { id, method, params, sessionId }
+		const requestParams = params[0]
+		const payload = { id, method, params: requestParams, sessionId }
 		const stack = new Error().stack?.split("\n").slice(1, 4).join("\n")
-		const p = new Promise<R>((resolve, reject) => {
+		const p = new Promise<CDPCommandResult<M>>((resolve, reject) => {
 			this.inflight.set(id, {
-				resolve: (v: unknown) => resolve(v as R),
+				resolve: (v: unknown) => resolve(v as CDPCommandResult<M>),
 				reject,
 				sessionId,
 				method,
-				params,
+				params: requestParams,
 				stack,
 				ts: Date.now(),
 			})
@@ -524,7 +563,7 @@ export class CDPConnection extends BaseCDPConnection {
 		for (const waiter of Array.from(this.sessionDispatchWaiters)) {
 			if (waiter.sessionId !== sessionId) continue
 			if (waiter.method !== method) continue
-			if (waiter.match && !waiter.match(params)) continue
+			if (!Object.is(waiter.params, requestParams)) continue
 			waiter.resolve()
 			break
 		}
@@ -532,26 +571,26 @@ export class CDPConnection extends BaseCDPConnection {
 		return p
 	}
 
-	_onSessionEvent(
+	_onSessionEvent<E extends CDPEvent>(
 		sessionId: string,
-		event: string,
-		handler: EventHandler,
+		event: E,
+		handler: (params: CDPEventParams<E>) => void,
 	): void {
 		const key = `${sessionId}:${event}`
 		const set = this.eventHandlers.get(key) ?? new Set<EventHandler>()
-		set.add(handler)
+		set.add(handler as EventHandler)
 		this.eventHandlers.set(key, set)
 	}
 
-	_offSessionEvent(
+	_offSessionEvent<E extends CDPEvent>(
 		sessionId: string,
-		event: string,
-		handler: EventHandler,
+		event: E,
+		handler: (params: CDPEventParams<E>) => void,
 	): void {
 		const key = `${sessionId}:${event}`
 		const set = this.eventHandlers.get(key)
 		if (!set) return
-		set.delete(handler)
+		set.delete(handler as EventHandler)
 		// Drop the bucket once empty so a long-lived connection doesn't
 		// accumulate stale `${sessionId}:Event` keys after sessions detach.
 		if (set.size === 0) this.eventHandlers.delete(key)
@@ -566,12 +605,9 @@ export class CDPConnection extends BaseCDPConnection {
 
 export class ExternalConnectionAdapter extends BaseCDPConnection {
 	private transportCloseHandlers = new Set<(why: string) => void>()
-	private sessions = new Map<string, ExternalSessionAdapter>()
+	private sessions = new Map<string, CDPSessionLike>()
 	private eventHandlers = new Map<string, Set<(params: unknown) => void>>()
-	private rootEventHandlers = new Map<
-		string,
-		(params: unknown, sessionId?: string) => void
-	>()
+	private rootEventHandlers = new Map<CDPEvent, (params: unknown) => void>()
 	private sessionDispatchWaiters = new Set<SessionDispatchWaiter>()
 	private sessionToTarget = new Map<string, string>()
 
@@ -586,25 +622,19 @@ export class ExternalConnectionAdapter extends BaseCDPConnection {
 		;(externalSession as unknown as Record<symbol, unknown>)[SESSION_OWNED] =
 			this
 		// Listen for flattened child session events if the external wrapper passes them
-		this.on<{ sessionId: string; targetInfo: Protocol.Target.TargetInfo }>(
-			"Target.attachedToTarget",
-			(params) => {
-				if (params?.sessionId && !this.sessions.has(params.sessionId)) {
-					this.sessions.set(
-						params.sessionId,
-						new ExternalSessionAdapter(this, params.sessionId),
-					)
-				}
-			},
-		)
-		this.on<{ sessionId: string; targetId: string }>(
-			"Target.detachedFromTarget",
-			(params) => {
-				if (params?.sessionId) {
-					this.sessions.delete(params.sessionId)
-				}
-			},
-		)
+		this.on("Target.attachedToTarget", (params) => {
+			if (params?.sessionId && !this.sessions.has(params.sessionId)) {
+				this.sessions.set(
+					params.sessionId,
+					new ExternalSessionAdapter(this, params.sessionId),
+				)
+			}
+		})
+		this.on("Target.detachedFromTarget", (params) => {
+			if (params?.sessionId) {
+				this.sessions.delete(params.sessionId)
+			}
+		})
 
 		this.externalSession.onclose = (reason: string) => {
 			this.emitTransportClosed(`external-session-close reason=${reason}`)
@@ -623,32 +653,19 @@ export class ExternalConnectionAdapter extends BaseCDPConnection {
 		return this.externalSession.id
 	}
 
-	async send<R = unknown>(method: string, params?: object): Promise<R> {
-		return this.externalSession.send<R>(method, params)
+	send<M extends CDPCommand>(
+		method: M,
+		...params: CDPCommandParams<M>
+	): Promise<CDPCommandResult<M>> {
+		return this.externalSession.send(method, ...params)
 	}
 
-	private ensureRootListener(event: string) {
+	private ensureRootListener<E extends CDPEvent>(event: E) {
 		if (!this.rootEventHandlers.has(event)) {
-			const rootHandler = (params: unknown, targetSessionId?: string) => {
-				if (targetSessionId) {
-					const childKey = `${targetSessionId}:${event}`
-					const childHandlers = this.eventHandlers.get(childKey)
-					if (childHandlers) {
-						for (const h of childHandlers) invokeEventHandler(h, params)
-					}
-
-					// Forward target lifecycle events to root listeners as well.
-					if (event.startsWith("Target.")) {
-						const rootHandlers = this.eventHandlers.get(event)
-						if (rootHandlers) {
-							for (const h of rootHandlers) invokeEventHandler(h, params)
-						}
-					}
-				} else {
-					const rootHandlers = this.eventHandlers.get(event)
-					if (rootHandlers) {
-						for (const h of rootHandlers) invokeEventHandler(h, params)
-					}
+			const rootHandler = (params: unknown) => {
+				const rootHandlers = this.eventHandlers.get(event)
+				if (rootHandlers) {
+					for (const h of rootHandlers) invokeEventHandler(h, params)
 				}
 			}
 			this.rootEventHandlers.set(event, rootHandler)
@@ -656,7 +673,10 @@ export class ExternalConnectionAdapter extends BaseCDPConnection {
 		}
 	}
 
-	on<P = unknown>(event: string, handler: (params: P) => void): void {
+	on<E extends CDPEvent>(
+		event: E,
+		handler: (params: CDPEventParams<E>) => void,
+	): void {
 		let set = this.eventHandlers.get(event)
 		if (!set) {
 			set = new Set()
@@ -666,7 +686,10 @@ export class ExternalConnectionAdapter extends BaseCDPConnection {
 		this.ensureRootListener(event)
 	}
 
-	off<P = unknown>(event: string, handler: (params: P) => void): void {
+	off<E extends CDPEvent>(
+		event: E,
+		handler: (params: CDPEventParams<E>) => void,
+	): void {
 		const set = this.eventHandlers.get(event)
 		if (set) {
 			set.delete(handler as (params: unknown) => void)
@@ -713,7 +736,7 @@ export class ExternalConnectionAdapter extends BaseCDPConnection {
 	}
 
 	protected _setSession(sessionId: string, session: CDPSessionLike): void {
-		this.sessions.set(sessionId, session as ExternalSessionAdapter)
+		this.sessions.set(sessionId, session)
 	}
 
 	protected _mapTarget(sessionId: string, targetId: string): void {
@@ -728,16 +751,16 @@ export class ExternalConnectionAdapter extends BaseCDPConnection {
 		this.transportCloseHandlers.delete(handler)
 	}
 
-	async waitForSessionDispatch(
+	async waitForSessionDispatch<M extends CDPCommand>(
 		sessionId: string,
-		method: string,
-		match?: (params?: object) => boolean,
+		method: M,
+		...params: CDPCommandParams<M>
 	): Promise<void> {
 		return new Promise<void>((resolve, reject) => {
 			const waiter: SessionDispatchWaiter = {
 				sessionId,
 				method,
-				match,
+				params: params[0],
 				resolve: () => {
 					this.sessionDispatchWaiters.delete(waiter)
 					resolve()
@@ -750,77 +773,45 @@ export class ExternalConnectionAdapter extends BaseCDPConnection {
 			this.sessionDispatchWaiters.add(waiter)
 		})
 	}
-
-	async sendToSession<R = unknown>(
-		sessionId: string,
-		method: string,
-		params?: object,
-	): Promise<R> {
-		const p = this.externalSession.send<R>(method, params, sessionId)
-
-		for (const waiter of Array.from(this.sessionDispatchWaiters)) {
-			if (waiter.sessionId !== sessionId) continue
-			if (waiter.method !== method) continue
-			if (waiter.match && !waiter.match(params)) continue
-			waiter.resolve()
-			break
-		}
-
-		return p
-	}
-
-	onSessionEvent(
-		sessionId: string,
-		event: string,
-		handler: (params: unknown) => void,
-	) {
-		const key = `${sessionId}:${event}`
-		let set = this.eventHandlers.get(key)
-		if (!set) {
-			set = new Set()
-			this.eventHandlers.set(key, set)
-		}
-		set.add(handler)
-		this.ensureRootListener(event)
-	}
-
-	offSessionEvent(
-		sessionId: string,
-		event: string,
-		handler: (params: unknown) => void,
-	) {
-		const key = `${sessionId}:${event}`
-		const set = this.eventHandlers.get(key)
-		if (set) {
-			set.delete(handler)
-		}
-	}
 }
 
 export class ExternalSessionAdapter implements CDPSessionLike {
+	private static unsupportedChildSessionError(): Error {
+		return new Error(
+			"ExternalCDPSession does not support child target CDP sessions. Use connectTransport/connectWS for flattened session routing.",
+		)
+	}
+
 	constructor(
 		private adapter: ExternalConnectionAdapter,
 		public readonly id: string,
 	) {}
 
-	send<R = unknown>(method: string, params?: object): Promise<R> {
-		return this.adapter.sendToSession(this.id, method, params)
+	send<M extends CDPCommand>(
+		method: M,
+		...params: CDPCommandParams<M>
+	): Promise<CDPCommandResult<M>> {
+		void method
+		void params
+		return Promise.reject(ExternalSessionAdapter.unsupportedChildSessionError())
 	}
 
-	on<P = unknown>(event: string, handler: (params: P) => void): void {
-		this.adapter.onSessionEvent(
-			this.id,
-			event,
-			handler as (params: unknown) => void,
-		)
+	on<E extends CDPEvent>(
+		event: E,
+		handler: (params: CDPEventParams<E>) => void,
+	): void {
+		void event
+		void handler
+		throw ExternalSessionAdapter.unsupportedChildSessionError()
 	}
 
-	off<P = unknown>(event: string, handler: (params: P) => void): void {
-		this.adapter.offSessionEvent(
-			this.id,
-			event,
-			handler as (params: unknown) => void,
-		)
+	off<E extends CDPEvent>(
+		event: E,
+		handler: (params: CDPEventParams<E>) => void,
+	): void {
+		void event
+		void handler
+		throw ExternalSessionAdapter.unsupportedChildSessionError()
 	}
 
 	async close(): Promise<void> {
@@ -834,20 +825,29 @@ export class CDPSession implements CDPSessionLike {
 		public readonly id: string,
 	) {}
 
-	send<R = unknown>(method: string, params?: object): Promise<R> {
-		return this.root._sendViaSession<R>(this.id, method, params)
+	send<M extends CDPCommand>(
+		method: M,
+		...params: CDPCommandParams<M>
+	): Promise<CDPCommandResult<M>> {
+		return this.root._sendViaSession(this.id, method, ...params)
 	}
 
-	on<P = unknown>(event: string, handler: (params: P) => void): void {
-		this.root._onSessionEvent(this.id, event, handler as EventHandler)
+	on<E extends CDPEvent>(
+		event: E,
+		handler: (params: CDPEventParams<E>) => void,
+	): void {
+		this.root._onSessionEvent(this.id, event, handler)
 	}
 
-	off<P = unknown>(event: string, handler: (params: P) => void): void {
-		this.root._offSessionEvent(this.id, event, handler as EventHandler)
+	off<E extends CDPEvent>(
+		event: E,
+		handler: (params: CDPEventParams<E>) => void,
+	): void {
+		this.root._offSessionEvent(this.id, event, handler)
 	}
 
 	async close(): Promise<void> {
-		await this.root.send<void>("Target.detachFromTarget", {
+		await this.root.send("Target.detachFromTarget", {
 			sessionId: this.id,
 		})
 	}

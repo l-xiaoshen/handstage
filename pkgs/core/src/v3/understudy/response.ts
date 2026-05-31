@@ -290,10 +290,7 @@ export class Response {
 	 */
 	async body(): Promise<Buffer> {
 		const result = await this.session
-			.send<Protocol.Network.GetResponseBodyResponse>(
-				"Network.getResponseBody",
-				{ requestId: this.requestId },
-			)
+			.send("Network.getResponseBody", { requestId: this.requestId })
 			.catch((error) => {
 				throw new ResponseBodyError(String(error))
 			})
@@ -335,7 +332,10 @@ export class Response {
 	 * richer metadata.
 	 */
 	public applyExtraInfo(
-		event: Protocol.Network.ResponseReceivedExtraInfoEvent,
+		event: Pick<
+			Protocol.Network.ResponseReceivedExtraInfoEvent,
+			"headers" | "headersText"
+		>,
 	): void {
 		this.extraInfoHeaders = event.headers
 		this.extraInfoHeadersText = event.headersText
@@ -367,16 +367,15 @@ export class Response {
 			requestId: serialized.requestId,
 			frameId: serialized.frameId,
 			loaderId: serialized.loaderId,
-			response: serialized.response as Protocol.Network.Response,
+			response: serialized.response,
 			fromServiceWorker: serialized.fromServiceWorkerFlag ?? false,
 		})
 
 		if (serialized.extraInfoHeaders) {
 			reconstructed.applyExtraInfo({
-				requestId: serialized.requestId,
 				headers: serialized.extraInfoHeaders,
 				headersText: serialized.extraInfoHeadersText,
-			} as Protocol.Network.ResponseReceivedExtraInfoEvent)
+			})
 		}
 
 		if (serialized.finishedSettled) {

@@ -51,7 +51,7 @@ function shellFrame(id: FrameId): Protocol.Page.Frame {
 		secureContextType: "InsecureScheme",
 		crossOriginIsolatedContextType: "NotIsolated",
 		gatedAPIFeatures: [],
-	} as Protocol.Page.Frame
+	}
 }
 
 export class FrameRegistry {

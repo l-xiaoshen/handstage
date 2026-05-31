@@ -37,21 +37,15 @@ export async function absoluteXPathForBackendNode(
 	backendNodeId: number,
 ): Promise<string | null> {
 	try {
-		const { object } = await session.send<{ object: { objectId?: string } }>(
-			"DOM.resolveNode",
-			{ backendNodeId },
-		)
+		const { object } = await session.send("DOM.resolveNode", { backendNodeId })
 		const objectId = object?.objectId
 		if (!objectId) return null
 
-		const { result } = await session.send<{ result: { value?: string } }>(
-			"Runtime.callFunctionOn",
-			{
-				objectId,
-				functionDeclaration: a11yScriptSources.nodeToAbsoluteXPath,
-				returnByValue: true,
-			},
-		)
+		const { result } = await session.send("Runtime.callFunctionOn", {
+			objectId,
+			functionDeclaration: a11yScriptSources.nodeToAbsoluteXPath,
+			returnByValue: true,
+		})
 		await session.send("Runtime.releaseObject", { objectId }).catch(() => {})
 		return typeof result?.value === "string" && result.value
 			? result.value

@@ -1,6 +1,5 @@
 import { reRenderScriptContent } from "@handstage/dom/build/reRenderScriptContent"
 import { v3ScriptContent } from "@handstage/dom/build/scriptV3Content"
-import type { Protocol } from "devtools-protocol"
 import { defaultLogger, type LogSink } from "../logger"
 import { LogLevel } from "../types/public/logs"
 import type { CDPSessionLike } from "./cdp"
@@ -16,10 +15,10 @@ export async function installV3PiercerIntoSession(
 
 	await session.send("Runtime.enable").catch(() => {})
 	try {
-		await session.send<Protocol.Page.AddScriptToEvaluateOnNewDocumentResponse>(
-			"Page.addScriptToEvaluateOnNewDocument",
-			{ source: v3ScriptContent, runImmediately: true },
-		)
+		await session.send("Page.addScriptToEvaluateOnNewDocument", {
+			source: v3ScriptContent,
+			runImmediately: true,
+		})
 	} catch (e) {
 		const msg = String((e as Error)?.message ?? e ?? "")
 		// If the session vanished during attach (common with short-lived OOPIFs),
@@ -28,7 +27,7 @@ export async function installV3PiercerIntoSession(
 		// For other errors, keep going but don't throw — the next evaluate is idempotent.
 	}
 	await session
-		.send<Protocol.Runtime.EvaluateResponse>("Runtime.evaluate", {
+		.send("Runtime.evaluate", {
 			expression: v3ScriptContent,
 			returnByValue: true,
 			awaitPromise: true,
@@ -39,7 +38,7 @@ export async function installV3PiercerIntoSession(
 	// shadow roots were created before we patched attachShadow so their
 	// closed roots are recreated under the hook.
 	await session
-		.send<Protocol.Runtime.EvaluateResponse>("Runtime.evaluate", {
+		.send("Runtime.evaluate", {
 			expression: reRenderScriptContent,
 			returnByValue: true,
 			awaitPromise: false,
@@ -55,20 +54,17 @@ export function tapPiercerConsole(
 	logger?: LogSink,
 ): void {
 	const sink = logger ?? defaultLogger()
-	session.on<Protocol.Runtime.ConsoleAPICalledEvent>(
-		"Runtime.consoleAPICalled",
-		(evt) => {
-			const head = evt.args?.[0]?.value as string | undefined
-			if (head?.startsWith?.("[v3-piercer]")) {
-				sink({
-					category: "piercer",
-					message: `[${label}] ${head}`,
-					level: LogLevel.Debug,
-					attributes: {
-						value: String(evt.args?.[1]?.value ?? ""),
-					},
-				})
-			}
-		},
-	)
+	session.on("Runtime.consoleAPICalled", (evt) => {
+		const head = evt.args?.[0]?.value as string | undefined
+		if (head?.startsWith?.("[v3-piercer]")) {
+			sink({
+				category: "piercer",
+				message: `[${label}] ${head}`,
+				level: LogLevel.Debug,
+				attributes: {
+					value: String(evt.args?.[1]?.value ?? ""),
+				},
+			})
+		}
+	})
 }

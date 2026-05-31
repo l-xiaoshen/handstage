@@ -26,10 +26,9 @@ export async function a11yForFrame(
 
 	let nodes: Protocol.Accessibility.AXNode[] = []
 	try {
-		const params = frameId ? ({ frameId } as Record<string, unknown>) : {}
-		;({ nodes } = await session.send<{
-			nodes: Protocol.Accessibility.AXNode[]
-		}>("Accessibility.getFullAXTree", params))
+		;({ nodes } = frameId
+			? await session.send("Accessibility.getFullAXTree", { frameId })
+			: await session.send("Accessibility.getFullAXTree"))
 	} catch (e) {
 		const msg = String((e as Error)?.message ?? e ?? "")
 		const isFrameScopeError =
@@ -37,9 +36,7 @@ export async function a11yForFrame(
 			msg.includes("does not belong to the target") ||
 			msg.includes("is not found")
 		if (!isFrameScopeError || !frameId) throw e
-		;({ nodes } = await session.send<{
-			nodes: Protocol.Accessibility.AXNode[]
-		}>("Accessibility.getFullAXTree"))
+		;({ nodes } = await session.send("Accessibility.getFullAXTree"))
 	}
 
 	const urlMap: Record<string, string> = {}
@@ -62,10 +59,7 @@ export async function a11yForFrame(
 				? await resolveObjectIdForXPath(session, sel, frameId)
 				: await resolveObjectIdForCss(session, sel, frameId)
 			if (!objectId) return nodes
-			const desc = await session.send<{ node?: { backendNodeId?: number } }>(
-				"DOM.describeNode",
-				{ objectId },
-			)
+			const desc = await session.send("DOM.describeNode", { objectId })
 			const be = desc.node?.backendNodeId
 			if (typeof be !== "number") return nodes
 			const target = nodes.find((n) => n.backendDOMNodeId === be)

@@ -91,15 +91,11 @@ export async function hydrateDomTree(
 			let expanded = false
 			for (const depth of DESCRIBE_DEPTH_ATTEMPTS) {
 				try {
-					const described =
-						await session.send<Protocol.DOM.DescribeNodeResponse>(
-							"DOM.describeNode",
-							{
-								...describeParamsBase,
-								depth,
-								pierce,
-							},
-						)
+					const described = await session.send("DOM.describeNode", {
+						...describeParamsBase,
+						depth,
+						pierce,
+					})
 					mergeDomNodes(node, described.node)
 					if (!nodeId && described.node.nodeId && described.node.nodeId > 0) {
 						node.nodeId = described.node.nodeId
@@ -145,10 +141,7 @@ export async function getDomTreeWithFallback(
 
 	for (const depth of DOM_DEPTH_ATTEMPTS) {
 		try {
-			const { root } = await session.send<{ root: Protocol.DOM.Node }>(
-				"DOM.getDocument",
-				{ depth, pierce },
-			)
+			const { root } = await session.send("DOM.getDocument", { depth, pierce })
 
 			if (depth !== -1) {
 				await hydrateDomTree(session, root, pierce)
@@ -193,10 +186,7 @@ export async function domMapsForSession(
 	let startNode: Protocol.DOM.Node = root
 	if (attemptOwnerLookup) {
 		try {
-			const owner = await session.send<{ backendNodeId?: number }>(
-				"DOM.getFrameOwner",
-				{ frameId },
-			)
+			const owner = await session.send("DOM.getFrameOwner", { frameId })
 			const ownerBackendId = owner.backendNodeId
 			if (typeof ownerBackendId === "number") {
 				const ownerEl = findNodeByBackendId(root, ownerBackendId)
@@ -316,7 +306,7 @@ export async function buildSessionDomIndex(
 			stack.push({ node: sr, xp: joinXPath(xp, "//"), docRootBe })
 		}
 
-		const cd = node.contentDocument as Protocol.DOM.Node | undefined
+		const cd = node.contentDocument
 		if (cd && typeof cd.backendNodeId === "number") {
 			if (typeof node.backendNodeId !== "number") {
 				throw new HandstageDomProcessError(

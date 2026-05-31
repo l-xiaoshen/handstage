@@ -50,18 +50,19 @@ export class Frame implements FrameManager {
 	/** DOM.getNodeForLocation → DOM.describeNode */
 	async getNodeAtLocation(x: number, y: number): Promise<Protocol.DOM.Node> {
 		await this.session.send("DOM.enable")
-		const { backendNodeId } = await this.session.send<{
-			backendNodeId: Protocol.DOM.BackendNodeId
-		}>("DOM.getNodeForLocation", {
-			x,
-			y,
-			includeUserAgentShadowDOM: true,
-			ignorePointerEventsNone: false,
-		})
+		const { backendNodeId } = await this.session.send(
+			"DOM.getNodeForLocation",
+			{
+				x,
+				y,
+				includeUserAgentShadowDOM: true,
+				ignorePointerEventsNone: false,
+			},
+		)
 
-		const { node } = await this.session.send<{
-			node: Protocol.DOM.Node
-		}>("DOM.describeNode", { backendNodeId })
+		const { node } = await this.session.send("DOM.describeNode", {
+			backendNodeId,
+		})
 
 		return node
 	}
@@ -72,19 +73,14 @@ export class Frame implements FrameManager {
 	): Promise<{ x: number; y: number; width: number; height: number }> {
 		await this.session.send("DOM.enable")
 
-		const { root } = await this.session.send<{ root: Protocol.DOM.Node }>(
-			"DOM.getDocument",
-		)
+		const { root } = await this.session.send("DOM.getDocument")
 
-		const { nodeId } = await this.session.send<{ nodeId: Protocol.DOM.NodeId }>(
-			"DOM.querySelector",
-			{ nodeId: root.nodeId, selector },
-		)
+		const { nodeId } = await this.session.send("DOM.querySelector", {
+			nodeId: root.nodeId,
+			selector,
+		})
 
-		const { model } = await this.session.send<{ model: Protocol.DOM.BoxModel }>(
-			"DOM.getBoxModel",
-			{ nodeId },
-		)
+		const { model } = await this.session.send("DOM.getBoxModel", { nodeId })
 
 		const x = model.content[0] ?? 0
 		const y = model.content[1] ?? 0
@@ -100,9 +96,9 @@ export class Frame implements FrameManager {
 		await this.session.send("Accessibility.enable")
 		let nodes: Protocol.Accessibility.AXNode[]
 		try {
-			;({ nodes } = await this.session.send<{
-				nodes: Protocol.Accessibility.AXNode[]
-			}>("Accessibility.getFullAXTree", { frameId: this.frameId }))
+			;({ nodes } = await this.session.send("Accessibility.getFullAXTree", {
+				frameId: this.frameId,
+			}))
 		} catch (e) {
 			const msg = String((e as Error)?.message ?? e ?? "")
 			const isFrameScopeError =
@@ -112,9 +108,7 @@ export class Frame implements FrameManager {
 			if (!isFrameScopeError)
 				throw e
 				// Retry unscoped: on OOPIF sessions, returns the child doc's AX tree.
-			;({ nodes } = await this.session.send<{
-				nodes: Protocol.Accessibility.AXNode[]
-			}>("Accessibility.getFullAXTree"))
+			;({ nodes } = await this.session.send("Accessibility.getFullAXTree"))
 		}
 
 		if (!withFrames) return nodes
@@ -161,30 +155,24 @@ export class Frame implements FrameManager {
 
 		let res: Protocol.Runtime.EvaluateResponse
 		try {
-			res = await this.session.send<Protocol.Runtime.EvaluateResponse>(
-				"Runtime.evaluate",
-				{
-					expression,
-					contextId,
-					awaitPromise: true,
-					returnByValue: true,
-				},
-			)
+			res = await this.session.send("Runtime.evaluate", {
+				expression,
+				contextId,
+				awaitPromise: true,
+				returnByValue: true,
+			})
 		} catch (error) {
 			// Execution contexts can be recreated between context lookup and
 			// Runtime.evaluate during popup/navigate churn. Retry once with a fresh id.
 			const msg = error instanceof Error ? error.message : String(error)
 			if (!msg.includes("Cannot find context with specified id")) throw error
 			const freshContextId = await this.getMainWorldExecutionContextId()
-			res = await this.session.send<Protocol.Runtime.EvaluateResponse>(
-				"Runtime.evaluate",
-				{
-					expression,
-					contextId: freshContextId,
-					awaitPromise: true,
-					returnByValue: true,
-				},
-			)
+			res = await this.session.send("Runtime.evaluate", {
+				expression,
+				contextId: freshContextId,
+				awaitPromise: true,
+				returnByValue: true,
+			})
 		}
 		if (res.exceptionDetails) {
 			throw new HandstageEvalError(
@@ -235,19 +223,13 @@ export class Frame implements FrameManager {
 			params.quality = Math.min(100, Math.max(0, q))
 		}
 
-		const { data } =
-			await this.session.send<Protocol.Page.CaptureScreenshotResponse>(
-				"Page.captureScreenshot",
-				params,
-			)
+		const { data } = await this.session.send("Page.captureScreenshot", params)
 		return Buffer.from(data, "base64")
 	}
 
 	/** Child frames via Page.getFrameTree */
 	async childFrames(): Promise<Frame[]> {
-		const { frameTree } = await this.session.send<{
-			frameTree: Protocol.Page.FrameTree
-		}>("Page.getFrameTree")
+		const { frameTree } = await this.session.send("Page.getFrameTree")
 		const frames: Frame[] = []
 
 		const collect = (tree: Protocol.Page.FrameTree) => {

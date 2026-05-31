@@ -42,10 +42,7 @@ export async function computeActiveElementXpath(
 						returnByValue: true,
 					}
 				: { expression: hasFocusExpr, returnByValue: true }
-			const { result } = await sess.send<Protocol.Runtime.EvaluateResponse>(
-				"Runtime.evaluate",
-				evalParams,
-			)
+			const { result } = await sess.send("Runtime.evaluate", evalParams)
 			if (result?.value === true) {
 				focusedFrameId = fid
 				break
@@ -69,11 +66,7 @@ export async function computeActiveElementXpath(
 					returnByValue: false,
 				}
 			: { expression: activeExpr, returnByValue: false }
-		const { result } =
-			await focusedSession.send<Protocol.Runtime.EvaluateResponse>(
-				"Runtime.evaluate",
-				evalParams,
-			)
+		const { result } = await focusedSession.send("Runtime.evaluate", evalParams)
 		objectId = result?.objectId as string | undefined
 	} catch {
 		objectId = undefined
@@ -82,9 +75,7 @@ export async function computeActiveElementXpath(
 
 	const leafXPath = await (async () => {
 		try {
-			const { result } = await focusedSession.send<{
-				result: { value?: string }
-			}>("Runtime.callFunctionOn", {
+			const { result } = await focusedSession.send("Runtime.callFunctionOn", {
 				objectId,
 				functionDeclaration: a11yScriptSources.nodeToAbsoluteXPath,
 				returnByValue: true,
@@ -111,9 +102,9 @@ export async function computeActiveElementXpath(
 		if (!parent) break
 		const parentSess = page.getSessionForFrame(parent)
 		try {
-			const { backendNodeId } = await parentSess.send<{
-				backendNodeId?: number
-			}>("DOM.getFrameOwner", { frameId: cur })
+			const { backendNodeId } = await parentSess.send("DOM.getFrameOwner", {
+				frameId: cur,
+			})
 			if (typeof backendNodeId === "number") {
 				const xp = await absoluteXPathForBackendNode(parentSess, backendNodeId)
 				if (xp) prefix = prefix ? prefixXPath(prefix, xp) : normalizeXPath(xp)

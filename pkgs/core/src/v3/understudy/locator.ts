@@ -85,14 +85,11 @@ export class Locator {
 
 		try {
 			try {
-				const res = await session.send<Protocol.Runtime.CallFunctionOnResponse>(
-					"Runtime.callFunctionOn",
-					{
-						objectId,
-						functionDeclaration: locatorScriptSources.ensureFileInputElement,
-						returnByValue: true,
-					},
-				)
+				const res = await session.send("Runtime.callFunctionOn", {
+					objectId,
+					functionDeclaration: locatorScriptSources.ensureFileInputElement,
+					returnByValue: true,
+				})
 				const ok = Boolean(res.result.value)
 				if (!ok)
 					throw new HandstageInvalidArgumentError(
@@ -109,7 +106,7 @@ export class Locator {
 			const normalized = await normalizeInputFiles(files)
 
 			if (!normalized.length) {
-				await session.send<never>("DOM.setFileInputFiles", {
+				await session.send("DOM.setFileInputFiles", {
 					objectId,
 					files: [],
 				})
@@ -137,14 +134,12 @@ export class Locator {
 				filePaths.push(tmp)
 			}
 
-			await session.send<never>("DOM.setFileInputFiles", {
+			await session.send("DOM.setFileInputFiles", {
 				objectId,
 				files: filePaths,
 			})
 		} finally {
-			await session
-				.send<never>("Runtime.releaseObject", { objectId })
-				.catch(() => {})
+			await session.send("Runtime.releaseObject", { objectId }).catch(() => {})
 			for (const p of tempFiles) {
 				try {
 					await fs.promises.unlink(p)
@@ -182,20 +177,17 @@ export class Locator {
 			base64: payload.buffer.toString("base64"),
 		}))
 
-		const res = await session.send<Protocol.Runtime.CallFunctionOnResponse>(
-			"Runtime.callFunctionOn",
-			{
-				objectId,
-				functionDeclaration:
-					locatorScriptSources.assignFilePayloadsToInputElement,
-				arguments: [
-					{
-						value: serialized,
-					},
-				],
-				returnByValue: true,
-			},
-		)
+		const res = await session.send("Runtime.callFunctionOn", {
+			objectId,
+			functionDeclaration:
+				locatorScriptSources.assignFilePayloadsToInputElement,
+			arguments: [
+				{
+					value: serialized,
+				},
+			],
+			returnByValue: true,
+		})
 
 		const ok = Boolean(res.result?.value)
 		if (!ok) {
@@ -214,15 +206,10 @@ export class Locator {
 		const { objectId } = await this.resolveNode()
 		try {
 			await session.send("DOM.enable").catch(() => {})
-			const { node } = await session.send<{ node: Protocol.DOM.Node }>(
-				"DOM.describeNode",
-				{ objectId },
-			)
-			return node.backendNodeId as Protocol.DOM.BackendNodeId
+			const { node } = await session.send("DOM.describeNode", { objectId })
+			return node.backendNodeId
 		} finally {
-			await session
-				.send<never>("Runtime.releaseObject", { objectId })
-				.catch(() => {})
+			await session.send("Runtime.releaseObject", { objectId }).catch(() => {})
 		}
 	}
 
@@ -245,17 +232,12 @@ export class Locator {
 			await session
 				.send("DOM.scrollIntoViewIfNeeded", { objectId })
 				.catch(() => {})
-			const box = await session.send<Protocol.DOM.GetBoxModelResponse>(
-				"DOM.getBoxModel",
-				{ objectId },
-			)
+			const box = await session.send("DOM.getBoxModel", { objectId })
 			if (!box.model) throw new ElementNotVisibleError(this.selector)
 			const { cx, cy } = this.centerFromBoxContent(box.model.content)
 			return { x: Math.round(cx), y: Math.round(cy) }
 		} finally {
-			await session
-				.send<never>("Runtime.releaseObject", { objectId })
-				.catch(() => {})
+			await session.send("Runtime.releaseObject", { objectId }).catch(() => {})
 		}
 	}
 
@@ -286,11 +268,8 @@ export class Locator {
 			await session.send("DOM.enable").catch(() => {})
 			let backendNodeId: Protocol.DOM.BackendNodeId | undefined
 			try {
-				const { node } = await session.send<{ node: Protocol.DOM.Node }>(
-					"DOM.describeNode",
-					{ objectId },
-				)
-				backendNodeId = node.backendNodeId as Protocol.DOM.BackendNodeId
+				const { node } = await session.send("DOM.describeNode", { objectId })
+				backendNodeId = node.backendNodeId
 			} catch {
 				backendNodeId = undefined
 			}
@@ -302,10 +281,10 @@ export class Locator {
 				showExtensionLines: false,
 				borderColor,
 				contentColor,
-			} as Protocol.Overlay.HighlightConfig
+			}
 
 			const highlightOnce = async () => {
-				await session.send<never>("Overlay.highlightNode", {
+				await session.send("Overlay.highlightNode", {
 					...(backendNodeId ? { backendNodeId } : { objectId }),
 					highlightConfig,
 				})
@@ -322,12 +301,10 @@ export class Locator {
 						await highlightOnce()
 					} catch {}
 				}
-				await session.send<never>("Overlay.hideHighlight").catch(() => {})
+				await session.send("Overlay.hideHighlight").catch(() => {})
 			}
 		} finally {
-			await session
-				.send<never>("Runtime.releaseObject", { objectId })
-				.catch(() => {})
+			await session.send("Runtime.releaseObject", { objectId }).catch(() => {})
 		}
 	}
 
@@ -343,23 +320,18 @@ export class Locator {
 				.send("DOM.scrollIntoViewIfNeeded", { objectId })
 				.catch(() => {})
 
-			const box = await session.send<Protocol.DOM.GetBoxModelResponse>(
-				"DOM.getBoxModel",
-				{ objectId },
-			)
+			const box = await session.send("DOM.getBoxModel", { objectId })
 			if (!box.model) throw new ElementNotVisibleError(this.selector)
 			const { cx, cy } = this.centerFromBoxContent(box.model.content)
 
-			await session.send<never>("Input.dispatchMouseEvent", {
+			await session.send("Input.dispatchMouseEvent", {
 				type: "mouseMoved",
 				x: cx,
 				y: cy,
 				button: "none",
-			} as Protocol.Input.DispatchMouseEventRequest)
+			})
 		} finally {
-			await session
-				.send<never>("Runtime.releaseObject", { objectId })
-				.catch(() => {})
+			await session.send("Runtime.releaseObject", { objectId }).catch(() => {})
 		}
 	}
 
@@ -384,47 +356,44 @@ export class Locator {
 		try {
 			await session.send("DOM.scrollIntoViewIfNeeded", { objectId })
 
-			const box = await session.send<Protocol.DOM.GetBoxModelResponse>(
-				"DOM.getBoxModel",
-				{ objectId },
-			)
+			const box = await session.send("DOM.getBoxModel", { objectId })
 			if (!box.model) throw new ElementNotVisibleError(this.selector)
 			const { cx, cy } = this.centerFromBoxContent(box.model.content)
 
 			const dispatches: Array<Promise<unknown>> = []
 			dispatches.push(
-				session.send<never>("Input.dispatchMouseEvent", {
+				session.send("Input.dispatchMouseEvent", {
 					type: "mouseMoved",
 					x: cx,
 					y: cy,
 					button: "none",
-				} as Protocol.Input.DispatchMouseEventRequest),
+				}),
 			)
 
 			for (let i = 1; i <= clickCount; i++) {
 				dispatches.push(
-					session.send<never>("Input.dispatchMouseEvent", {
+					session.send("Input.dispatchMouseEvent", {
 						type: "mousePressed",
 						x: cx,
 						y: cy,
 						button,
 						clickCount: i,
-					} as Protocol.Input.DispatchMouseEventRequest),
+					}),
 				)
 				dispatches.push(
-					session.send<never>("Input.dispatchMouseEvent", {
+					session.send("Input.dispatchMouseEvent", {
 						type: "mouseReleased",
 						x: cx,
 						y: cy,
 						button,
 						clickCount: i,
-					} as Protocol.Input.DispatchMouseEventRequest),
+					}),
 				)
 			}
 			await Promise.all(dispatches)
 		} finally {
 			try {
-				await session.send<never>("Runtime.releaseObject", { objectId })
+				await session.send("Runtime.releaseObject", { objectId })
 			} catch {
 				// If the context navigated or was destroyed (e.g., link opens new tab),
 				// releaseObject may fail with -32000. Ignore as best-effort cleanup.
@@ -453,23 +422,18 @@ export class Locator {
 			await session
 				.send("DOM.scrollIntoViewIfNeeded", { objectId })
 				.catch(() => {})
-			await session.send<Protocol.Runtime.CallFunctionOnResponse>(
-				"Runtime.callFunctionOn",
-				{
-					objectId,
-					functionDeclaration: locatorScriptSources.dispatchDomClick,
-					arguments: [
-						{
-							value: { bubbles, cancelable, composed, detail },
-						},
-					],
-					returnByValue: true,
-				},
-			)
+			await session.send("Runtime.callFunctionOn", {
+				objectId,
+				functionDeclaration: locatorScriptSources.dispatchDomClick,
+				arguments: [
+					{
+						value: { bubbles, cancelable, composed, detail },
+					},
+				],
+				returnByValue: true,
+			})
 		} finally {
-			await session
-				.send<never>("Runtime.releaseObject", { objectId })
-				.catch(() => {})
+			await session.send("Runtime.releaseObject", { objectId }).catch(() => {})
 		}
 	}
 
@@ -482,19 +446,14 @@ export class Locator {
 		const session = this.frame.session
 		const { objectId } = await this.resolveNode()
 		try {
-			await session.send<Protocol.Runtime.CallFunctionOnResponse>(
-				"Runtime.callFunctionOn",
-				{
-					objectId,
-					functionDeclaration: locatorScriptSources.scrollElementToPercent,
-					arguments: [{ value: percent as unknown as number }],
-					returnByValue: true,
-				},
-			)
+			await session.send("Runtime.callFunctionOn", {
+				objectId,
+				functionDeclaration: locatorScriptSources.scrollElementToPercent,
+				arguments: [{ value: percent as unknown as number }],
+				returnByValue: true,
+			})
 		} finally {
-			await session
-				.send<never>("Runtime.releaseObject", { objectId })
-				.catch(() => {})
+			await session.send("Runtime.releaseObject", { objectId }).catch(() => {})
 		}
 	}
 
@@ -512,15 +471,12 @@ export class Locator {
 		let releaseNeeded = true
 
 		try {
-			const res = await session.send<Protocol.Runtime.CallFunctionOnResponse>(
-				"Runtime.callFunctionOn",
-				{
-					objectId,
-					functionDeclaration: fillDeclaration,
-					arguments: [{ value }],
-					returnByValue: true,
-				},
-			)
+			const res = await session.send("Runtime.callFunctionOn", {
+				objectId,
+				functionDeclaration: fillDeclaration,
+				arguments: [{ value }],
+				returnByValue: true,
+			})
 			if (res.exceptionDetails) {
 				const message =
 					res.exceptionDetails.exception?.description ??
@@ -542,7 +498,7 @@ export class Locator {
 
 			if (status === "needsinput") {
 				await session
-					.send<never>("Runtime.releaseObject", { objectId })
+					.send("Runtime.releaseObject", { objectId })
 					.catch(() => {})
 				releaseNeeded = false
 
@@ -553,20 +509,15 @@ export class Locator {
 				try {
 					const { objectId: prepObjectId } = await this.resolveNode()
 					try {
-						const prepRes =
-							await session.send<Protocol.Runtime.CallFunctionOnResponse>(
-								"Runtime.callFunctionOn",
-								{
-									objectId: prepObjectId,
-									functionDeclaration:
-										locatorScriptSources.prepareElementForTyping,
-									returnByValue: true,
-								},
-							)
+						const prepRes = await session.send("Runtime.callFunctionOn", {
+							objectId: prepObjectId,
+							functionDeclaration: locatorScriptSources.prepareElementForTyping,
+							returnByValue: true,
+						})
 						prepared = Boolean(prepRes.result.value)
 					} finally {
 						await session
-							.send<never>("Runtime.releaseObject", { objectId: prepObjectId })
+							.send("Runtime.releaseObject", { objectId: prepObjectId })
 							.catch(() => {})
 					}
 				} catch {
@@ -579,22 +530,22 @@ export class Locator {
 				}
 
 				if (valueToType.length === 0) {
-					await session.send<never>("Input.dispatchKeyEvent", {
+					await session.send("Input.dispatchKeyEvent", {
 						type: "keyDown",
 						key: "Backspace",
 						code: "Backspace",
 						windowsVirtualKeyCode: 8,
 						nativeVirtualKeyCode: 8,
-					} as Protocol.Input.DispatchKeyEventRequest)
-					await session.send<never>("Input.dispatchKeyEvent", {
+					})
+					await session.send("Input.dispatchKeyEvent", {
 						type: "keyUp",
 						key: "Backspace",
 						code: "Backspace",
 						windowsVirtualKeyCode: 8,
 						nativeVirtualKeyCode: 8,
-					} as Protocol.Input.DispatchKeyEventRequest)
+					})
 				} else {
-					await session.send<never>("Input.insertText", { text: valueToType })
+					await session.send("Input.insertText", { text: valueToType })
 				}
 
 				return
@@ -616,7 +567,7 @@ export class Locator {
 		} finally {
 			if (releaseNeeded) {
 				await session
-					.send<never>("Runtime.releaseObject", { objectId })
+					.send("Runtime.releaseObject", { objectId })
 					.catch(() => {})
 			}
 		}
@@ -633,37 +584,34 @@ export class Locator {
 		const { objectId } = await this.resolveNode()
 
 		try {
-			await session.send<Protocol.Runtime.CallFunctionOnResponse>(
-				"Runtime.callFunctionOn",
-				{
-					objectId,
-					functionDeclaration: locatorScriptSources.focusElement,
-					returnByValue: true,
-				},
-			)
+			await session.send("Runtime.callFunctionOn", {
+				objectId,
+				functionDeclaration: locatorScriptSources.focusElement,
+				returnByValue: true,
+			})
 
 			if (!options?.delay) {
-				await session.send<never>("Input.insertText", { text })
+				await session.send("Input.insertText", { text })
 				return
 			}
 
 			for (const ch of text) {
-				await session.send<never>("Input.dispatchKeyEvent", {
+				await session.send("Input.dispatchKeyEvent", {
 					type: "keyDown",
 					text: ch,
 					key: ch,
-				} as Protocol.Input.DispatchKeyEventRequest)
+				})
 
-				await session.send<never>("Input.dispatchKeyEvent", {
+				await session.send("Input.dispatchKeyEvent", {
 					type: "keyUp",
 					text: ch,
 					key: ch,
-				} as Protocol.Input.DispatchKeyEventRequest)
+				})
 
 				await new Promise((r) => setTimeout(r, options.delay))
 			}
 		} finally {
-			await session.send<never>("Runtime.releaseObject", { objectId })
+			await session.send("Runtime.releaseObject", { objectId })
 		}
 	}
 
@@ -677,19 +625,16 @@ export class Locator {
 		const { objectId } = await this.resolveNode()
 
 		try {
-			const res = await session.send<Protocol.Runtime.CallFunctionOnResponse>(
-				"Runtime.callFunctionOn",
-				{
-					objectId,
-					functionDeclaration: locatorScriptSources.selectElementOptions,
-					arguments: [{ value: desired }],
-					returnByValue: true,
-				},
-			)
+			const res = await session.send("Runtime.callFunctionOn", {
+				objectId,
+				functionDeclaration: locatorScriptSources.selectElementOptions,
+				arguments: [{ value: desired }],
+				returnByValue: true,
+			})
 
 			return (res.result.value as string[]) ?? []
 		} finally {
-			await session.send<never>("Runtime.releaseObject", { objectId })
+			await session.send("Runtime.releaseObject", { objectId })
 		}
 	}
 
@@ -700,17 +645,14 @@ export class Locator {
 		const session = this.frame.session
 		const { objectId } = await this.resolveNode()
 		try {
-			const res = await session.send<Protocol.Runtime.CallFunctionOnResponse>(
-				"Runtime.callFunctionOn",
-				{
-					objectId,
-					functionDeclaration: locatorScriptSources.isElementVisible,
-					returnByValue: true,
-				},
-			)
+			const res = await session.send("Runtime.callFunctionOn", {
+				objectId,
+				functionDeclaration: locatorScriptSources.isElementVisible,
+				returnByValue: true,
+			})
 			return Boolean(res.result.value)
 		} finally {
-			await session.send<never>("Runtime.releaseObject", { objectId })
+			await session.send("Runtime.releaseObject", { objectId })
 		}
 	}
 
@@ -722,17 +664,14 @@ export class Locator {
 		const session = this.frame.session
 		const { objectId } = await this.resolveNode()
 		try {
-			const res = await session.send<Protocol.Runtime.CallFunctionOnResponse>(
-				"Runtime.callFunctionOn",
-				{
-					objectId,
-					functionDeclaration: locatorScriptSources.isElementChecked,
-					returnByValue: true,
-				},
-			)
+			const res = await session.send("Runtime.callFunctionOn", {
+				objectId,
+				functionDeclaration: locatorScriptSources.isElementChecked,
+				returnByValue: true,
+			})
 			return Boolean(res.result.value)
 		} finally {
-			await session.send<never>("Runtime.releaseObject", { objectId })
+			await session.send("Runtime.releaseObject", { objectId })
 		}
 	}
 
@@ -743,17 +682,14 @@ export class Locator {
 		const session = this.frame.session
 		const { objectId } = await this.resolveNode()
 		try {
-			const res = await session.send<Protocol.Runtime.CallFunctionOnResponse>(
-				"Runtime.callFunctionOn",
-				{
-					objectId,
-					functionDeclaration: locatorScriptSources.readElementInputValue,
-					returnByValue: true,
-				},
-			)
+			const res = await session.send("Runtime.callFunctionOn", {
+				objectId,
+				functionDeclaration: locatorScriptSources.readElementInputValue,
+				returnByValue: true,
+			})
 			return String(res.result.value ?? "")
 		} finally {
-			await session.send<never>("Runtime.releaseObject", { objectId })
+			await session.send("Runtime.releaseObject", { objectId })
 		}
 	}
 
@@ -764,17 +700,14 @@ export class Locator {
 		const session = this.frame.session
 		const { objectId } = await this.resolveNode()
 		try {
-			const res = await session.send<Protocol.Runtime.CallFunctionOnResponse>(
-				"Runtime.callFunctionOn",
-				{
-					objectId,
-					functionDeclaration: locatorScriptSources.readElementTextContent,
-					returnByValue: true,
-				},
-			)
+			const res = await session.send("Runtime.callFunctionOn", {
+				objectId,
+				functionDeclaration: locatorScriptSources.readElementTextContent,
+				returnByValue: true,
+			})
 			return String(res.result.value ?? "")
 		} finally {
-			await session.send<never>("Runtime.releaseObject", { objectId })
+			await session.send("Runtime.releaseObject", { objectId })
 		}
 	}
 
@@ -785,17 +718,14 @@ export class Locator {
 		const session = this.frame.session
 		const { objectId } = await this.resolveNode()
 		try {
-			const res = await session.send<Protocol.Runtime.CallFunctionOnResponse>(
-				"Runtime.callFunctionOn",
-				{
-					objectId,
-					functionDeclaration: locatorScriptSources.readElementInnerHTML,
-					returnByValue: true,
-				},
-			)
+			const res = await session.send("Runtime.callFunctionOn", {
+				objectId,
+				functionDeclaration: locatorScriptSources.readElementInnerHTML,
+				returnByValue: true,
+			})
 			return String(res.result.value ?? "")
 		} finally {
-			await session.send<never>("Runtime.releaseObject", { objectId })
+			await session.send("Runtime.releaseObject", { objectId })
 		}
 	}
 
@@ -806,17 +736,14 @@ export class Locator {
 		const session = this.frame.session
 		const { objectId } = await this.resolveNode()
 		try {
-			const res = await session.send<Protocol.Runtime.CallFunctionOnResponse>(
-				"Runtime.callFunctionOn",
-				{
-					objectId,
-					functionDeclaration: locatorScriptSources.readElementInnerText,
-					returnByValue: true,
-				},
-			)
+			const res = await session.send("Runtime.callFunctionOn", {
+				objectId,
+				functionDeclaration: locatorScriptSources.readElementInnerText,
+				returnByValue: true,
+			})
 			return String(res.result.value ?? "")
 		} finally {
-			await session.send<never>("Runtime.releaseObject", { objectId })
+			await session.send("Runtime.releaseObject", { objectId })
 		}
 	}
 

@@ -352,7 +352,7 @@ async function resolveMaskRects(
 			} catch {
 			} finally {
 				await session
-					.send<never>("Runtime.releaseObject", { objectId })
+					.send("Runtime.releaseObject", { objectId })
 					.catch(() => {})
 			}
 		}
@@ -370,15 +370,12 @@ async function resolveMaskRectForObject(
 	objectId: Protocol.Runtime.RemoteObjectId,
 	maskToken: string,
 ): Promise<(ScreenshotClip & { rootToken?: string | null }) | null> {
-	const result = await session.send<Protocol.Runtime.CallFunctionOnResponse>(
-		"Runtime.callFunctionOn",
-		{
-			objectId,
-			functionDeclaration: screenshotScriptSources.resolveMaskRect,
-			arguments: [{ value: maskToken }],
-			returnByValue: true,
-		},
-	)
+	const result = await session.send("Runtime.callFunctionOn", {
+		objectId,
+		functionDeclaration: screenshotScriptSources.resolveMaskRect,
+		arguments: [{ value: maskToken }],
+		returnByValue: true,
+	})
 
 	if (result.exceptionDetails) {
 		return null

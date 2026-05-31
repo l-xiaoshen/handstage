@@ -1,3 +1,4 @@
+import type { Protocol } from "devtools-protocol"
 import type {
 	ClearCookieOptions,
 	Cookie,
@@ -130,7 +131,7 @@ export function normalizeCookieParams(cookies: CookieParam[]): CookieParam[] {
  */
 export function toCDPCookieParam(
 	c: Cookie | CookieParam,
-): Record<string, unknown> {
+): Protocol.Network.CookieParam {
 	return {
 		name: c.name,
 		value: c.value,

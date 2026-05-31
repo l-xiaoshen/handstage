@@ -1,6 +1,11 @@
 import type { Protocol } from "devtools-protocol"
 import type {
+	CDPCommand,
+	CDPCommandParams,
+	CDPCommandResult,
 	CDPConnectionLike,
+	CDPEvent,
+	CDPEventParams,
 	CDPSessionLike,
 	CDPTransport,
 } from "../src/v3/understudy/cdp"
@@ -9,23 +14,32 @@ type Handler = (params: unknown) => void
 
 /** Minimal in-memory `CDPSessionLike` for unit tests. */
 export class FakeSession implements CDPSessionLike {
-	public sent: Array<{ method: string; params?: object }> = []
+	public sent: Array<{ method: string; params?: unknown }> = []
 	private handlers = new Map<string, Set<Handler>>()
 
 	constructor(public readonly id: string) {}
 
-	async send<R = unknown>(method: string, params?: object): Promise<R> {
-		this.sent.push({ method, params })
-		return {} as R
+	send<M extends CDPCommand>(
+		method: M,
+		...params: CDPCommandParams<M>
+	): Promise<CDPCommandResult<M>> {
+		this.sent.push({ method, params: params[0] })
+		return Promise.resolve({} as CDPCommandResult<M>)
 	}
 
-	on<P = unknown>(event: string, handler: (params: P) => void): void {
+	on<E extends CDPEvent>(
+		event: E,
+		handler: (params: CDPEventParams<E>) => void,
+	): void {
 		const set = this.handlers.get(event) ?? new Set<Handler>()
 		set.add(handler as Handler)
 		this.handlers.set(event, set)
 	}
 
-	off<P = unknown>(event: string, handler: (params: P) => void): void {
+	off<E extends CDPEvent>(
+		event: E,
+		handler: (params: CDPEventParams<E>) => void,
+	): void {
 		this.handlers.get(event)?.delete(handler as Handler)
 	}
 
@@ -42,7 +56,7 @@ export class FakeSession implements CDPSessionLike {
  */
 export class FakeConnection implements CDPConnectionLike {
 	public readonly id: string | null = null
-	public sent: Array<{ method: string; params?: object }> = []
+	public sent: Array<{ method: string; params?: unknown }> = []
 	public autoAttachCalls = 0
 	public closed = false
 	public closeCalls = 0
@@ -51,32 +65,46 @@ export class FakeConnection implements CDPConnectionLike {
 	public targets: Protocol.Target.TargetInfo[] = []
 	private handlers = new Map<string, Set<Handler>>()
 
-	async send<R = unknown>(method: string, params?: object): Promise<R> {
-		this.sent.push({ method, params })
+	send<M extends CDPCommand>(
+		method: M,
+		...params: CDPCommandParams<M>
+	): Promise<CDPCommandResult<M>> {
+		const requestParams = params[0]
+		this.sent.push({ method, params: requestParams })
 		if (method === "Target.getBrowserContexts") {
-			return { browserContextIds: this.nonDefaultContextIds } as R
+			return Promise.resolve({
+				browserContextIds: this.nonDefaultContextIds,
+			} as CDPCommandResult<M>)
 		}
 		if (method === "Target.getTargets") {
-			return { targetInfos: this.targets } as R
+			return Promise.resolve({
+				targetInfos: this.targets,
+			} as CDPCommandResult<M>)
 		}
 		if (method === "Target.createBrowserContext") {
 			const browserContextId = `ctx-${this.sent.length}`
-			return { browserContextId } as R
+			return Promise.resolve({ browserContextId } as CDPCommandResult<M>)
 		}
 		if (method === "Target.createTarget") {
 			const targetId = `tgt-${this.sent.length}`
-			return { targetId } as R
+			return Promise.resolve({ targetId } as CDPCommandResult<M>)
 		}
-		return {} as R
+		return Promise.resolve({} as CDPCommandResult<M>)
 	}
 
-	on<P = unknown>(event: string, handler: (params: P) => void): void {
+	on<E extends CDPEvent>(
+		event: E,
+		handler: (params: CDPEventParams<E>) => void,
+	): void {
 		const set = this.handlers.get(event) ?? new Set<Handler>()
 		set.add(handler as Handler)
 		this.handlers.set(event, set)
 	}
 
-	off<P = unknown>(event: string, handler: (params: P) => void): void {
+	off<E extends CDPEvent>(
+		event: E,
+		handler: (params: CDPEventParams<E>) => void,
+	): void {
 		this.handlers.get(event)?.delete(handler as Handler)
 	}
 
@@ -107,7 +135,11 @@ export class FakeConnection implements CDPConnectionLike {
 	onTransportClosed(): void {}
 	offTransportClosed(): void {}
 
-	waitForSessionDispatch(): Promise<void> {
+	waitForSessionDispatch<M extends CDPCommand>(
+		_sessionId: string,
+		_method: M,
+		..._params: CDPCommandParams<M>
+	): Promise<void> {
 		return Promise.resolve()
 	}
 
@@ -130,7 +162,7 @@ export function pageTarget(
 		attached: false,
 		canAccessOpener: false,
 		browserContextId,
-	} as Protocol.Target.TargetInfo
+	}
 }
 
 export function attachedEvent(

@@ -123,12 +123,13 @@ export class FrameSelectorResolver {
 		if (limit <= 0) return []
 
 		const session = this.frame.session
-		const { executionContextId } = await session.send<{
-			executionContextId: Protocol.Runtime.ExecutionContextId
-		}>("Page.createIsolatedWorld", {
-			frameId: this.frame.frameId,
-			worldName: "v3-world",
-		})
+		const { executionContextId } = await session.send(
+			"Page.createIsolatedWorld",
+			{
+				frameId: this.frame.frameId,
+				worldName: "v3-world",
+			},
+		)
 
 		const ctxId = await executionContexts.waitForMainWorld(
 			session,
@@ -239,12 +240,13 @@ export class FrameSelectorResolver {
 	private async countCss(selector: string): Promise<number> {
 		const session = this.frame.session
 
-		const { executionContextId } = await session.send<{
-			executionContextId: Protocol.Runtime.ExecutionContextId
-		}>("Page.createIsolatedWorld", {
-			frameId: this.frame.frameId,
-			worldName: "v3-world",
-		})
+		const { executionContextId } = await session.send(
+			"Page.createIsolatedWorld",
+			{
+				frameId: this.frame.frameId,
+				worldName: "v3-world",
+			},
+		)
 
 		const primaryExpr = this.buildLocatorInvocation("countCssMatchesPrimary", [
 			JSON.stringify(selector),
@@ -278,15 +280,12 @@ export class FrameSelectorResolver {
 		])
 
 		try {
-			const evalRes = await session.send<Protocol.Runtime.EvaluateResponse>(
-				"Runtime.evaluate",
-				{
-					expression: expr,
-					contextId: ctxId,
-					returnByValue: true,
-					awaitPromise: true,
-				},
-			)
+			const evalRes = await session.send("Runtime.evaluate", {
+				expression: expr,
+				contextId: ctxId,
+				returnByValue: true,
+				awaitPromise: true,
+			})
 
 			if (evalRes.exceptionDetails) {
 				const details = evalRes.exceptionDetails
@@ -336,15 +335,12 @@ export class FrameSelectorResolver {
 		])
 
 		try {
-			const evalRes = await session.send<Protocol.Runtime.EvaluateResponse>(
-				"Runtime.evaluate",
-				{
-					expression: expr,
-					contextId: ctxId,
-					returnByValue: true,
-					awaitPromise: true,
-				},
-			)
+			const evalRes = await session.send("Runtime.evaluate", {
+				expression: expr,
+				contextId: ctxId,
+				returnByValue: true,
+				awaitPromise: true,
+			})
 
 			if (evalRes.exceptionDetails) {
 				return 0
@@ -367,10 +363,7 @@ export class FrameSelectorResolver {
 		const session = this.frame.session
 		let nodeId: Protocol.DOM.NodeId | null
 		try {
-			const rn = await session.send<{ nodeId: Protocol.DOM.NodeId }>(
-				"DOM.requestNode",
-				{ objectId },
-			)
+			const rn = await session.send("DOM.requestNode", { objectId })
 			nodeId = rn.nodeId ?? null
 		} catch {
 			nodeId = null
@@ -386,15 +379,12 @@ export class FrameSelectorResolver {
 		const session = this.frame.session
 
 		try {
-			const evalRes = await session.send<Protocol.Runtime.EvaluateResponse>(
-				"Runtime.evaluate",
-				{
-					expression,
-					contextId,
-					returnByValue: true,
-					awaitPromise: true,
-				},
-			)
+			const evalRes = await session.send("Runtime.evaluate", {
+				expression,
+				contextId,
+				returnByValue: true,
+				awaitPromise: true,
+			})
 
 			if (evalRes.exceptionDetails) {
 				return 0
@@ -416,15 +406,12 @@ export class FrameSelectorResolver {
 		const session = this.frame.session
 
 		try {
-			const evalRes = await session.send<Protocol.Runtime.EvaluateResponse>(
-				"Runtime.evaluate",
-				{
-					expression,
-					contextId,
-					returnByValue: false,
-					awaitPromise: true,
-				},
-			)
+			const evalRes = await session.send("Runtime.evaluate", {
+				expression,
+				contextId,
+				returnByValue: false,
+				awaitPromise: true,
+			})
 
 			if (evalRes.exceptionDetails || !evalRes.result.objectId) {
 				return null

@@ -53,9 +53,7 @@ export async function resolveXpathForLocation(
 							returnByValue: true,
 						}
 					: { expression: scrollExpr, returnByValue: true }
-				const { result } = await curSession.send<{
-					result: { value?: { sx?: number; sy?: number } }
-				}>("Runtime.evaluate", evalParams)
+				const { result } = await curSession.send("Runtime.evaluate", evalParams)
 				sx = Number(result?.value?.sx ?? 0)
 				sy = Number(result?.value?.sy ?? 0)
 			} catch {}
@@ -64,10 +62,7 @@ export async function resolveXpathForLocation(
 
 			let res: { backendNodeId?: number; frameId?: string } | undefined
 			try {
-				res = await curSession.send<{
-					backendNodeId?: number
-					frameId?: string
-				}>("DOM.getNodeForLocation", {
+				res = await curSession.send("DOM.getNodeForLocation", {
 					x: xi,
 					y: yi,
 					includeUserAgentShadowDOM: false,
@@ -99,9 +94,9 @@ export async function resolveXpathForLocation(
 			let matchedChild: string | undefined
 			for (const fid of listChildrenOf(parentByFrame, curFrameId)) {
 				try {
-					const { backendNodeId } = await curSession.send<{
-						backendNodeId?: number
-					}>("DOM.getFrameOwner", { frameId: fid })
+					const { backendNodeId } = await curSession.send("DOM.getFrameOwner", {
+						frameId: fid,
+					})
 					if (backendNodeId === be) {
 						matchedChild = fid
 						break
@@ -128,14 +123,12 @@ export async function resolveXpathForLocation(
 			let left = 0
 			let top = 0
 			try {
-				const { object } = await curSession.send<{
-					object: { objectId?: string }
-				}>("DOM.resolveNode", { backendNodeId: be })
+				const { object } = await curSession.send("DOM.resolveNode", {
+					backendNodeId: be,
+				})
 				const objectId = object?.objectId
 				if (objectId) {
-					const { result } = await curSession.send<{
-						result: { value?: { left: number; top: number } }
-					}>("Runtime.callFunctionOn", {
+					const { result } = await curSession.send("Runtime.callFunctionOn", {
 						objectId,
 						functionDeclaration: a11yScriptSources.getBoundingRectLite,
 						returnByValue: true,

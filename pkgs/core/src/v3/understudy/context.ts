@@ -12,11 +12,18 @@ import type { LocalBrowserLaunchOptions } from "../types/public/index"
 import { LogLevel } from "../types/public/logs"
 import {
 	CookieSetError,
+	CookieValidationError,
 	HandstageSetExtraHTTPHeadersError,
 	PageNotFoundError,
 	TimeoutError,
 } from "../types/public/sdkErrors"
-import type { CDPConnectionLike, CDPSessionLike } from "./cdp"
+import type {
+	CDPCommand,
+	CDPCommandParams,
+	CDPConnectionLike,
+	CDPEvent,
+	CDPSessionLike,
+} from "./cdp"
 import {
 	cookieMatchesFilter,
 	filterCookies,
@@ -187,7 +194,7 @@ export class Context implements TargetRouterDelegate {
 	 */
 	private _addSessionListener<P>(
 		session: CDPSessionLike,
-		event: string,
+		event: CDPEvent,
 		handler: (params: P) => void,
 	): void {
 		const sessionId = session.id
@@ -197,9 +204,9 @@ export class Context implements TargetRouterDelegate {
 			)
 		}
 		const erasedHandler = handler as unknown as (params: unknown) => void
-		session.on(event, erasedHandler)
+		session.on(event, erasedHandler as never)
 		this._registerSessionCleanup(sessionId, () =>
-			session.off(event, erasedHandler),
+			session.off(event, erasedHandler as never),
 		)
 	}
 
@@ -258,9 +265,10 @@ export class Context implements TargetRouterDelegate {
 			disposeOnDetach: true,
 			...opts?.createOptions,
 		}
-		const { browserContextId } = await conn.send<{
-			browserContextId: string
-		}>("Target.createBrowserContext", createOptions)
+		const { browserContextId } = await conn.send(
+			"Target.createBrowserContext",
+			createOptions,
+		)
 		const ctx = new Context(
 			conn,
 			opts?.localBrowserLaunchOptions ?? null,
@@ -355,13 +363,9 @@ export class Context implements TargetRouterDelegate {
 		) {
 			return
 		}
-		const behavior = options.acceptDownloads === false ? "deny" : "allow"
-		const params: {
-			behavior: string
-			downloadPath?: string
-			eventsEnabled: boolean
-			browserContextId?: string
-		} = {
+		const behavior: Protocol.Browser.SetDownloadBehaviorRequest["behavior"] =
+			options.acceptDownloads === false ? "deny" : "allow"
+		const params: Protocol.Browser.SetDownloadBehaviorRequest = {
 			behavior,
 			downloadPath: options.downloadPath,
 			eventsEnabled: true,
@@ -444,7 +448,7 @@ export class Context implements TargetRouterDelegate {
 		if (!this.isDefaultContext && this.browserContextId) {
 			createParams.browserContextId = this.browserContextId
 		}
-		const { targetId } = await this.conn.send<{ targetId: string }>(
+		const { targetId } = await this.conn.send(
 			"Target.createTarget",
 			createParams,
 		)
@@ -625,9 +629,7 @@ export class Context implements TargetRouterDelegate {
 		if (this.nonDefaultContextLookupFailed) return null
 
 		try {
-			const res = await this.conn.send<{ browserContextIds?: string[] }>(
-				"Target.getBrowserContexts",
-			)
+			const res = await this.conn.send("Target.getBrowserContexts")
 			this.knownNonDefaultBrowserContextIds = new Set(
 				res.browserContextIds ?? [],
 			)
@@ -759,17 +761,16 @@ export class Context implements TargetRouterDelegate {
 		// - wait for transport-level dispatch of required pre-resume commands;
 		// - then dispatch resume;
 		// - then await responses.
-		const queuePreResume = (
-			method: string,
-			params?: object,
-			match?: (sentParams?: object) => boolean,
+		const queuePreResume = <M extends CDPCommand>(
+			method: M,
+			...params: CDPCommandParams<M>
 		) => {
 			const dispatched = this.conn
-				.waitForSessionDispatch(sessionId, method, match)
+				.waitForSessionDispatch(sessionId, method, ...params)
 				.then(() => true)
 				.catch(() => false)
 			const response = session
-				.send(method, params)
+				.send(method, ...params)
 				.then(() => true)
 				.catch(() => false)
 			return { dispatched, response }
@@ -807,16 +808,10 @@ export class Context implements TargetRouterDelegate {
 		if (this.initScripts.length) {
 			for (const source of this.initScripts) {
 				initScriptOps.push(
-					queuePreResume(
-						"Page.addScriptToEvaluateOnNewDocument",
-						{
-							source,
-							runImmediately: true,
-						},
-						(sentParams) =>
-							(sentParams as { source?: string } | undefined)?.source ===
-							source,
-					),
+					queuePreResume("Page.addScriptToEvaluateOnNewDocument", {
+						source,
+						runImmediately: true,
+					}),
 				)
 			}
 		}
@@ -826,9 +821,6 @@ export class Context implements TargetRouterDelegate {
 				source: v3ScriptContent,
 				runImmediately: true,
 			},
-			(sentParams) =>
-				(sentParams as { source?: string } | undefined)?.source ===
-				v3ScriptContent,
 		)
 		const preResumeDispatched = (
 			await Promise.all([
@@ -956,10 +948,7 @@ export class Context implements TargetRouterDelegate {
 
 			// Child (iframe / OOPIF)
 			try {
-				const { frameTree } =
-					await session.send<Protocol.Page.GetFrameTreeResponse>(
-						"Page.getFrameTree",
-					)
+				const { frameTree } = await session.send("Page.getFrameTree")
 				const childMainId = frameTree.frame.id
 
 				// Try to find owner Page now (it may already have the node in its tree)
@@ -1198,9 +1187,10 @@ export class Context implements TargetRouterDelegate {
 	async cookies(urls?: string | string[]): Promise<Cookie[]> {
 		const urlList = !urls ? [] : typeof urls === "string" ? [urls] : urls
 
-		const { cookies } = await this.conn.send<{
-			cookies: Protocol.Network.Cookie[]
-		}>("Storage.getCookies", this._scopedParams())
+		const { cookies } = await this.conn.send(
+			"Storage.getCookies",
+			this._scopedParams(),
+		)
 
 		const mapped: Cookie[] = cookies.map((c) => ({
 			name: c.name,

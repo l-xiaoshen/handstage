@@ -13,7 +13,7 @@
  */
 
 import type { Protocol } from "devtools-protocol"
-import type { CDPSessionLike } from "./cdp"
+import type { CDPEvent, CDPEventParams, CDPSessionLike } from "./cdp"
 import type { Page } from "./page"
 import { Response } from "./response"
 
@@ -45,7 +45,7 @@ export class NavigationResponseTracker {
 	>()
 
 	private readonly listeners: Array<{
-		event: string
+		event: CDPEvent
 		handler: (event: unknown) => void
 	}> = []
 
@@ -129,25 +129,26 @@ export class NavigationResponseTracker {
 	/** Register all CDP listeners relevant to navigation tracking. */
 	private installListeners(): void {
 		this.addListener("Network.responseReceived", (event) => {
-			this.onResponseReceived(event as Protocol.Network.ResponseReceivedEvent)
+			this.onResponseReceived(event)
 		})
 		this.addListener("Network.responseReceivedExtraInfo", (event) => {
-			this.onResponseReceivedExtraInfo(
-				event as Protocol.Network.ResponseReceivedExtraInfoEvent,
-			)
+			this.onResponseReceivedExtraInfo(event)
 		})
 		this.addListener("Network.loadingFinished", (event) => {
-			this.onLoadingFinished(event as Protocol.Network.LoadingFinishedEvent)
+			this.onLoadingFinished(event)
 		})
 		this.addListener("Network.loadingFailed", (event) => {
-			this.onLoadingFailed(event as Protocol.Network.LoadingFailedEvent)
+			this.onLoadingFailed(event)
 		})
 	}
 
 	/** Attach a CDP listener and track it for later disposal. */
-	private addListener(event: string, handler: (event: unknown) => void): void {
-		this.session.on(event, handler as never)
-		this.listeners.push({ event, handler })
+	private addListener<E extends CDPEvent>(
+		event: E,
+		handler: (event: CDPEventParams<E>) => void,
+	): void {
+		this.session.on(event, handler)
+		this.listeners.push({ event, handler: handler as (event: unknown) => void })
 	}
 
 	/** Handle the initial response payload for document navigations. */
