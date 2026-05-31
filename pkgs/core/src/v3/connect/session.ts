@@ -15,7 +15,7 @@ export async function connectSession(
 	session: ExternalCDPSession,
 	opts?: HandstageConnectOptions,
 ): Promise<Handstage> {
-	const { instanceId, sharedOpts, logSink, logger } = setupConnectContext(opts)
+	const { sharedOpts, logSink, logger } = setupConnectContext(opts)
 	logger({
 		category: "init",
 		message: "Connecting via custom connection",
@@ -27,7 +27,6 @@ export async function connectSession(
 		conn: adapter,
 		lbo: connectOptionsToLocalBrowserLaunchOptions(opts),
 		sharedOpts,
-		instanceId,
 		logSink,
 	})
 }

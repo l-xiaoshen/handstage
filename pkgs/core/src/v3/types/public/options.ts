@@ -11,17 +11,6 @@ export type LocalBrowserLaunchOptions = z.infer<
 /** Shared constructor options for all Handstage connection modes. */
 export interface HandstageSharedOptions {
 	/**
-	 * Optional external session identifier.
-	 * When omitted, Handstage falls back to its internal instance id.
-	 */
-	sessionId?: string
-	/**
-	 * When true, the browser process is not killed on `close()` and SIGINT
-	 * handling is relaxed so the process can exit while Chrome keeps running.
-	 */
-	keepAlive?: boolean
-
-	/**
 	 * Minimum log level to emit: {@link LogLevel.Error} is quietest (errors only),
 	 * {@link LogLevel.Info} includes informational messages,
 	 * {@link LogLevel.Debug} includes everything.

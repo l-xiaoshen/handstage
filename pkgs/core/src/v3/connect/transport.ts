@@ -12,7 +12,7 @@ export async function connectTransport(
 	transport: CDPTransport,
 	opts?: HandstageConnectOptions,
 ): Promise<Handstage> {
-	const { instanceId, sharedOpts, logSink, logger } = setupConnectContext(opts)
+	const { sharedOpts, logSink, logger } = setupConnectContext(opts)
 	logger({
 		category: "init",
 		message: "Connecting via custom transport",
@@ -24,7 +24,6 @@ export async function connectTransport(
 		conn,
 		lbo: connectOptionsToLocalBrowserLaunchOptions(opts),
 		sharedOpts,
-		instanceId,
 		logSink,
 	})
 }

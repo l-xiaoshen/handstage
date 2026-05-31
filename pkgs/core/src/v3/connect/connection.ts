@@ -16,7 +16,7 @@ export async function connectConnection(
 	conn: CDPConnectionLike,
 	opts?: HandstageConnectOptions,
 ): Promise<Handstage> {
-	const { instanceId, sharedOpts, logSink, logger } = setupConnectContext(opts)
+	const { sharedOpts, logSink, logger } = setupConnectContext(opts)
 	logger({
 		category: "init",
 		message: "Attaching to shared CDP connection",
@@ -27,7 +27,6 @@ export async function connectConnection(
 		conn,
 		lbo: connectOptionsToLocalBrowserLaunchOptions(opts),
 		sharedOpts,
-		instanceId,
 		logSink,
 	})
 }

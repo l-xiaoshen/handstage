@@ -12,7 +12,7 @@ export async function connectWS(
 	ws: WebSocket,
 	opts?: HandstageConnectOptions,
 ): Promise<Handstage> {
-	const { instanceId, sharedOpts, logSink, logger } = setupConnectContext(opts)
+	const { sharedOpts, logSink, logger } = setupConnectContext(opts)
 	logger({
 		category: "init",
 		message: "Connecting via WebSocket",
@@ -40,7 +40,6 @@ export async function connectWS(
 		conn,
 		lbo: connectOptionsToLocalBrowserLaunchOptions(opts),
 		sharedOpts,
-		instanceId,
 		logSink,
 	})
 }

@@ -1,4 +1,3 @@
-import { v7 as uuidv7 } from "uuid"
 import { createHandstageForConnection, type Handstage } from "../handstage"
 import { createFilteredLogger, type LogSink } from "../logger"
 import type { ShutdownSupervisorConfig } from "../types/private/shutdown"
@@ -11,11 +10,10 @@ import type { CDPConnectionLike } from "../understudy/cdp"
 import { Context } from "../understudy/context"
 
 export function setupConnectContext(opts?: HandstageSharedOptions) {
-	const instanceId = uuidv7()
 	const sharedOpts: HandstageSharedOptions = opts ?? {}
 	const logSink = createFilteredLogger(sharedOpts.logger, sharedOpts.verbose)
 	const logger: LogSink = (line) => logSink(line)
-	return { instanceId, sharedOpts, logSink, logger }
+	return { sharedOpts, logSink, logger }
 }
 
 export function connectOptionsToLocalBrowserLaunchOptions(
@@ -44,7 +42,6 @@ export async function createOwnedHandstage(params: {
 	conn: CDPConnectionLike
 	lbo: LocalBrowserLaunchOptions
 	sharedOpts: HandstageSharedOptions
-	instanceId: string
 	logSink: LogSink
 	onContextError?: () => Promise<void>
 	shutdownSupervisorConfig?: ShutdownSupervisorConfig
@@ -69,7 +66,6 @@ export async function createOwnedHandstage(params: {
 		cleanup,
 		defaultContext: ctx,
 		opts: params.sharedOpts,
-		instanceId: params.instanceId,
 		logSink: params.logSink,
 		shutdownSupervisorConfig: params.shutdownSupervisorConfig,
 	})
@@ -81,7 +77,6 @@ export async function createSharedHandstage(params: {
 	conn: CDPConnectionLike
 	lbo: LocalBrowserLaunchOptions
 	sharedOpts: HandstageSharedOptions
-	instanceId: string
 	logSink: LogSink
 }): Promise<Handstage> {
 	const ctx = await Context.createFromConnection(params.conn, {
@@ -92,7 +87,6 @@ export async function createSharedHandstage(params: {
 		connection: params.conn,
 		defaultContext: ctx,
 		opts: params.sharedOpts,
-		instanceId: params.instanceId,
 		logSink: params.logSink,
 	})
 	await applyPostConnectLocalOptions(handstage, params.lbo)

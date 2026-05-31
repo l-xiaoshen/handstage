@@ -40,8 +40,6 @@ export class Handstage {
 	/** Filtered logger built once at construction; passed down to Context. */
 	private readonly logSink: LogSink
 	public verbose: LogLevel
-	private readonly instanceId: string
-	private readonly sessionId: string
 	private shutdownSupervisor: ShutdownSupervisorHandle | null = null
 	private connection: CDPConnectionLike | null
 	private readonly cleanup?: () => Promise<void>
@@ -55,7 +53,6 @@ export class Handstage {
 		cleanup: (() => Promise<void>) | undefined,
 		defaultContext: Context,
 		opts: HandstageSharedOptions,
-		instanceId: string,
 		logSink: LogSink,
 		shutdownSupervisorConfig?: ShutdownSupervisorConfig,
 	) {
@@ -72,8 +69,6 @@ export class Handstage {
 
 		this.logSink = logSink
 		this.verbose = opts.verbose ?? LogLevel.Info
-		this.instanceId = instanceId
-		this.sessionId = opts.sessionId ?? this.instanceId
 
 		this.connection.onTransportClosed(this._onCDPClosed)
 		if (shutdownSupervisorConfig) {
@@ -116,7 +111,7 @@ export class Handstage {
 						category: "handstage",
 						message:
 							"Shutdown supervisor unavailable; crash cleanup disabled. " +
-							"If this process exits unexpectedly, local Chrome may remain running when keepAlive=false.",
+							"If this process exits unexpectedly, local Chrome may remain running.",
 						level: LogLevel.Error,
 						attributes: {
 							context,
@@ -247,7 +242,6 @@ export function createHandstageForConnection(params: {
 	cleanup?: () => Promise<void>
 	defaultContext: Context
 	opts: HandstageSharedOptions
-	instanceId: string
 	logSink: LogSink
 	shutdownSupervisorConfig?: ShutdownSupervisorConfig
 }): Handstage {
@@ -257,7 +251,6 @@ export function createHandstageForConnection(params: {
 		params.cleanup,
 		params.defaultContext,
 		params.opts,
-		params.instanceId,
 		params.logSink,
 		params.shutdownSupervisorConfig,
 	)

@@ -63,7 +63,7 @@ export async function connectLocal(
 	chrome: LaunchedChrome,
 	opts?: HandstageLocalOptions,
 ): Promise<Handstage> {
-	const { instanceId, sharedOpts, logSink, logger } = setupConnectContext(opts)
+	const { sharedOpts, logSink, logger } = setupConnectContext(opts)
 	logger({
 		category: "init",
 		message: "Connecting via LaunchedChrome (pipe)",
@@ -82,10 +82,7 @@ export async function connectLocal(
 			if (isClosed) return
 			isClosed = true
 			await writer.close().catch(() => {})
-			const keepAlive = sharedOpts.keepAlive === true
-			if (!keepAlive) {
-				await chrome.close().catch(() => {})
-			}
+			await chrome.close().catch(() => {})
 		},
 	}
 
@@ -109,26 +106,23 @@ export async function connectLocal(
 
 	const conn = new CDPConnection(transport)
 	const lbo = opts?.localBrowserLaunchOptions ?? {}
-	const keepAlive = sharedOpts.keepAlive === true
 
 	return await createOwnedHandstage({
 		conn,
 		lbo,
 		sharedOpts,
-		instanceId,
 		logSink,
 		onContextError: async () => {
 			await chrome.close().catch(() => {})
 		},
-		shutdownSupervisorConfig:
-			!keepAlive && chrome.pid
-				? {
-						kind: "LOCAL",
-						pid: chrome.pid,
-						userDataDir: chrome.userDataDir,
-						createdTempProfile: !!chrome.createdTempProfile,
-						preserveUserDataDir: !!lbo.preserveUserDataDir,
-					}
-				: undefined,
+		shutdownSupervisorConfig: chrome.pid
+			? {
+					kind: "LOCAL",
+					pid: chrome.pid,
+					userDataDir: chrome.userDataDir,
+					createdTempProfile: !!chrome.createdTempProfile,
+					preserveUserDataDir: !!lbo.preserveUserDataDir,
+				}
+			: undefined,
 	})
 }
