@@ -22,6 +22,7 @@ import type {
 	CDPCommandParams,
 	CDPConnectionLike,
 	CDPEvent,
+	CDPEventParams,
 	CDPSessionLike,
 } from "./cdp"
 import {
@@ -78,8 +79,7 @@ function isNonWebTarget(info: Protocol.Target.TargetInfo): boolean {
 }
 
 function isTopLevelPage(info: Protocol.Target.TargetInfo): boolean {
-	const ti = info as unknown as { subtype?: string }
-	return info.type === "page" && ti.subtype !== "iframe"
+	return info.type === "page" && info.subtype !== "iframe"
 }
 
 /**
@@ -192,10 +192,10 @@ export class Context implements TargetRouterDelegate {
 	 * root has no per-session bookkeeping here.  We assert against that
 	 * to fail loudly during development.
 	 */
-	private _addSessionListener<P>(
+	private _addSessionListener<E extends CDPEvent>(
 		session: CDPSessionLike,
-		event: CDPEvent,
-		handler: (params: P) => void,
+		event: E,
+		handler: (params: CDPEventParams<E>) => void,
 	): void {
 		const sessionId = session.id
 		if (!sessionId) {
@@ -203,11 +203,8 @@ export class Context implements TargetRouterDelegate {
 				"_addSessionListener requires a child CDP session with a non-null id; root-connection listeners must use this.conn.on() and be removed manually.",
 			)
 		}
-		const erasedHandler = handler as unknown as (params: unknown) => void
-		session.on(event, erasedHandler as never)
-		this._registerSessionCleanup(sessionId, () =>
-			session.off(event, erasedHandler as never),
-		)
+		session.on(event, handler)
+		this._registerSessionCleanup(sessionId, () => session.off(event, handler))
 	}
 
 	/**
@@ -1077,68 +1074,52 @@ export class Context implements TargetRouterDelegate {
 		const session = this.conn.getSession(sessionId)
 		if (!session) return
 
-		this._addSessionListener<Protocol.Page.FrameAttachedEvent>(
-			session,
-			"Page.frameAttached",
-			(evt) => {
-				const { frameId, parentFrameId } = evt
+		this._addSessionListener(session, "Page.frameAttached", (evt) => {
+			const { frameId, parentFrameId } = evt
 
-				owner.onFrameAttached(frameId, parentFrameId ?? null, session)
+			owner.onFrameAttached(frameId, parentFrameId ?? null, session)
 
-				// If we were waiting for this id (OOPIF child), adopt now.
-				const pendingChildSessionId = this.pendingOopifByMainFrame.get(frameId)
-				if (pendingChildSessionId) {
-					const child = this.conn.getSession(pendingChildSessionId)
-					if (child) {
-						owner.adoptOopifSession(child, frameId)
-						this.sessionOwnerPage.set(child.id ?? "child", owner)
-						// Wire bridges for the child so its Page events keep flowing.
-						this.installFrameEventBridges(pendingChildSessionId, owner)
-					}
-					this.pendingOopifByMainFrame.delete(frameId)
+			// If we were waiting for this id (OOPIF child), adopt now.
+			const pendingChildSessionId = this.pendingOopifByMainFrame.get(frameId)
+			if (pendingChildSessionId) {
+				const child = this.conn.getSession(pendingChildSessionId)
+				if (child) {
+					owner.adoptOopifSession(child, frameId)
+					this.sessionOwnerPage.set(child.id ?? "child", owner)
+					// Wire bridges for the child so its Page events keep flowing.
+					this.installFrameEventBridges(pendingChildSessionId, owner)
 				}
+				this.pendingOopifByMainFrame.delete(frameId)
+			}
 
-				// Track Page ownership for quick reverse lookups (debug helpers).
-				this.frameOwnerPage.set(frameId, owner)
+			// Track Page ownership for quick reverse lookups (debug helpers).
+			this.frameOwnerPage.set(frameId, owner)
 
-				// Root handoff: keep mainFrameToTarget aligned for the page
-				if (!parentFrameId) {
-					const newRoot = owner.mainFrameId()
-					const topTargetId = this.findTargetIdByPage(owner)
-					if (topTargetId) {
-						this.mainFrameToTarget.set(newRoot, topTargetId)
-					}
-					this.frameOwnerPage.set(newRoot, owner)
+			// Root handoff: keep mainFrameToTarget aligned for the page
+			if (!parentFrameId) {
+				const newRoot = owner.mainFrameId()
+				const topTargetId = this.findTargetIdByPage(owner)
+				if (topTargetId) {
+					this.mainFrameToTarget.set(newRoot, topTargetId)
 				}
-			},
-		)
+				this.frameOwnerPage.set(newRoot, owner)
+			}
+		})
 
-		this._addSessionListener<Protocol.Page.FrameDetachedEvent>(
-			session,
-			"Page.frameDetached",
-			(evt) => {
-				owner.onFrameDetached(evt.frameId, evt.reason ?? "remove")
-				if (evt.reason !== "swap") {
-					this.frameOwnerPage.delete(evt.frameId)
-				}
-			},
-		)
+		this._addSessionListener(session, "Page.frameDetached", (evt) => {
+			owner.onFrameDetached(evt.frameId, evt.reason ?? "remove")
+			if (evt.reason !== "swap") {
+				this.frameOwnerPage.delete(evt.frameId)
+			}
+		})
 
-		this._addSessionListener<Protocol.Page.FrameNavigatedEvent>(
-			session,
-			"Page.frameNavigated",
-			(evt) => {
-				owner.onFrameNavigated(evt.frame, session)
-			},
-		)
+		this._addSessionListener(session, "Page.frameNavigated", (evt) => {
+			owner.onFrameNavigated(evt.frame, session)
+		})
 
-		this._addSessionListener<Protocol.Page.NavigatedWithinDocumentEvent>(
-			session,
-			"Page.navigatedWithinDocument",
-			(evt) => {
-				owner.onNavigatedWithinDocument(evt.frameId, evt.url, session)
-			},
-		)
+		this._addSessionListener(session, "Page.navigatedWithinDocument", (evt) => {
+			owner.onNavigatedWithinDocument(evt.frameId, evt.url, session)
+		})
 	}
 
 	/**

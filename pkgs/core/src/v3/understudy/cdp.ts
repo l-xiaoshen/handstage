@@ -28,6 +28,15 @@ export type CDPCommandParams<M extends CDPCommand> =
 export type CDPCommandResult<M extends CDPCommand> =
 	ProtocolMapping.Commands[M]["returnType"]
 export type CDPEventParams<E extends CDPEvent> = ProtocolMapping.Events[E][0]
+export type CDPAnyCommandParams = {
+	[M in CDPCommand]: CDPCommandParams<M>[0]
+}[CDPCommand]
+export type CDPAnyCommandResult = {
+	[M in CDPCommand]: CDPCommandResult<M>
+}[CDPCommand]
+export type CDPAnyEventParams = {
+	[E in CDPEvent]: CDPEventParams<E>
+}[CDPEvent]
 
 /**
  * CDP transport & session multiplexer
@@ -95,27 +104,28 @@ export interface CDPConnectionLike extends CDPSessionLike {
 }
 
 type Inflight = {
-	resolve: (value: unknown) => void
+	resolve: (value: CDPAnyCommandResult) => void
 	reject: (e: Error) => void
 	sessionId?: string | null
 	method: string
-	params?: unknown
+	params?: CDPAnyCommandParams
 	stack?: string
 	ts: number
 }
 
-type EventHandler = (params: unknown) => void
+type EventHandlerResult = void | PromiseLike<void>
+type EventHandler = (params: CDPAnyEventParams) => EventHandlerResult
 type SessionDispatchWaiter = {
 	sessionId: string
 	method: string
-	params?: unknown
+	params?: CDPAnyCommandParams
 	resolve: () => void
 	reject: (error: Error) => void
 }
 
 type RawResponseMessage = {
 	id: number
-	result?: unknown
+	result?: CDPAnyCommandResult
 	error?: { code: number; message: string; data?: unknown }
 	sessionId?: string
 }
@@ -130,21 +140,24 @@ type RawEventMessage<E extends CDPEvent = CDPEvent> = E extends CDPEvent
 
 type RawMessage = RawResponseMessage | RawEventMessage
 
-function invokeEventHandler(handler: EventHandler, params: unknown): void {
+function ignoreEventHandlerError(): void {}
+
+function invokeEventHandler(
+	handler: EventHandler,
+	params: CDPAnyEventParams,
+): void {
 	try {
-		const result = handler(params) as unknown
-		if (
-			result &&
-			typeof result === "object" &&
-			"then" in result &&
-			typeof (result as Promise<unknown>).then === "function"
-		) {
-			void (result as Promise<unknown>).catch(() => {})
+		const result = handler(params)
+		if (result !== undefined) {
+			void Promise.resolve(result).catch(ignoreEventHandlerError)
 		}
 	} catch {}
 }
 
-export abstract class BaseCDPConnection implements CDPConnectionLike {
+export abstract class BaseCDPConnection<
+	TSession extends CDPSessionLike = CDPSessionLike,
+> implements CDPConnectionLike
+{
 	abstract send<M extends CDPCommand>(
 		method: M,
 		...params: CDPCommandParams<M>
@@ -159,7 +172,7 @@ export abstract class BaseCDPConnection implements CDPConnectionLike {
 	): void
 	abstract close(): Promise<void>
 	abstract get id(): string | null
-	abstract getSession(sessionId: string): CDPSessionLike | undefined
+	abstract getSession(sessionId: string): TSession | undefined
 	abstract onTransportClosed(handler: (why: string) => void): void
 	abstract offTransportClosed(handler: (why: string) => void): void
 	abstract waitForSessionDispatch<M extends CDPCommand>(
@@ -196,7 +209,7 @@ export abstract class BaseCDPConnection implements CDPConnectionLike {
 		return p
 	}
 
-	async attachToTarget(targetId: string): Promise<CDPSessionLike> {
+	async attachToTarget(targetId: string): Promise<TSession> {
 		const { sessionId } = await this.send("Target.attachToTarget", {
 			targetId,
 			flatten: true,
@@ -216,15 +229,12 @@ export abstract class BaseCDPConnection implements CDPConnectionLike {
 		return res.targetInfos
 	}
 
-	protected abstract _createSession(sessionId: string): CDPSessionLike
-	protected abstract _setSession(
-		sessionId: string,
-		session: CDPSessionLike,
-	): void
+	protected abstract _createSession(sessionId: string): TSession
+	protected abstract _setSession(sessionId: string, session: TSession): void
 	protected abstract _mapTarget(sessionId: string, targetId: string): void
 }
 
-export class CDPConnection extends BaseCDPConnection {
+export class CDPConnection extends BaseCDPConnection<CDPSession> {
 	private transport: CDPTransport
 	private nextId = 1
 	private inflight = new Map<number, Inflight>() // Outstanding request records; `_sendViaSession()` inserts and `onMessage()` removes/resolves them.
@@ -330,7 +340,7 @@ export class CDPConnection extends BaseCDPConnection {
 		const stack = new Error().stack?.split("\n").slice(1, 4).join("\n")
 		const p = new Promise<CDPCommandResult<M>>((resolve, reject) => {
 			this.inflight.set(id, {
-				resolve: (v: unknown) => resolve(v as CDPCommandResult<M>),
+				resolve: (value) => resolve(value),
 				reject,
 				sessionId: null,
 				method,
@@ -350,7 +360,7 @@ export class CDPConnection extends BaseCDPConnection {
 		handler: (params: CDPEventParams<E>) => void,
 	): void {
 		const set = this.eventHandlers.get(event) ?? new Set<EventHandler>()
-		set.add(handler as EventHandler)
+		set.add(handler)
 		this.eventHandlers.set(event, set)
 	}
 
@@ -359,7 +369,7 @@ export class CDPConnection extends BaseCDPConnection {
 		handler: (params: CDPEventParams<E>) => void,
 	): void {
 		const set = this.eventHandlers.get(event)
-		if (set) set.delete(handler as EventHandler)
+		if (set) set.delete(handler)
 	}
 
 	async close(): Promise<void> {
@@ -435,12 +445,12 @@ export class CDPConnection extends BaseCDPConnection {
 		return res.targetInfos
 	}
 
-	protected _createSession(sessionId: string): CDPSessionLike {
+	protected _createSession(sessionId: string): CDPSession {
 		return new CDPSession(this, sessionId)
 	}
 
-	protected _setSession(sessionId: string, session: CDPSessionLike): void {
-		this.sessions.set(sessionId, session as CDPSession)
+	protected _setSession(sessionId: string, session: CDPSession): void {
+		this.sessions.set(sessionId, session)
 	}
 
 	protected _mapTarget(sessionId: string, targetId: string): void {
@@ -549,7 +559,7 @@ export class CDPConnection extends BaseCDPConnection {
 		const stack = new Error().stack?.split("\n").slice(1, 4).join("\n")
 		const p = new Promise<CDPCommandResult<M>>((resolve, reject) => {
 			this.inflight.set(id, {
-				resolve: (v: unknown) => resolve(v as CDPCommandResult<M>),
+				resolve: (value) => resolve(value),
 				reject,
 				sessionId,
 				method,
@@ -578,7 +588,7 @@ export class CDPConnection extends BaseCDPConnection {
 	): void {
 		const key = `${sessionId}:${event}`
 		const set = this.eventHandlers.get(key) ?? new Set<EventHandler>()
-		set.add(handler as EventHandler)
+		set.add(handler)
 		this.eventHandlers.set(key, set)
 	}
 
@@ -590,13 +600,17 @@ export class CDPConnection extends BaseCDPConnection {
 		const key = `${sessionId}:${event}`
 		const set = this.eventHandlers.get(key)
 		if (!set) return
-		set.delete(handler as EventHandler)
+		set.delete(handler)
 		// Drop the bucket once empty so a long-lived connection doesn't
 		// accumulate stale `${sessionId}:Event` keys after sessions detach.
 		if (set.size === 0) this.eventHandlers.delete(key)
 	}
 
-	_dispatchToSession(sessionId: string, event: string, params: unknown): void {
+	_dispatchToSession(
+		sessionId: string,
+		event: CDPEvent,
+		params: CDPAnyEventParams,
+	): void {
 		const key = `${sessionId}:${event}`
 		const handlers = this.eventHandlers.get(key)
 		if (handlers) for (const h of handlers) invokeEventHandler(h, params)
@@ -606,8 +620,8 @@ export class CDPConnection extends BaseCDPConnection {
 export class ExternalConnectionAdapter extends BaseCDPConnection {
 	private transportCloseHandlers = new Set<(why: string) => void>()
 	private sessions = new Map<string, CDPSessionLike>()
-	private eventHandlers = new Map<string, Set<(params: unknown) => void>>()
-	private rootEventHandlers = new Map<CDPEvent, (params: unknown) => void>()
+	private eventHandlers = new Map<string, Set<EventHandler>>()
+	private rootEventHandlers = new Map<CDPEvent, EventHandler>()
 	private sessionDispatchWaiters = new Set<SessionDispatchWaiter>()
 	private sessionToTarget = new Map<string, string>()
 
@@ -662,7 +676,7 @@ export class ExternalConnectionAdapter extends BaseCDPConnection {
 
 	private ensureRootListener<E extends CDPEvent>(event: E) {
 		if (!this.rootEventHandlers.has(event)) {
-			const rootHandler = (params: unknown) => {
+			const rootHandler = (params: CDPAnyEventParams) => {
 				const rootHandlers = this.eventHandlers.get(event)
 				if (rootHandlers) {
 					for (const h of rootHandlers) invokeEventHandler(h, params)
@@ -682,7 +696,7 @@ export class ExternalConnectionAdapter extends BaseCDPConnection {
 			set = new Set()
 			this.eventHandlers.set(event, set)
 		}
-		set.add(handler as (params: unknown) => void)
+		set.add(handler)
 		this.ensureRootListener(event)
 	}
 
@@ -692,7 +706,7 @@ export class ExternalConnectionAdapter extends BaseCDPConnection {
 	): void {
 		const set = this.eventHandlers.get(event)
 		if (set) {
-			set.delete(handler as (params: unknown) => void)
+			set.delete(handler)
 		}
 	}
 
@@ -852,7 +866,7 @@ export class CDPSession implements CDPSessionLike {
 		})
 	}
 
-	dispatch(event: string, params: unknown): void {
+	dispatch(event: CDPEvent, params: CDPAnyEventParams): void {
 		this.root._dispatchToSession(this.id, event, params)
 	}
 }
