@@ -5,7 +5,7 @@ import { getChromePath } from "chrome-launcher"
 // `DEFAULT_FLAGS` is intentionally not re-exported from chrome-launcher's
 // package entry, so import it from the flags module directly.
 import { DEFAULT_FLAGS } from "chrome-launcher/dist/flags.js"
-import type { LocalBrowserLaunchOptions } from "../v3/types/public/api"
+import type { LocalBrowserLaunchOptions } from "../v3/types/public/options"
 
 export interface PreparedLaunchOptions {
 	chromePath: string

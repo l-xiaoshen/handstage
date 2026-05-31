@@ -1,3 +1,5 @@
+/// <reference lib="dom" />
+
 import { screenshotScriptSources } from "@handstage/dom/build/screenshotScripts.generated"
 import type { Protocol } from "devtools-protocol"
 import type {

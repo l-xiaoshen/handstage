@@ -38,7 +38,7 @@ export interface CDPSessionLike {
 
 export interface CDPTransport {
 	send(message: string): void
-	close(): void
+	close(): void | Promise<void>
 	onmessage?: (message: string) => void
 	onclose?: (reason: string) => void
 	onerror?: (error: Error) => void
@@ -323,7 +323,7 @@ export class CDPConnection extends BaseCDPConnection {
 	async close(): Promise<void> {
 		this._isClosed = true
 		try {
-			this.transport.close()
+			await this.transport.close()
 		} finally {
 			// Release ownership so a future caller could re-wrap a fresh
 			// transport with the same identity (rare; mainly relevant in
@@ -586,7 +586,7 @@ export class ExternalConnectionAdapter extends BaseCDPConnection {
 		;(externalSession as unknown as Record<symbol, unknown>)[SESSION_OWNED] =
 			this
 		// Listen for flattened child session events if the external wrapper passes them
-		this.on<{ sessionId: string; targetInfo: any }>(
+		this.on<{ sessionId: string; targetInfo: Protocol.Target.TargetInfo }>(
 			"Target.attachedToTarget",
 			(params) => {
 				if (params?.sessionId && !this.sessions.has(params.sessionId)) {

@@ -78,13 +78,13 @@ export async function connectLocal(
 			if (isClosed) return
 			writer.write(encodeNullDelimitedMessage(message)).catch(() => {})
 		},
-		close: () => {
+		close: async () => {
 			if (isClosed) return
 			isClosed = true
-			writer.close().catch(() => {})
+			await writer.close().catch(() => {})
 			const keepAlive = sharedOpts.keepAlive === true
 			if (!keepAlive) {
-				chrome.close().catch(() => {})
+				await chrome.close().catch(() => {})
 			}
 		},
 	}
