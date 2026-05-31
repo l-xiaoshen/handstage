@@ -1,10 +1,10 @@
+import type { Handstage } from "../handstage"
 import { LogLevel } from "../types/public/logs"
 import type { HandstageConnectOptions } from "../types/public/options"
 import {
 	type ExternalCDPSession,
 	ExternalConnectionAdapter,
 } from "../understudy/cdp"
-import type { V3 } from "../v3"
 import {
 	connectOptionsToLocalBrowserLaunchOptions,
 	createOwnedHandstage,
@@ -14,7 +14,7 @@ import {
 export async function connectSession(
 	session: ExternalCDPSession,
 	opts?: HandstageConnectOptions,
-): Promise<V3> {
+): Promise<Handstage> {
 	const { instanceId, sharedOpts, logSink, logger } = setupConnectContext(opts)
 	logger({
 		category: "init",

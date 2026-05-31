@@ -1,4 +1,5 @@
 import { v7 as uuidv7 } from "uuid"
+import { createHandstageForConnection, type Handstage } from "../handstage"
 import { createFilteredLogger, type LogSink } from "../logger"
 import type { ShutdownSupervisorConfig } from "../types/private/shutdown"
 import type {
@@ -7,8 +8,7 @@ import type {
 	LocalBrowserLaunchOptions,
 } from "../types/public/options"
 import type { CDPConnectionLike } from "../understudy/cdp"
-import { V3Context } from "../understudy/context"
-import { createV3ForConnection, type V3 } from "../v3"
+import { Context } from "../understudy/context"
 
 export function setupConnectContext(opts?: HandstageSharedOptions) {
 	const instanceId = uuidv7()
@@ -48,10 +48,10 @@ export async function createOwnedHandstage(params: {
 	logSink: LogSink
 	onContextError?: () => Promise<void>
 	shutdownSupervisorConfig?: ShutdownSupervisorConfig
-}): Promise<V3> {
-	let ctx: V3Context
+}): Promise<Handstage> {
+	let ctx: Context
 	try {
-		ctx = await V3Context.createFromConnection(params.conn, {
+		ctx = await Context.createFromConnection(params.conn, {
 			localBrowserLaunchOptions: params.lbo,
 			logger: params.logSink,
 		})
@@ -64,7 +64,7 @@ export async function createOwnedHandstage(params: {
 	const cleanup = onceAsync(async () => {
 		await params.conn.close().catch(() => {})
 	})
-	const v3 = createV3ForConnection({
+	const handstage = createHandstageForConnection({
 		connection: params.conn,
 		cleanup,
 		defaultContext: ctx,
@@ -73,8 +73,8 @@ export async function createOwnedHandstage(params: {
 		logSink: params.logSink,
 		shutdownSupervisorConfig: params.shutdownSupervisorConfig,
 	})
-	await applyPostConnectLocalOptions(v3, params.lbo)
-	return v3
+	await applyPostConnectLocalOptions(handstage, params.lbo)
+	return handstage
 }
 
 export async function createSharedHandstage(params: {
@@ -83,27 +83,27 @@ export async function createSharedHandstage(params: {
 	sharedOpts: HandstageSharedOptions
 	instanceId: string
 	logSink: LogSink
-}): Promise<V3> {
-	const ctx = await V3Context.createFromConnection(params.conn, {
+}): Promise<Handstage> {
+	const ctx = await Context.createFromConnection(params.conn, {
 		localBrowserLaunchOptions: params.lbo,
 		logger: params.logSink,
 	})
-	const v3 = createV3ForConnection({
+	const handstage = createHandstageForConnection({
 		connection: params.conn,
 		defaultContext: ctx,
 		opts: params.sharedOpts,
 		instanceId: params.instanceId,
 		logSink: params.logSink,
 	})
-	await applyPostConnectLocalOptions(v3, params.lbo)
-	return v3
+	await applyPostConnectLocalOptions(handstage, params.lbo)
+	return handstage
 }
 
 async function applyPostConnectLocalOptions(
-	v3: V3,
+	handstage: Handstage,
 	lbo: LocalBrowserLaunchOptions,
 ): Promise<void> {
-	await v3
+	await handstage
 		.defaultBrowserContext()
 		.setDownloadBehavior({
 			downloadPath: lbo.downloadsPath,

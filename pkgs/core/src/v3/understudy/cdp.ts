@@ -134,7 +134,7 @@ export abstract class BaseCDPConnection implements CDPConnectionLike {
 		match?: (params?: object) => boolean,
 	): Promise<void>
 
-	// Memoize the in-flight enable so concurrent V3Contexts sharing the
+	// Memoize the in-flight enable so concurrent Contexts sharing the
 	// connection don't all re-fire setAutoAttach on the browser session.
 	// On rejection we clear the memo so the next caller can retry —
 	// otherwise a partial failure (e.g. setAutoAttach succeeds but

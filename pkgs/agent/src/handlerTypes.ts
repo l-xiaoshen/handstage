@@ -39,7 +39,7 @@ import type {
 } from "./types"
 
 /**
- * Browser context exposed by Handstage (`V3.defaultBrowserContext()`). Implementations
+ * Browser context exposed by Handstage (`Handstage.defaultBrowserContext()`). Implementations
  * of {@link HandstageAgentToolHandlers} typically hold this.
  *
  * There is no implicit "active page" — callers track Page references they

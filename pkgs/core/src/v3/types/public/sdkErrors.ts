@@ -120,7 +120,7 @@ export class CDPConnectionClosedError extends HandstageError {
  * another `CDPConnection` / `ExternalConnectionAdapter`.
  *
  * Silently double-wrapping would clobber `transport.onmessage` / `.onclose` /
- * `.onerror` and stall the first owner.  If you actually want two `V3`
+ * `.onerror` and stall the first owner.  If you actually want two `Handstage`
  * instances sharing one CDP connection, construct the connection once and
  * use `connectConnection(existingConnection)` for both instances.
  */

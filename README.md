@@ -8,26 +8,28 @@ Handstage is a framework for browser automation designed for AI agent interactio
 - **`@handstage/dom`**: In-browser scripts for element locators, shadow DOM piercing, and accessibility snapshots.
 - **`@handstage/agent`**: AI agent tools and schemas for driving the browser.
 
-## Multi-context CDP model
+## Multi-context CDP Model
 
-Handstage is isolated-by-default. Each `connectLocal()` / `connectTransport()`
-/ `connectSession()` call creates its own CDP connection AND its own
-dedicated browser context, so two Handstage instances connected to the same
-Chrome cannot see each other's pages, cookies, local storage, init scripts,
-or extra HTTP headers, and closing one never tears down the other's
-resources.
+Handstage attaches to the browser's default context by default, which aligns
+with Puppeteer's `connect` and `launch` behavior. Two Handstage clients on the
+same CDP websocket therefore share the default browser context natively.
+
+Use `handstage.createBrowserContext()` when you want isolation. Dedicated
+browser contexts have their own cookies, storage, pages, init scripts, and
+extra HTTP headers.
 
 ### Connection ownership
 
 - Connection factories in `@handstage/core/connect/*` decide ownership.
-  `V3.close()` closes owned connections.
-- `V3Context` never closes a connection it didn't construct. Dedicated
+  `Handstage.close()` closes owned connections.
+- `Context` never closes a connection it didn't construct. Dedicated
   contexts call `Target.disposeBrowserContext`; default contexts release
   nothing browser-side because they're shared with other actors.
 - `connectConnection(existingConnection)` from
   `@handstage/core/connect/connection` is the explicit entrypoint for
-  sharing one `CDPConnectionLike` across multiple V3 instances. V3 instances
-  created this way do NOT close the shared connection on `close()`. Wrapping
+  sharing one `CDPConnectionLike` across multiple Handstage instances.
+  Handstage instances created this way do NOT close the shared connection on
+  `close()`. Wrapping
   the same raw `CDPTransport` or `ExternalCDPSession` in two
   `CDPConnection` / `ExternalConnectionAdapter` objects throws
   `HandstageTransportAlreadyOwnedError` — silently clobbering each other's
@@ -43,11 +45,11 @@ singleton. To foreground a tab in headful Chrome, call
 
 ### Logging per instance
 
-Every `V3` instance has its own `LogSink` plumbed through `V3Context` →
-`Page` → `NetworkManager` / `TargetRouter` / utilities, so two V3
+Every `Handstage` instance has its own `LogSink` plumbed through `Context` →
+`Page` → `NetworkManager` / `TargetRouter` / utilities, so two Handstage
 instances each receive their own debug lines from event-driven code paths.
 Router-level debug lines on a shared connection are broadcast to every
-attached V3's logger.
+attached Handstage logger.
 
 To opt into the browser's shared default context, just use the provided methods without creating an isolated context. Handstage now aligns natively with Puppeteer. Concurrent clients that
 intentionally drive the same default-context tab can still logically race —

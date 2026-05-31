@@ -26,7 +26,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test"
 import { getChromePath } from "chrome-launcher"
 import { launchChromeBun } from "../src/launch/bun"
 import { launchChromeNode } from "../src/launch/node"
-import type { V3, V3Context } from "../src/v3"
+import type { Context, Handstage } from "../src/v3"
 import { connectLocal } from "../src/v3/connect/local"
 
 function chromeIsAvailable(): boolean {
@@ -83,27 +83,29 @@ function defineRealChromeSuite(
 ): void {
 	const realChrome = describe.skipIf(!mode.enabled)
 
-	async function launchHandstage(): Promise<V3> {
+	async function launchHandstage(): Promise<Handstage> {
 		const chrome = await launcher.launch({ headless: mode.headless })
 		return connectLocal(chrome)
 	}
 
 	realChrome(`real Chrome [${launcher.label}/${mode.label}]`, () => {
-		let v3: V3
+		let handstage: Handstage
 
 		beforeAll(async () => {
-			v3 = await launchHandstage()
+			handstage = await launchHandstage()
 		}, LAUNCH_TIMEOUT_MS)
 
 		afterAll(async () => {
-			await v3?.close()
+			await handstage?.close()
 		})
 
 		describe("page basics", () => {
-			let context: V3Context
+			let context: Context
 
 			beforeAll(async () => {
-				context = await v3.createBrowserContext({ disposeOnDetach: true })
+				context = await handstage.createBrowserContext({
+					disposeOnDetach: true,
+				})
 			})
 
 			afterAll(async () => {
@@ -311,10 +313,12 @@ function defineRealChromeSuite(
 		})
 
 		describe("pages & contexts", () => {
-			let context: V3Context
+			let context: Context
 
 			beforeAll(async () => {
-				context = await v3.createBrowserContext({ disposeOnDetach: true })
+				context = await handstage.createBrowserContext({
+					disposeOnDetach: true,
+				})
 			})
 
 			afterAll(async () => {
@@ -365,7 +369,7 @@ function defineRealChromeSuite(
 			test.serial(
 				"isolated browser contexts do not share cookies",
 				async () => {
-					const isolated = await v3.createBrowserContext({
+					const isolated = await handstage.createBrowserContext({
 						disposeOnDetach: true,
 					})
 					try {
@@ -406,11 +410,11 @@ function defineRealChromeSuite(
 					const pid = chrome.pid
 					expect(typeof pid).toBe("number")
 
-					const v3 = await connectLocal(chrome)
-					const page = await v3.newPage("about:blank")
+					const handstage = await connectLocal(chrome)
+					const page = await handstage.newPage("about:blank")
 					expect(await page.evaluate(() => 1 + 1)).toBe(2)
 
-					await v3.close()
+					await handstage.close()
 
 					// After close the browser process should be gone. Poll briefly to
 					// avoid racing the asynchronous kill.

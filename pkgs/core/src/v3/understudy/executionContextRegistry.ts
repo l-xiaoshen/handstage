@@ -12,7 +12,7 @@ export class ExecutionContextRegistry {
 	 * Wire listeners for this session. Call BEFORE Runtime.enable.
 	 *
 	 * Returns a disposer that removes every listener installed by this
-	 * call.  Callers (notably `V3Context`) must invoke the disposer when
+	 * call.  Callers (notably `Context`) must invoke the disposer when
 	 * the session is detached or the owning context closes; otherwise
 	 * the connection's per-session event-handler map accumulates entries
 	 * keyed by `${sessionId}:Runtime.*` for the connection's lifetime.

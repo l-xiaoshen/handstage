@@ -25,7 +25,7 @@ export class Frame implements FrameManager {
 
 	/**
 	 * Logger inherited from the owning {@link Page} (which inherits from
-	 * {@link V3Context}).  Used by helpers that operate against a `Frame`
+	 * {@link Context}).  Used by helpers that operate against a `Frame`
 	 * (selectorResolver, snapshot capture) to keep per-instance log routing
 	 * intact for multi-context callers.
 	 */

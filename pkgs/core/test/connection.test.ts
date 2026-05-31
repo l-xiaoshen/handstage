@@ -132,7 +132,7 @@ describe("CDPConnection transport ownership", () => {
 	})
 })
 
-describe("V3 connection lifecycle", () => {
+describe("Handstage connection lifecycle", () => {
 	test("connectTransport twice with the same transport is rejected", async () => {
 		const transport = new InMemoryTransport()
 		const first = await connectTransport(transport)
@@ -142,17 +142,17 @@ describe("V3 connection lifecycle", () => {
 		await first.close()
 	})
 
-	test("V3.close calls transport.close exactly once when V3 owns it", async () => {
+	test("Handstage.close calls transport.close exactly once when Handstage owns it", async () => {
 		const transport = new InMemoryTransport()
-		const v3 = await connectTransport(transport)
+		const handstage = await connectTransport(transport)
 		expect(transport.closeCalls).toBe(0)
-		await v3.close()
+		await handstage.close()
 		expect(transport.closeCalls).toBe(1)
 	})
 
 	test("connectLocal parses split and coalesced pipe messages", async () => {
 		const chrome = new SplitResponsePipeChrome()
-		const v3 = await connectLocal(chrome, {
+		const handstage = await connectLocal(chrome, {
 			localBrowserLaunchOptions: { acceptDownloads: true },
 		})
 
@@ -160,20 +160,20 @@ describe("V3 connection lifecycle", () => {
 		expect(chrome.sentMethods).toContain("Target.getTargets")
 		expect(chrome.sentMethods).toContain("Browser.setDownloadBehavior")
 
-		await v3.close()
+		await handstage.close()
 		expect(chrome.closeCalls).toBe(1)
 	})
 
 	test("connectConnection does not close the shared connection", async () => {
 		const conn = new FakeConnection()
-		const v3 = await connectConnection(conn)
+		const handstage = await connectConnection(conn)
 		const before = conn.closeCalls
-		await v3.close()
+		await handstage.close()
 		expect(conn.closeCalls).toBe(before)
 		expect(conn.closed).toBe(false)
 	})
 
-	test("two V3s on a shared connection each receive their own router-level logs", async () => {
+	test("two Handstage instances on a shared connection each receive their own router-level logs", async () => {
 		const conn = new FakeConnection()
 		// Make sure it doesn't try to look up browser contexts
 		conn.nonDefaultContextIds = []

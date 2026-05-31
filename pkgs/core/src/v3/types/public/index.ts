@@ -7,7 +7,7 @@ export {
 	type CDPTransport,
 	type ExternalCDPSession,
 } from "../../understudy/cdp"
-export type { V3Context } from "../../understudy/context"
+export type { Context } from "../../understudy/context"
 export * as Api from "./api"
 export * from "./consoleLogger"
 export * from "./context"

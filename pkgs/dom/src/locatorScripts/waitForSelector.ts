@@ -1,7 +1,7 @@
 /**
  * waitForSelector - Waits for an element matching a selector to reach a specific state.
  * Supports both CSS selectors and XPath expressions.
- * Uses MutationObserver for efficiency and integrates with the V3 piercer for closed shadow roots.
+ * Uses MutationObserver for efficiency and integrates with the Handstage piercer for closed shadow roots.
  *
  * NOTE: This function runs inside the page context. Keep it dependency-free
  * and resilient to exceptions.
@@ -19,7 +19,7 @@ const isXPath = (selector: string): boolean => {
 }
 
 /**
- * Get closed shadow root via the V3 piercer if available.
+ * Get closed shadow root via the Handstage piercer if available.
  */
 const getClosedRoot = (element: Element): ShadowRoot | null => {
 	try {

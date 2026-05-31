@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { V3Context } from "../src/v3/understudy/context"
+import { Context } from "../src/v3/understudy/context"
 import {
 	getTargetRouter,
 	type TargetRouterDelegate,
@@ -142,10 +142,10 @@ describe("TargetRouter", () => {
 	})
 })
 
-describe("V3Context default-context routing", () => {
+describe("Context default-context routing", () => {
 	test("does not create a temporary target for default-context bootstrap", async () => {
 		const conn = new FakeConnection()
-		const ctx = await V3Context.createDefaultFromConnection(conn)
+		const ctx = await Context.createDefaultFromConnection(conn)
 
 		expect(
 			conn.sent.some((entry) => entry.method === "Target.createTarget"),
@@ -158,7 +158,7 @@ describe("V3Context default-context routing", () => {
 		conn.nonDefaultContextIds = ["ctx-dedicated"]
 		const session = new FakeSession("s-dedicated")
 		conn.sessions.set(session.id, session)
-		const ctx = await V3Context.createDefaultFromConnection(conn)
+		const ctx = await Context.createDefaultFromConnection(conn)
 
 		conn.emit(
 			"Target.attachedToTarget",

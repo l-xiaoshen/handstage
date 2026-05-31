@@ -22,16 +22,16 @@ export interface TargetRouterDelegate {
 /**
  * Connection-level Target domain coordinator.
  *
- * CDP auto-attach is browser-wide for a websocket.  If each V3Context installs
+ * CDP auto-attach is browser-wide for a websocket.  If each Context installs
  * its own Target listeners and independently filters by browserContextId, a
  * foreign target can remain paused by `waitForDebuggerOnStart` when the context
  * that saw it decides it is out-of-scope.  TargetRouter makes ownership a
  * single connection-level decision: exactly one registered context receives a
  * target, and every unclaimed session is immediately resumed and detached.
  *
- * One router per CDP connection — when multiple V3 instances share a
+ * One router per CDP connection — when multiple Handstage instances share a
  * connection they all register against the same router.  Router-level debug
- * lines are broadcast to every registered delegate's logger so each V3 sees
+ * lines are broadcast to every registered delegate's logger so each Handstage sees
  * the events that affected it; if no loggers are registered (router-only
  * lifecycle window) a console fallback is used.
  */

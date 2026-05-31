@@ -149,7 +149,7 @@ export function attachedEvent(
  * semantics in `cdp.ts`.  Records `close()` invocations on
  * {@link InMemoryTransport.closeCalls}.
  *
- * The transport understands a small set of CDP methods that the V3 init
+ * The transport understands a small set of CDP methods that the Handstage init
  * paths invoke synchronously so tests that go through `connectTransport`
  * don't deadlock waiting for browser responses:
  *

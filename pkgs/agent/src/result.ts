@@ -1,4 +1,4 @@
-import type { Page, V3Context } from "@handstage/core"
+import type { Context, Page } from "@handstage/core"
 import type { ErrResult } from "./types"
 
 export function formatError(error: unknown): string {
@@ -21,7 +21,7 @@ export async function tryAgentResult<T extends Record<string, unknown>>(
 }
 
 export async function withPage<T extends Record<string, unknown>>(
-	ctx: V3Context,
+	ctx: Context,
 	pageId: string,
 	fn: (page: Page) => Promise<T>,
 ): Promise<({ ok: true } & T) | ErrResult> {

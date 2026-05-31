@@ -8,34 +8,36 @@ import type { CreateContextOptions } from "./types/public/context"
 import { LogLevel, type LogLine } from "./types/public/logs"
 import type { HandstageSharedOptions } from "./types/public/options"
 import type { CDPConnectionLike } from "./understudy/cdp"
-import { V3Context } from "./understudy/context"
+import { Context } from "./understudy/context"
 import type { Page } from "./understudy/page"
 
-const V3_CONSTRUCTOR_TOKEN: unique symbol = Symbol("handstage.v3.constructor")
+const HANDSTAGE_CONSTRUCTOR_TOKEN: unique symbol = Symbol(
+	"handstage.constructor",
+)
 
 /**
- * V3 (alias `Handstage`)
+ * Handstage
  *
- * One V3 instance == one CDP connection + one root browser context.
+ * One Handstage instance == one CDP connection + one root browser context.
  *
  * Connection lifecycle rules:
  *
- * - Factories in `@handstage/core/connect/*` decide whether V3 owns a
+ * - Factories in `@handstage/core/connect/*` decide whether Handstage owns a
  *   connection and pass cleanup here.
  * - When cleanup is omitted, the caller remains responsible for the shared
- *   connection's lifetime after all attached V3 instances are closed.
+ *   connection's lifetime after all attached Handstage instances are closed.
  *
- * `V3Context` never closes the underlying CDP connection — that responsibility
+ * `Context` never closes the underlying CDP connection — that responsibility
  * lives here.
  */
-export class V3 {
+export class Handstage {
 	private _isClosing = false
 
 	private _onCDPClosed = (why: string) => {
 		this._immediateShutdown(`CDP transport closed: ${why}`).catch(() => {})
 	}
 
-	/** Filtered logger built once at construction; passed down to V3Context. */
+	/** Filtered logger built once at construction; passed down to Context. */
 	private readonly logSink: LogSink
 	public verbose: LogLevel
 	private readonly instanceId: string
@@ -43,23 +45,23 @@ export class V3 {
 	private shutdownSupervisor: ShutdownSupervisorHandle | null = null
 	private connection: CDPConnectionLike | null
 	private readonly cleanup?: () => Promise<void>
-	private readonly _contexts = new Set<V3Context>()
-	private readonly defaultContext: V3Context
+	private readonly _contexts = new Set<Context>()
+	private readonly defaultContext: Context
 
 	/** @internal Use connection subpath factories instead. */
 	constructor(
-		token: typeof V3_CONSTRUCTOR_TOKEN,
+		token: typeof HANDSTAGE_CONSTRUCTOR_TOKEN,
 		connection: CDPConnectionLike,
 		cleanup: (() => Promise<void>) | undefined,
-		defaultContext: V3Context,
+		defaultContext: Context,
 		opts: HandstageSharedOptions,
 		instanceId: string,
 		logSink: LogSink,
 		shutdownSupervisorConfig?: ShutdownSupervisorConfig,
 	) {
-		if (token !== V3_CONSTRUCTOR_TOKEN) {
+		if (token !== HANDSTAGE_CONSTRUCTOR_TOKEN) {
 			throw new TypeError(
-				"Use @handstage/core/connect/* factories to create V3",
+				"Use @handstage/core/connect/* factories to create Handstage",
 			)
 		}
 
@@ -86,7 +88,7 @@ export class V3 {
 	private async _immediateShutdown(reason: string): Promise<void> {
 		try {
 			this.logger({
-				category: "v3",
+				category: "handstage",
 				message: `initiating shutdown → ${reason}`,
 				level: LogLevel.Error,
 			})
@@ -94,7 +96,7 @@ export class V3 {
 
 		try {
 			this.logger({
-				category: "v3",
+				category: "handstage",
 				message: `closing resources → ${reason}`,
 				level: LogLevel.Error,
 			})
@@ -111,7 +113,7 @@ export class V3 {
 			onError: (error, context) => {
 				try {
 					this.logger({
-						category: "v3",
+						category: "handstage",
 						message:
 							"Shutdown supervisor unavailable; crash cleanup disabled. " +
 							"If this process exits unexpectedly, local Chrome may remain running when keepAlive=false.",
@@ -137,7 +139,7 @@ export class V3 {
 	}
 
 	/** Expose the root default browser context. */
-	public defaultBrowserContext(): V3Context {
+	public defaultBrowserContext(): Context {
 		return this.defaultContext
 	}
 
@@ -158,11 +160,13 @@ export class V3 {
 	 */
 	public async createBrowserContext(
 		options?: CreateContextOptions,
-	): Promise<V3Context> {
+	): Promise<Context> {
 		if (!this.connection) {
-			throw new Error("Cannot create browser context: V3 instance is closed")
+			throw new Error(
+				"Cannot create browser context: Handstage instance is closed",
+			)
 		}
-		const ctx = await V3Context.createIsolatedFromConnection(this.connection, {
+		const ctx = await Context.createIsolatedFromConnection(this.connection, {
 			createOptions: options,
 			logger: this.logSink,
 		})
@@ -174,8 +178,8 @@ export class V3 {
 	 * Returns an array of all open browser contexts.
 	 * In a newly created browser, this will return a single instance of the default browser context.
 	 */
-	public browserContexts(): V3Context[] {
-		const contexts: V3Context[] = []
+	public browserContexts(): Context[] {
+		const contexts: Context[] = []
 		for (const ctx of this._contexts) {
 			contexts.push(ctx)
 		}
@@ -238,17 +242,17 @@ export class V3 {
 }
 
 /** @internal Used by connection subpath factories. */
-export function createV3ForConnection(params: {
+export function createHandstageForConnection(params: {
 	connection: CDPConnectionLike
 	cleanup?: () => Promise<void>
-	defaultContext: V3Context
+	defaultContext: Context
 	opts: HandstageSharedOptions
 	instanceId: string
 	logSink: LogSink
 	shutdownSupervisorConfig?: ShutdownSupervisorConfig
-}): V3 {
-	return new V3(
-		V3_CONSTRUCTOR_TOKEN,
+}): Handstage {
+	return new Handstage(
+		HANDSTAGE_CONSTRUCTOR_TOKEN,
 		params.connection,
 		params.cleanup,
 		params.defaultContext,

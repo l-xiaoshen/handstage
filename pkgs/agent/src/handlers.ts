@@ -1,4 +1,4 @@
-import type { Page, V3Context } from "@handstage/core"
+import type { Context, Page } from "@handstage/core"
 import type { HandstageAgentToolHandlers } from "./handlerTypes"
 import { errResult, tryAgentResult, withPage } from "./result"
 import type {
@@ -30,8 +30,8 @@ import type {
 
 type DeepLocator = ReturnType<Page["deepLocator"]>
 
-class V3CtxHandstageAgentToolHandlers implements HandstageAgentToolHandlers {
-	constructor(private readonly ctx: V3Context) {}
+class ContextHandstageAgentToolHandlers implements HandstageAgentToolHandlers {
+	constructor(private readonly ctx: Context) {}
 
 	async pages(_input: PagesInput): Promise<PagesOutput> {
 		const pages = await Promise.all(
@@ -153,8 +153,8 @@ class V3CtxHandstageAgentToolHandlers implements HandstageAgentToolHandlers {
 	}
 }
 
-export function createV3CtxHandstageAgentToolHandlers(
-	ctx: V3Context,
+export function createContextHandstageAgentToolHandlers(
+	ctx: Context,
 ): HandstageAgentToolHandlers {
-	return new V3CtxHandstageAgentToolHandlers(ctx)
+	return new ContextHandstageAgentToolHandlers(ctx)
 }

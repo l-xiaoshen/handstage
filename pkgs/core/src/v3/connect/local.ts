@@ -1,8 +1,8 @@
+import type { Handstage } from "../handstage"
 import type { LaunchedChrome } from "../types/public/launchedChrome"
 import { LogLevel } from "../types/public/logs"
 import type { HandstageLocalOptions } from "../types/public/options"
 import { CDPConnection, type CDPTransport } from "../understudy/cdp"
-import type { V3 } from "../v3"
 import { createOwnedHandstage, setupConnectContext } from "./shared"
 
 const textEncoder = new TextEncoder()
@@ -62,7 +62,7 @@ function encodeNullDelimitedMessage(message: string): Uint8Array {
 export async function connectLocal(
 	chrome: LaunchedChrome,
 	opts?: HandstageLocalOptions,
-): Promise<V3> {
+): Promise<Handstage> {
 	const { instanceId, sharedOpts, logSink, logger } = setupConnectContext(opts)
 	logger({
 		category: "init",

@@ -76,7 +76,7 @@ function isTopLevelPage(info: Protocol.Target.TargetInfo): boolean {
 }
 
 /**
- * V3Context
+ * Context
  *
  * Owns the root CDP connection and wires Target/Page events into Page.
  * Maintains one Page per top-level target, adopts OOPIF child sessions into the owner Page,
@@ -88,10 +88,10 @@ function isTopLevelPage(info: Protocol.Target.TargetInfo): boolean {
  */
 type SessionCleanup = () => void
 
-export class V3Context implements TargetRouterDelegate {
+export class Context implements TargetRouterDelegate {
 	/**
 	 * Per-instance debug log sink.  Threaded down to Page / NetworkManager /
-	 * static helpers so multiple V3 instances on a shared connection each
+	 * static helpers so multiple Handstage instances on a shared connection each
 	 * receive their own logs without falling back to a global console.
 	 */
 	public readonly logger: LogSink
@@ -135,7 +135,7 @@ export class V3Context implements TargetRouterDelegate {
 
 	/**
 	 * Per-session disposer registry.  Holds every listener (or other
-	 * teardown callback) this V3Context registered against a given child
+	 * teardown callback) this Context registered against a given child
 	 * session, keyed by sessionId.  Drained both when the session detaches
 	 * (`onDetachedFromTarget`) and when the context closes — so for
 	 * dedicated contexts on a shared connection the connection's
@@ -208,8 +208,8 @@ export class V3Context implements TargetRouterDelegate {
 	 * dedicated browser context is created so multiple Handstage instances can
 	 * share one browser websocket without sharing pages/storage.
 	 *
-	 * V3Context never closes the connection it was handed — connection
-	 * lifecycle is the caller's responsibility (V3 owns it for the
+	 * Context never closes the connection it was handed — connection
+	 * lifecycle is the caller's responsibility (Handstage owns it for the
 	 * `connectLocal` / `connectTransport` / `connectSession` paths).
 	 */
 	static async createFromConnection(
@@ -218,8 +218,8 @@ export class V3Context implements TargetRouterDelegate {
 			localBrowserLaunchOptions?: LocalBrowserLaunchOptions | null
 			logger?: LogSink
 		},
-	): Promise<V3Context> {
-		return V3Context.createDefaultFromConnection(conn, opts)
+	): Promise<Context> {
+		return Context.createDefaultFromConnection(conn, opts)
 	}
 
 	static async createDefaultFromConnection(
@@ -228,8 +228,8 @@ export class V3Context implements TargetRouterDelegate {
 			localBrowserLaunchOptions?: LocalBrowserLaunchOptions | null
 			logger?: LogSink
 		},
-	): Promise<V3Context> {
-		const ctx = new V3Context(
+	): Promise<Context> {
+		const ctx = new Context(
 			conn,
 			opts?.localBrowserLaunchOptions ?? null,
 			null,
@@ -253,7 +253,7 @@ export class V3Context implements TargetRouterDelegate {
 			createOptions?: CreateContextOptions
 			logger?: LogSink
 		},
-	): Promise<V3Context> {
+	): Promise<Context> {
 		const createOptions: CreateContextOptions = {
 			disposeOnDetach: true,
 			...opts?.createOptions,
@@ -261,7 +261,7 @@ export class V3Context implements TargetRouterDelegate {
 		const { browserContextId } = await conn.send<{
 			browserContextId: string
 		}>("Target.createBrowserContext", createOptions)
-		const ctx = new V3Context(
+		const ctx = new Context(
 			conn,
 			opts?.localBrowserLaunchOptions ?? null,
 			browserContextId,
@@ -522,7 +522,7 @@ export class V3Context implements TargetRouterDelegate {
 		// Default contexts are shared with other actors on the same browser,
 		// so we never call Target.disposeBrowserContext for them.
 		//
-		// We NEVER close the underlying CDP connection here — that is V3's
+		// We NEVER close the underlying CDP connection here — that is Handstage's
 		// responsibility (or the caller's for shared connections).
 		if (this.ownsBrowserContext && this.browserContextId) {
 			await this.conn
@@ -692,7 +692,7 @@ export class V3Context implements TargetRouterDelegate {
 	 * Browser-context isolation: this method is a single chokepoint for
 	 * **both** the root `Target.attachedToTarget` listener AND per-session
 	 * child-attach listeners.  Filtering on `browserContextId` here is what
-	 * keeps multiple `V3Context` instances sharing one connection from
+	 * keeps multiple `Context` instances sharing one connection from
 	 * cross-talking (otherwise both would manage every target).
 	 */
 	private async onAttachedToTarget(
@@ -736,7 +736,7 @@ export class V3Context implements TargetRouterDelegate {
 		// Register for Runtime events before enabling it so we don't miss
 		// initial contexts.  The disposer is tracked so we remove the
 		// underlying `Runtime.*` handler registrations from the connection
-		// when this session detaches or this V3Context closes.
+		// when this session detaches or this Context closes.
 		const detachExec = executionContexts.attachSession(session)
 		this._registerSessionCleanup(sessionId, detachExec)
 
@@ -1041,7 +1041,7 @@ export class V3Context implements TargetRouterDelegate {
 		// `_addSessionListener` and the executionContexts attach handle).
 		// This bounds the leak in the connection's per-session
 		// `eventHandlers` map by the lifetime of each session, not the
-		// lifetime of the V3Context.
+		// lifetime of the Context.
 		this._drainSessionCleanups(sessionId)
 
 		this._sessionInit.delete(sessionId)

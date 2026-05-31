@@ -1,7 +1,7 @@
+import type { Handstage } from "../handstage"
 import { LogLevel } from "../types/public/logs"
 import type { HandstageConnectOptions } from "../types/public/options"
 import { CDPConnection, type CDPTransport } from "../understudy/cdp"
-import type { V3 } from "../v3"
 import {
 	connectOptionsToLocalBrowserLaunchOptions,
 	createOwnedHandstage,
@@ -11,7 +11,7 @@ import {
 export async function connectWS(
 	ws: WebSocket,
 	opts?: HandstageConnectOptions,
-): Promise<V3> {
+): Promise<Handstage> {
 	const { instanceId, sharedOpts, logSink, logger } = setupConnectContext(opts)
 	logger({
 		category: "init",
