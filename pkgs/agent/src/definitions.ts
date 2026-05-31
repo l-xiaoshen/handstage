@@ -33,13 +33,20 @@ import {
 	SnapshotDomOutputSchema,
 	// TypeInputSchema,
 	TypeOnIdInputSchema,
-	// TypeOnInputSchema,
-	// TypeOutputSchema,
 } from "./schemas"
 
 export type HandstageAgentToolSet = ReturnType<
 	typeof createHandstageAgentToolDefinitions
 >
+
+function pagesToXml(pages: Array<{ pageId: string; url: string; title: string }>): string {
+	return `<pages>\n${pages
+		.map(
+			(page) =>
+				`<page>\n<pageId>${page.pageId}</pageId>\n<url>${page.url}</url>\n<title>${page.title}</title>\n</page>`,
+		)
+		.join("\n")}\n</pages>`
+}
 
 /**
  * Same object as {@link handstageAgentTools}; kept for callers that only need a `ToolSet`.
@@ -50,9 +57,15 @@ export function createHandstageAgentToolDefinitions(
 	const tools = {
 		pages: tool({
 			description:
-				"List open browser tabs. Each entry has pageId, url, and title. Tabs are returned in the order they were opened; no tab is implicitly 'active' — pass the pageId you want to act on with every tool call.",
+				"List opend pages in current browser context. Each entry has pageId, url, and title. Pages are returned in the order they were opened; no tab is implicitly 'active' — pass the pageId you want to act on with every tool call.",
 			inputSchema: PagesInputSchema,
 			outputSchema: PagesOutputSchema,
+			toModelOutput: ({ output }) => {
+				return {
+					type: "text",
+					value: pagesToXml(output.pages),
+				}
+			},
 			execute: async (input) => {
 				return await handler.pages(input)
 			},
@@ -60,7 +73,7 @@ export function createHandstageAgentToolDefinitions(
 
 		newPage: tool({
 			description:
-				"Open a new browser tab. Returns the new tab's pageId. Optional starting URL (defaults to about:blank).",
+				"Open a new browser page. Returns the new page's pageId. Optional starting URL (defaults to about:blank).",
 			inputSchema: NewPageInputSchema,
 			outputSchema: NewPageOutputSchema,
 			execute: async (input) => {
@@ -69,8 +82,7 @@ export function createHandstageAgentToolDefinitions(
 		}),
 
 		closePage: tool({
-			description:
-				"Close a browser tab by pageId. The tab is removed from the list returned by pages.",
+			description: "Close a browser page by pageId.",
 			inputSchema: ClosePageInputSchema,
 			outputSchema: ClosePageOutputSchema,
 			execute: async (input) => {
@@ -86,7 +98,7 @@ export function createHandstageAgentToolDefinitions(
 		// }),
 
 		goto: tool({
-			description: "Navigate a tab to a URL.",
+			description: "Navigate a page to a URL.",
 			inputSchema: GotoInputSchema,
 			outputSchema: GotoOutputSchema,
 			execute: async (input) => {
@@ -95,7 +107,7 @@ export function createHandstageAgentToolDefinitions(
 		}),
 
 		reload: tool({
-			description: "Reload the current document in a tab.",
+			description: "Reload the current document in a page.",
 			inputSchema: ReloadInputSchema,
 			outputSchema: ReloadOutputSchema,
 			execute: async (input) => {
@@ -104,7 +116,7 @@ export function createHandstageAgentToolDefinitions(
 		}),
 
 		goBack: tool({
-			description: "Go back in history for a tab, if possible.",
+			description: "Go back in history for a page, if possible.",
 			inputSchema: GoBackInputSchema,
 			outputSchema: HistoryNavOutputSchema,
 			execute: async (input) => {
@@ -113,7 +125,7 @@ export function createHandstageAgentToolDefinitions(
 		}),
 
 		goForward: tool({
-			description: "Go forward in history for a tab, if possible.",
+			description: "Go forward in history for a page, if possible.",
 			inputSchema: GoForwardInputSchema,
 			outputSchema: HistoryNavOutputSchema,
 			execute: async (input) => {
@@ -126,13 +138,25 @@ export function createHandstageAgentToolDefinitions(
 				"Accessibility tree for a page (pageId). Multiline outline with encoded node ids in brackets (e.g. [1-42]); use those ids with click_on_id, fill_on_id, type_on_id, or hover_on_id.",
 			inputSchema: SnapshotDomInputSchema,
 			outputSchema: SnapshotDomOutputSchema,
+			toModelOutput: ({ output }) => {
+				if (output.ok) {
+					return {
+						type: "text",
+						value: output.tree,
+					}
+				}
+				return {
+					type: "text",
+					value: output.error,
+				}
+			},
 			execute: async (input) => {
 				return await handler.snapshot_dom(input)
 			},
 		}),
 
 		// pageInfo: tool({
-		// 	description: "Current URL and document title for a tab.",
+		// 	description: "Current URL and document title for a page.",
 		// 	inputSchema: PageInfoInputSchema,
 		// 	outputSchema: PageInfoOutputSchema,
 		// }),
@@ -194,7 +218,7 @@ export function createHandstageAgentToolDefinitions(
 
 		click_on_id: tool({
 			description:
-				"Click the element for an encoded node id from snapshot_dom.",
+				"Click the element for an encoded accessibility tree node id from snapshot_dom.",
 			inputSchema: ClickOnIdInputSchema,
 			outputSchema: ElementActionOutputSchema,
 			execute: async (input) => {
@@ -204,7 +228,7 @@ export function createHandstageAgentToolDefinitions(
 
 		fill_on_id: tool({
 			description:
-				"Clear and fill an input for an encoded node id from snapshot_dom.",
+				"Clear and fill an input for an encoded accessibility tree node id from snapshot_dom.",
 			inputSchema: FillOnIdInputSchema,
 			outputSchema: ElementActionOutputSchema,
 			execute: async (input) => {
@@ -214,7 +238,7 @@ export function createHandstageAgentToolDefinitions(
 
 		type_on_id: tool({
 			description:
-				"Type into an element for an encoded node id from snapshot_dom (focuses first).",
+				"Type into an element for an encoded accessibility tree node id from snapshot_dom.",
 			inputSchema: TypeOnIdInputSchema,
 			outputSchema: ElementActionOutputSchema,
 			execute: async (input) => {
@@ -224,7 +248,7 @@ export function createHandstageAgentToolDefinitions(
 
 		hover_on_id: tool({
 			description:
-				"Hover the element for an encoded node id from snapshot_dom.",
+				"Hover the element for an encoded accessibility tree node id from snapshot_dom.",
 			inputSchema: HoverOnIdInputSchema,
 			outputSchema: ElementActionOutputSchema,
 			execute: async (input) => {
