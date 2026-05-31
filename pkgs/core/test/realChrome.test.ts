@@ -1,3 +1,6 @@
+/// <reference lib="dom" />
+
+
 /**
  * Real-Chrome integration tests.
  *

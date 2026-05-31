@@ -386,6 +386,13 @@ export class V3Context implements TargetRouterDelegate {
 		return rows.map((r) => r.page)
 	}
 
+	/**
+	 * Resolve a top-level tab by target id (`pageId` from agent tools / `Page.pageId`).
+	 */
+	resolvePageByTargetId(pageId: string): Page | undefined {
+		return this.pagesByTarget.get(pageId)
+	}
+
 	private async applyInitScriptsToPage(
 		page: Page,
 		opts?: { seedOnly?: boolean },
