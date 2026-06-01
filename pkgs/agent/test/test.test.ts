@@ -9,10 +9,10 @@ import { connectLocal } from "@handstage/core/connect"
 import { launchChromeBun } from "@handstage/core/launch/bun"
 import {
 	defaultSettingsMiddleware,
+	hasToolCall,
 	ToolLoopAgent,
 	tool,
 	wrapLanguageModel,
-	hasToolCall,
 } from "ai"
 import z from "zod"
 import {
