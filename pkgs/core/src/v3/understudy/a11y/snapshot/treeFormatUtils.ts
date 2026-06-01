@@ -5,12 +5,21 @@ import type { A11yNode } from "../../../types/private/snapshot"
  * Keeps indentation logic shared between modules so unit tests can cover these
  * pure formatting helpers without a full snapshot pipeline.
  */
-export function formatTreeLine(node: A11yNode, level = 0): string {
+export function formatTreeLine(
+	node: A11yNode,
+	level = 0,
+	urlMap?: Record<string, string>,
+): string {
 	const indent = "  ".repeat(level)
 	const labelId = node.encodedId ?? node.nodeId
-	const label = `[${labelId}] ${node.role}${node.name ? `: ${cleanText(node.name)}` : ""}`
+	let label = `[${labelId}] ${node.role}${node.name ? `: ${cleanText(node.name)}` : ""}`
+	if (urlMap && node.encodedId && urlMap[node.encodedId]) {
+		label += ` (url: ${urlMap[node.encodedId]})`
+	}
 	const kids =
-		node.children?.map((c) => formatTreeLine(c, level + 1)).join("\n") ?? ""
+		node.children
+			?.map((c) => formatTreeLine(c, level + 1, urlMap))
+			.join("\n") ?? ""
 	return kids ? `${indent}${label}\n${kids}` : `${indent}${label}`
 }
 

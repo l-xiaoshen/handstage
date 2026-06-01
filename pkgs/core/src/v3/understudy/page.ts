@@ -1034,7 +1034,7 @@ export class Page {
 	 * timeout error is thrown.
 	 * @param options.type Image format (`"png"` by default).
 	 */
-	async screenshot(options?: ScreenshotOptions): Promise<Buffer> {
+	async screenshot(options?: ScreenshotOptions): Promise<Uint8Array> {
 		const opts = options ?? {}
 		const type = opts.type ?? "png"
 
@@ -1069,7 +1069,7 @@ export class Page {
 
 		const cleanupTasks: ScreenshotCleanup[] = []
 
-		const exec = async (): Promise<Buffer> => {
+		const exec = async (): Promise<Uint8Array> => {
 			try {
 				if (opts.omitBackground) {
 					cleanupTasks.push(await setTransparentBackground(this.mainSession))

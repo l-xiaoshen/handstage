@@ -115,14 +115,5 @@ export async function connectLocal(
 		onContextError: async () => {
 			await chrome.close().catch(() => {})
 		},
-		shutdownSupervisorConfig: chrome.pid
-			? {
-					kind: "LOCAL",
-					pid: chrome.pid,
-					userDataDir: chrome.userDataDir,
-					createdTempProfile: !!chrome.createdTempProfile,
-					preserveUserDataDir: !!lbo.preserveUserDataDir,
-				}
-			: undefined,
 	})
 }

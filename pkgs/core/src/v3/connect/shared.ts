@@ -1,6 +1,5 @@
 import { createHandstageForConnection, type Handstage } from "../handstage"
 import { createFilteredLogger, type LogSink } from "../logger"
-import type { ShutdownSupervisorConfig } from "../types/private/shutdown"
 import type {
 	HandstageConnectOptions,
 	HandstageSharedOptions,
@@ -44,7 +43,6 @@ export async function createOwnedHandstage(params: {
 	sharedOpts: HandstageSharedOptions
 	logSink: LogSink
 	onContextError?: () => Promise<void>
-	shutdownSupervisorConfig?: ShutdownSupervisorConfig
 }): Promise<Handstage> {
 	let ctx: Context
 	try {
@@ -67,7 +65,6 @@ export async function createOwnedHandstage(params: {
 		defaultContext: ctx,
 		opts: params.sharedOpts,
 		logSink: params.logSink,
-		shutdownSupervisorConfig: params.shutdownSupervisorConfig,
 	})
 	await applyPostConnectLocalOptions(handstage, params.lbo)
 	return handstage

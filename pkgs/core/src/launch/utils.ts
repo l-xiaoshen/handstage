@@ -1,3 +1,4 @@
+/// <reference types="node" />
 import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
@@ -6,6 +7,39 @@ import { getChromePath } from "chrome-launcher"
 // package entry, so import it from the flags module directly.
 import { DEFAULT_FLAGS } from "chrome-launcher/dist/flags.js"
 import type { LocalBrowserLaunchOptions } from "../v3/types/public/options"
+
+export const CHROME_EXIT_TIMEOUT_MS = 5000
+
+export async function waitForProcessExit(
+	exited: Promise<unknown>,
+	timeoutMs: number,
+): Promise<boolean> {
+	return Promise.race([
+		exited.then(
+			() => true,
+			() => true,
+		),
+		new Promise<boolean>((resolve) =>
+			setTimeout(() => resolve(false), timeoutMs),
+		),
+	])
+}
+
+export async function performBrowserProcessCleanup(
+	kill: (signal?: "SIGKILL") => void,
+	exited: Promise<unknown>,
+	userDataDir: string | undefined,
+	createdTemp: boolean,
+	opts?: LocalBrowserLaunchOptions,
+): Promise<void> {
+	kill()
+	if (!(await waitForProcessExit(exited, CHROME_EXIT_TIMEOUT_MS))) {
+		kill("SIGKILL")
+		await waitForProcessExit(exited, CHROME_EXIT_TIMEOUT_MS)
+	}
+
+	cleanupUserDataDir(userDataDir, createdTemp, opts)
+}
 
 export interface PreparedLaunchOptions {
 	chromePath: string

@@ -1,6 +1,7 @@
 {
 	"compilerOptions": {
 		// Environment setup & latest features
+		"types": ["node", "bun"],
 		"lib": ["ESNext"],
 		"target": "ESNext",
 		"module": "Preserve",
@@ -10,9 +11,10 @@
 
 		// Bundler mode
 		"moduleResolution": "bundler",
-		"allowImportingTsExtensions": true,
 		"verbatimModuleSyntax": true,
-		"noEmit": true,
+		"noEmit": false,
+		"outDir": "dist",
+		"rootDir": "src",
 
 		// Best practices
 		"strict": true,
@@ -25,5 +27,6 @@
 		"noUnusedLocals": false,
 		"noUnusedParameters": false,
 		"noPropertyAccessFromIndexSignature": false
-	}
+	},
+	"include": ["src/**/*"]
 }

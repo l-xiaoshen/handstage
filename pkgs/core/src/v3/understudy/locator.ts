@@ -1,15 +1,12 @@
-import * as fs from "node:fs"
-import * as os from "node:os"
-import * as path from "node:path"
 import {
 	locatorScriptBootstrap,
 	locatorScriptGlobalRefs,
 	locatorScriptSources,
 } from "@handstage/dom/build/locatorScripts.generated"
 import type { Protocol } from "devtools-protocol"
-import type { NormalizedFilePayload } from "../types/private/locator"
 import type {
 	MouseButton,
+	SetInputFilePayload,
 	SetInputFilesArgument,
 } from "../types/public/locator"
 import {
@@ -18,7 +15,6 @@ import {
 	HandstageInvalidArgumentError,
 	HandstageLocatorError,
 } from "../types/public/sdkErrors"
-import { normalizeInputFiles } from "./fileUploadUtils"
 import type { Frame } from "./frame"
 import { FrameSelectorResolver, type SelectorQuery } from "./selectorResolver"
 
@@ -81,8 +77,6 @@ export class Locator {
 		const session = this.frame.session
 		const { objectId } = await this.resolveNode()
 
-		const tempFiles: string[] = []
-
 		try {
 			try {
 				const res = await session.send("Runtime.callFunctionOn", {
@@ -103,7 +97,7 @@ export class Locator {
 				)
 			}
 
-			const normalized = await normalizeInputFiles(files)
+			const normalized = Array.isArray(files) ? files : [files]
 
 			if (!normalized.length) {
 				await session.send("DOM.setFileInputFiles", {
@@ -113,38 +107,9 @@ export class Locator {
 				return
 			}
 
-			if (this.frame.isBrowserRemote()) {
-				await this.assignFilesViaPayloadInjection(objectId, normalized)
-				return
-			}
-
-			const filePaths: string[] = []
-			for (const payload of normalized) {
-				if (payload.absolutePath) {
-					filePaths.push(payload.absolutePath)
-					continue
-				}
-				const ext = path.extname(payload.name)
-				const tmp = path.join(
-					os.tmpdir(),
-					`handstage-upload-${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`,
-				)
-				await fs.promises.writeFile(tmp, payload.buffer)
-				tempFiles.push(tmp)
-				filePaths.push(tmp)
-			}
-
-			await session.send("DOM.setFileInputFiles", {
-				objectId,
-				files: filePaths,
-			})
+			await this.assignFilesViaPayloadInjection(objectId, normalized)
 		} finally {
 			await session.send("Runtime.releaseObject", { objectId }).catch(() => {})
-			for (const p of tempFiles) {
-				try {
-					await fs.promises.unlink(p)
-				} catch {}
-			}
 		}
 	}
 
@@ -158,7 +123,7 @@ export class Locator {
 	 */
 	private async assignFilesViaPayloadInjection(
 		objectId: Protocol.Runtime.RemoteObjectId,
-		files: NormalizedFilePayload[],
+		files: SetInputFilePayload[],
 	): Promise<void> {
 		const session = this.frame.session
 
@@ -170,12 +135,21 @@ export class Locator {
 			}
 		}
 
-		const serialized = files.map((payload) => ({
-			name: payload.name,
-			mimeType: payload.mimeType,
-			lastModified: payload.lastModified,
-			base64: payload.buffer.toString("base64"),
-		}))
+		const serialized = files.map((payload) => {
+			let binary = ""
+			const len = payload.buffer.byteLength
+			const chunkSize = 8192
+			for (let i = 0; i < len; i += chunkSize) {
+				const chunk = payload.buffer.subarray(i, i + chunkSize)
+				binary += String.fromCharCode.apply(null, chunk as unknown as number[])
+			}
+			return {
+				name: payload.name,
+				mimeType: payload.mimeType || "application/octet-stream",
+				lastModified: payload.lastModified || Date.now(),
+				base64: btoa(binary),
+			}
+		})
 
 		const res = await session.send("Runtime.callFunctionOn", {
 			objectId,

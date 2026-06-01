@@ -150,6 +150,7 @@ export class HandstageContextAgentToolHandlers
 				throw new Error(`Unknown encoded id: ${encodedId}`)
 			}
 			await action(page.deepLocator(xpath))
+			await page.waitForLoadState("networkidle", 5000)
 			return {}
 		})
 	}

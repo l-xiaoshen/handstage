@@ -189,7 +189,7 @@ export class Frame implements FrameManager {
 		type?: "png" | "jpeg"
 		quality?: number
 		scale?: number
-	}): Promise<Buffer> {
+	}): Promise<Uint8Array> {
 		await this.session.send("Page.enable")
 		const format = options?.type ?? "png"
 		const params: Protocol.Page.CaptureScreenshotRequest & { scale?: number } =
@@ -224,7 +224,13 @@ export class Frame implements FrameManager {
 		}
 
 		const { data } = await this.session.send("Page.captureScreenshot", params)
-		return Buffer.from(data, "base64")
+		const binaryString = atob(data)
+		const len = binaryString.length
+		const bytes = new Uint8Array(len)
+		for (let i = 0; i < len; i++) {
+			bytes[i] = binaryString.charCodeAt(i)
+		}
+		return bytes
 	}
 
 	/** Child frames via Page.getFrameTree */

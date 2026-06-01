@@ -1,24 +1,11 @@
+/// <reference types="bun" />
 import Bun from "bun"
 import type { LaunchedChrome } from "../v3/types/public/launchedChrome"
 import type { LocalBrowserLaunchOptions } from "../v3/types/public/options"
-import { cleanupUserDataDir, prepareChromeLaunchOptions } from "./utils"
-
-const CHROME_EXIT_TIMEOUT_MS = 5000
-
-async function waitForExit(
-	exited: Promise<number>,
-	timeoutMs: number,
-): Promise<boolean> {
-	return Promise.race([
-		exited.then(
-			() => true,
-			() => true,
-		),
-		new Promise<boolean>((resolve) =>
-			setTimeout(() => resolve(false), timeoutMs),
-		),
-	])
-}
+import {
+	performBrowserProcessCleanup,
+	prepareChromeLaunchOptions,
+} from "./utils"
 
 export async function launchChromeBun(
 	opts?: LocalBrowserLaunchOptions,
@@ -57,13 +44,13 @@ export async function launchChromeBun(
 	const close = async () => {
 		try {
 			fd3Writer.end()
-			p.kill()
-			if (!(await waitForExit(p.exited, CHROME_EXIT_TIMEOUT_MS))) {
-				p.kill("SIGKILL")
-				await waitForExit(p.exited, CHROME_EXIT_TIMEOUT_MS)
-			}
-
-			cleanupUserDataDir(userDataDir, createdTemp, lbo)
+			await performBrowserProcessCleanup(
+				(signal) => p.kill(signal),
+				p.exited,
+				userDataDir,
+				createdTemp,
+				lbo,
+			)
 		} catch {}
 	}
 

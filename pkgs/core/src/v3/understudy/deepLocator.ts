@@ -1,3 +1,4 @@
+import type { SetInputFilesArgument } from "../types/public/locator"
 import { HandstageInvalidArgumentError } from "../types/public/sdkErrors"
 import { IFRAME_STEP_RE } from "./a11y/snapshot/focusSelectors"
 import type { Frame } from "./frame"
@@ -192,21 +193,7 @@ export class DeepLocatorDelegate {
 	}) {
 		return (await this.real()).sendClickEvent(options)
 	}
-	async setInputFiles(
-		files:
-			| string
-			| string[]
-			| {
-					name: string
-					mimeType: string
-					buffer: ArrayBuffer | Uint8Array | Buffer | string
-			  }
-			| Array<{
-					name: string
-					mimeType: string
-					buffer: ArrayBuffer | Uint8Array | Buffer | string
-			  }>,
-	) {
+	async setInputFiles(files: SetInputFilesArgument) {
 		return (await this.real()).setInputFiles(files)
 	}
 	first() {

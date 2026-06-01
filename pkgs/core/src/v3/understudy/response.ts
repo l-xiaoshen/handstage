@@ -288,7 +288,7 @@ export class Response {
 	 * intentionally lazy because not every caller needs the payload, and CDP only
 	 * allows retrieving it once the response completes.
 	 */
-	async body(): Promise<Buffer> {
+	async body(): Promise<Uint8Array> {
 		const result = await this.session
 			.send("Network.getResponseBody", { requestId: this.requestId })
 			.catch((error) => {
@@ -296,15 +296,21 @@ export class Response {
 			})
 
 		if (result.base64Encoded) {
-			return Buffer.from(result.body, "base64")
+			const binaryString = atob(result.body)
+			const len = binaryString.length
+			const bytes = new Uint8Array(len)
+			for (let i = 0; i < len; i++) {
+				bytes[i] = binaryString.charCodeAt(i)
+			}
+			return bytes
 		}
-		return Buffer.from(result.body, "utf-8")
+		return new TextEncoder().encode(result.body)
 	}
 
 	/** Decodes the response body as UTF-8 text. */
 	async text(): Promise<string> {
 		const buffer = await this.body()
-		return buffer.toString("utf-8")
+		return new TextDecoder().decode(buffer)
 	}
 
 	/** Parses the response body as JSON and throws if parsing fails. */

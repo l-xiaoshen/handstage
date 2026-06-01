@@ -90,7 +90,7 @@ export async function a11yForFrame(
 	const decorated = decorateRoles(nodesForOutline, opts)
 	const { tree } = await buildHierarchicalTree(decorated, opts)
 
-	const simplified = tree.map((n) => formatTreeLine(n)).join("\n")
+	const simplified = tree.map((n) => formatTreeLine(n, 0, urlMap)).join("\n")
 	return { outline: simplified.trimEnd(), urlMap, scopeApplied }
 }
 

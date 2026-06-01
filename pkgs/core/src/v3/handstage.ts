@@ -1,9 +1,4 @@
 import type { LogSink } from "./logger"
-import { startShutdownSupervisor } from "./shutdown/supervisorClient"
-import type {
-	ShutdownSupervisorConfig,
-	ShutdownSupervisorHandle,
-} from "./types/private/shutdown"
 import type { CreateContextOptions } from "./types/public/context"
 import { LogLevel, type LogLine } from "./types/public/logs"
 import type { HandstageSharedOptions } from "./types/public/options"
@@ -40,7 +35,6 @@ export class Handstage {
 	/** Filtered logger built once at construction; passed down to Context. */
 	private readonly logSink: LogSink
 	public verbose: LogLevel
-	private shutdownSupervisor: ShutdownSupervisorHandle | null = null
 	private connection: CDPConnectionLike | null
 	private readonly cleanup?: () => Promise<void>
 	private readonly _contexts = new Set<Context>()
@@ -54,7 +48,6 @@ export class Handstage {
 		defaultContext: Context,
 		opts: HandstageSharedOptions,
 		logSink: LogSink,
-		shutdownSupervisorConfig?: ShutdownSupervisorConfig,
 	) {
 		if (token !== HANDSTAGE_CONSTRUCTOR_TOKEN) {
 			throw new TypeError(
@@ -71,9 +64,6 @@ export class Handstage {
 		this.verbose = opts.verbose ?? LogLevel.Info
 
 		this.connection.onTransportClosed(this._onCDPClosed)
-		if (shutdownSupervisorConfig) {
-			this.startShutdownSupervisor(shutdownSupervisorConfig)
-		}
 	}
 
 	private emitLog(line: LogLine): void {
@@ -97,40 +87,6 @@ export class Handstage {
 			})
 			await this.close({ force: true })
 		} catch {}
-	}
-
-	/** Spawn a crash-only supervisor that cleans up when this process dies. */
-	private startShutdownSupervisor(
-		config: ShutdownSupervisorConfig,
-	): ShutdownSupervisorHandle | null {
-		if (this.shutdownSupervisor) return this.shutdownSupervisor
-		this.shutdownSupervisor = startShutdownSupervisor(config, {
-			onError: (error, context) => {
-				try {
-					this.logger({
-						category: "handstage",
-						message:
-							"Shutdown supervisor unavailable; crash cleanup disabled. " +
-							"If this process exits unexpectedly, local Chrome may remain running.",
-						level: LogLevel.Error,
-						attributes: {
-							context,
-							error: error.message,
-						},
-					})
-				} catch {}
-			},
-		})
-		return this.shutdownSupervisor
-	}
-
-	/** Stop the supervisor during a normal shutdown. */
-	private stopShutdownSupervisor(): void {
-		if (!this.shutdownSupervisor) return
-		try {
-			this.shutdownSupervisor.stop()
-		} catch {}
-		this.shutdownSupervisor = null
 	}
 
 	/** Expose the root default browser context. */
@@ -221,8 +177,6 @@ export class Handstage {
 
 			await this.cleanup?.()
 		} finally {
-			this.stopShutdownSupervisor()
-
 			this._contexts.clear()
 			this.connection = null
 			this._isClosing = false
@@ -243,7 +197,6 @@ export function createHandstageForConnection(params: {
 	defaultContext: Context
 	opts: HandstageSharedOptions
 	logSink: LogSink
-	shutdownSupervisorConfig?: ShutdownSupervisorConfig
 }): Handstage {
 	return new Handstage(
 		HANDSTAGE_CONSTRUCTOR_TOKEN,
@@ -252,6 +205,5 @@ export function createHandstageForConnection(params: {
 		params.defaultContext,
 		params.opts,
 		params.logSink,
-		params.shutdownSupervisorConfig,
 	)
 }

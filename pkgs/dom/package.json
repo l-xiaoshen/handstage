@@ -1,6 +1,6 @@
 {
 	"name": "@handstage/dom",
-	"version": "0.0.2",
+	"version": "0.0.3",
 	"type": "module",
 	"exports": {
 		".": {
@@ -38,7 +38,7 @@
 		"src/build/a11yScripts.generated.ts"
 	],
 	"scripts": {
-		"build": "tsc -p tsconfig.build.json",
+		"build": "rm -rf dist && tsc -p tsconfig.build.json",
 		"build-dom-scripts": "bun run build-dom-scripts:dom & bun run build-dom-scripts:locator & bun run build-dom-scripts:screenshot & bun run build-dom-scripts:a11y & wait",
 		"build-dom-scripts:dom": "bun src/genDomScripts.ts",
 		"build-dom-scripts:locator": "bun src/genLocatorScripts.ts",

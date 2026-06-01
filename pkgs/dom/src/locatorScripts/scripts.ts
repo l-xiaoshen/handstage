@@ -38,7 +38,7 @@ export function assignFilePayloadsToInputElement(
 ): boolean {
 	try {
 		const input = this as HTMLInputElement
-		if (!input || input.tagName?.toLowerCase() !== "input") return false
+		if (input?.tagName?.toLowerCase() !== "input") return false
 		if ((input.type ?? "").toLowerCase() !== "file") return false
 
 		const transfer: DataTransfer | null = (() => {

@@ -1,22 +1,12 @@
+/// <reference types="node" />
 import { type ChildProcess, spawn } from "node:child_process"
 import { Readable, Writable } from "node:stream"
 import type { LaunchedChrome } from "../v3/types/public/launchedChrome"
 import type { LocalBrowserLaunchOptions } from "../v3/types/public/options"
-import { cleanupUserDataDir, prepareChromeLaunchOptions } from "./utils"
-
-const CHROME_EXIT_TIMEOUT_MS = 5000
-
-function waitForExit(p: ChildProcess, timeoutMs: number): Promise<boolean> {
-	if (p.exitCode !== null || p.signalCode !== null) return Promise.resolve(true)
-	return Promise.race([
-		new Promise<boolean>((resolve) => {
-			p.once("exit", () => resolve(true))
-		}),
-		new Promise<boolean>((resolve) =>
-			setTimeout(() => resolve(false), timeoutMs),
-		),
-	])
-}
+import {
+	performBrowserProcessCleanup,
+	prepareChromeLaunchOptions,
+} from "./utils"
 
 export async function launchChromeNode(
 	opts?: LocalBrowserLaunchOptions,
@@ -80,13 +70,19 @@ export async function launchChromeNode(
 		try {
 			fd3.destroy()
 			fd4.destroy()
-			p.kill()
-			if (!(await waitForExit(p, CHROME_EXIT_TIMEOUT_MS))) {
-				p.kill("SIGKILL")
-				await waitForExit(p, CHROME_EXIT_TIMEOUT_MS)
-			}
 
-			cleanupUserDataDir(userDataDir, createdTemp, lbo)
+			const exited = new Promise<void>((resolve) => {
+				if (p.exitCode !== null || p.signalCode !== null) resolve()
+				else p.once("exit", resolve)
+			})
+
+			await performBrowserProcessCleanup(
+				(signal) => p.kill(signal),
+				exited,
+				userDataDir,
+				createdTemp,
+				lbo,
+			)
 		} catch {}
 	}
 
