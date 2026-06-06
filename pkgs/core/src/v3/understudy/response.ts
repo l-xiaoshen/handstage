@@ -25,18 +25,6 @@ import type { Page } from "./page"
 
 type ServerAddr = { ipAddress: string; port: number }
 
-export function isSerializableResponse(
-	value: unknown,
-): value is SerializableResponse {
-	if (!value || typeof value !== "object") return false
-	const candidate = value as Partial<SerializableResponse>
-	if (typeof candidate.requestId !== "string") return false
-	if (!candidate.response || typeof candidate.response !== "object") {
-		return false
-	}
-	return true
-}
-
 /**
  * Minimal deferred helper that lets navigation tracking hand out a promise and
  * later control the resolution from event callbacks. Each response owns a

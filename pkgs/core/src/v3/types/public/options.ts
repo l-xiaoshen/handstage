@@ -2,8 +2,6 @@ import type { z } from "zod"
 import { LocalBrowserLaunchOptionsSchema } from "./api"
 import type { LogLevel, LogLine } from "./logs"
 
-export const localBrowserLaunchOptionsSchema = LocalBrowserLaunchOptionsSchema
-
 export type LocalBrowserLaunchOptions = z.infer<
 	typeof LocalBrowserLaunchOptionsSchema
 >
