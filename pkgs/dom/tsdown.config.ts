@@ -1,0 +1,14 @@
+import { defineConfig } from "tsdown"
+import { tsdownBaseConfig } from "../../tsdown.config.ts"
+
+export default defineConfig({
+	...tsdownBaseConfig,
+	entry: [
+		"src/index.ts",
+		"src/build/scriptV3Content.ts",
+		"src/build/reRenderScriptContent.ts",
+		"src/build/locatorScripts.generated.ts",
+		"src/build/screenshotScripts.generated.ts",
+		"src/build/a11yScripts.generated.ts",
+	],
+})

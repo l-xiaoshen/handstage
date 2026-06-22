@@ -1,42 +1,42 @@
 {
 	"name": "@handstage/core",
-	"version": "1.0.3",
+	"version": "1.0.4",
 	"type": "module",
 	"exports": {
 		".": {
-			"types": "./src/index.ts",
+			"types": "./dist/index.d.ts",
 			"import": "./dist/index.js"
 		},
 		"./launch/node": {
-			"types": "./src/launch/node.ts",
+			"types": "./dist/launch/node.d.ts",
 			"import": "./dist/launch/node.js"
 		},
 		"./launch/bun": {
-			"types": "./src/launch/bun.ts",
+			"types": "./dist/launch/bun.d.ts",
 			"import": "./dist/launch/bun.js"
 		},
 		"./connect": {
-			"types": "./src/v3/connect/index.ts",
+			"types": "./dist/v3/connect/index.d.ts",
 			"import": "./dist/v3/connect/index.js"
 		},
 		"./connect/ws": {
-			"types": "./src/v3/connect/ws.ts",
+			"types": "./dist/v3/connect/ws.d.ts",
 			"import": "./dist/v3/connect/ws.js"
 		},
 		"./connect/local": {
-			"types": "./src/v3/connect/local.ts",
+			"types": "./dist/v3/connect/local.d.ts",
 			"import": "./dist/v3/connect/local.js"
 		},
 		"./connect/transport": {
-			"types": "./src/v3/connect/transport.ts",
+			"types": "./dist/v3/connect/transport.d.ts",
 			"import": "./dist/v3/connect/transport.js"
 		},
 		"./connect/session": {
-			"types": "./src/v3/connect/session.ts",
+			"types": "./dist/v3/connect/session.d.ts",
 			"import": "./dist/v3/connect/session.js"
 		},
 		"./connect/connection": {
-			"types": "./src/v3/connect/connection.ts",
+			"types": "./dist/v3/connect/connection.d.ts",
 			"import": "./dist/v3/connect/connection.js"
 		}
 	},
@@ -45,7 +45,7 @@
 		"src"
 	],
 	"scripts": {
-		"build": "rm -rf dist && tsc"
+		"build": "tsdown && bunx tsc --emitDeclarationOnly"
 	},
 	"devDependencies": {
 		"@types/bun": "1.3.14",

@@ -1,10 +1,10 @@
 {
 	"name": "@handstage/agent",
-	"version": "1.0.3",
+	"version": "1.0.4",
 	"type": "module",
 	"exports": {
 		".": {
-			"types": "./src/index.ts",
+			"types": "./dist/index.d.ts",
 			"import": "./dist/index.js"
 		}
 	},
@@ -13,7 +13,7 @@
 		"src"
 	],
 	"scripts": {
-		"build": "rm -rf dist && tsc"
+		"build": "tsdown && bunx tsc --emitDeclarationOnly"
 	},
 	"devDependencies": {
 		"@ai-sdk/devtools": "^0.0.18",
