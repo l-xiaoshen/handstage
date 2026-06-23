@@ -28,7 +28,7 @@ const hangTimer = setTimeout(() => {
 	process.exit(1)
 }, HANG_TIMEOUT_MS)
 
-const instance = await launchChromeBun({ headless: true })
+const instance = await launchChromeBun({ headless: false })
 const browser = instance
 const handstage = await connectLocal(browser, { verbose: LogLevel.Error })
 
