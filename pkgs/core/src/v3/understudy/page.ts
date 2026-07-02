@@ -118,6 +118,15 @@ export class Page {
 	private extraHTTPHeaders: Record<string, string> = {}
 	private disposed = false
 
+	/**
+	 * Self-removing watchers that resolve `Response.finished()` for navigation
+	 * responses. Ownership lives here (not on the short-lived
+	 * NavigationResponseTracker) so `finished()` still resolves after the tracker
+	 * is disposed, while remaining bounded by the Page lifetime — every pending
+	 * watcher is finalized in `disposeResources()`.
+	 */
+	private readonly responseFinishWatchers = new Set<() => void>()
+
 	/** Per-instance debug log sink — fans out to sub-managers (NetworkManager, etc.). */
 	public readonly logger: LogSink
 
@@ -364,6 +373,14 @@ export class Page {
 	): void {
 		this.registry.onFrameDetached(frameId, reason)
 		this.frameCache.delete(frameId)
+		// Drop the frame's snapshot ordinal on real removal so `frameOrdinals`
+		// doesn't grow without bound over a long-lived page with churning iframes
+		// (ads/analytics/OOPIFs). On "swap" we keep it to preserve frame identity
+		// continuity across the root handoff. Ordinals only need to be stable
+		// while a frame is alive, so a detached frame's ordinal is safe to remove.
+		if (reason !== "swap") {
+			this.frameOrdinals.delete(frameId)
+		}
 	}
 
 	/**
@@ -645,6 +662,53 @@ export class Page {
 		this.disposeResources()
 	}
 
+	/**
+	 * Track completion of a navigation response so `response.finished()` resolves
+	 * even after the owning NavigationResponseTracker is disposed. The watcher
+	 * removes itself on `loadingFinished`/`loadingFailed` and is force-finalized
+	 * (resolving `finished()` with `null`) on page disposal, so it can never leak
+	 * a CDP listener or leave `finished()` hanging.
+	 */
+	public watchResponseFinish(
+		session: CDPSessionLike,
+		requestId: string,
+		response: Response,
+	): void {
+		if (this.disposed) {
+			// Page already torn down — don't register a listener that would leak;
+			// just resolve so any awaiter of finished() doesn't hang.
+			response.markFinished(null)
+			return
+		}
+
+		const removeListeners = () => {
+			session.off("Network.loadingFinished", onFinished)
+			session.off("Network.loadingFailed", onFailed)
+			this.responseFinishWatchers.delete(finalizeOnDispose)
+		}
+		const finalizeOnDispose = () => {
+			// Called from disposeResources(): resolve so finished() never hangs.
+			response.markFinished(null)
+			removeListeners()
+		}
+		const onFinished = (evt: Protocol.Network.LoadingFinishedEvent) => {
+			if (evt?.requestId !== requestId) return
+			response.markFinished(null)
+			removeListeners()
+		}
+		const onFailed = (evt: Protocol.Network.LoadingFailedEvent) => {
+			if (evt?.requestId !== requestId) return
+			response.markFinished(
+				new Error(evt.errorText || "Navigation request failed"),
+			)
+			removeListeners()
+		}
+
+		session.on("Network.loadingFinished", onFinished)
+		session.on("Network.loadingFailed", onFailed)
+		this.responseFinishWatchers.add(finalizeOnDispose)
+	}
+
 	public disposeResources(): void {
 		if (this.disposed) return
 		this.disposed = true
@@ -654,6 +718,15 @@ export class Page {
 		this.sessions.clear()
 		this.consoleHandlers.clear()
 		this.frameCache.clear()
+		this.frameOrdinals.clear()
+		// Finalize any pending response-finish watchers: remove their CDP
+		// listeners and resolve finished() so callers never hang post-dispose.
+		for (const finalize of [...this.responseFinishWatchers]) {
+			try {
+				finalize()
+			} catch {}
+		}
+		this.responseFinishWatchers.clear()
 	}
 
 	public getFullFrameTree(): Protocol.Page.FrameTree {

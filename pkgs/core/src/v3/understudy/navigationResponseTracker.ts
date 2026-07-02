@@ -134,12 +134,14 @@ export class NavigationResponseTracker {
 		this.addListener("Network.responseReceivedExtraInfo", (event) => {
 			this.onResponseReceivedExtraInfo(event)
 		})
-		this.addListener("Network.loadingFinished", (event) => {
-			this.onLoadingFinished(event)
-		})
-		this.addListener("Network.loadingFailed", (event) => {
-			this.onLoadingFailed(event)
-		})
+		// NOTE: loadingFinished / loadingFailed are intentionally NOT tracked here.
+		// The tracker is disposed as soon as the navigation lifecycle wait
+		// completes (in Page.goto's `finally`), which typically happens BEFORE
+		// `Network.loadingFinished` arrives. If this short-lived tracker owned the
+		// finish listeners, `response.finished()` would never resolve (hang) once
+		// the tracker tore them down. Instead, finish tracking is handed off to a
+		// Page-owned, self-removing watcher (see `page.watchResponseFinish`) that
+		// is bounded by the Page's lifetime and cleaned up on `disposeResources`.
 	}
 
 	/** Attach a CDP listener and track it for later disposal. */
@@ -196,26 +198,6 @@ export class NavigationResponseTracker {
 		this.pendingExtraInfo.set(event.requestId, event)
 	}
 
-	/** Resolve the response's finished promise when the request completes. */
-	private onLoadingFinished(
-		event: Protocol.Network.LoadingFinishedEvent,
-	): void {
-		if (!event?.requestId) return
-		if (event.requestId !== this.selectedRequestId) return
-		this.selectedResponse?.markFinished(null)
-	}
-
-	/** Resolve the response's finished promise with an error on failure. */
-	private onLoadingFailed(event: Protocol.Network.LoadingFailedEvent): void {
-		// Ignore malformed events or ones without a request id
-		if (!event?.requestId) return
-		// Only the tracked document request should toggle the response state
-		if (event.requestId !== this.selectedRequestId) return
-		// Surface Chrome's failure text through response.finished()
-		const errorText = event.errorText || "Navigation request failed"
-		this.selectedResponse?.markFinished(new Error(errorText))
-	}
-
 	/**
 	 * Create the `Response` wrapper for the chosen document response and
 	 * resolve awaiting consumers. Subsequent events flesh out the header/body
@@ -260,6 +242,10 @@ export class NavigationResponseTracker {
 			response.applyExtraInfo(extraInfo)
 			this.pendingExtraInfo.delete(event.requestId)
 		}
+
+		// Hand off `response.finished()` resolution to a Page-owned watcher so it
+		// survives this tracker's imminent disposal (see installListeners note).
+		this.page.watchResponseFinish(this.session, event.requestId, response)
 
 		this.resolveResponse(response)
 	}
