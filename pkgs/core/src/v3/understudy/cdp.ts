@@ -377,6 +377,27 @@ export class CDPConnection extends BaseCDPConnection<CDPSession> {
 		try {
 			await this.transport.close()
 		} finally {
+			// Deterministically settle every awaiter and drop all references.
+			//
+			// We must NOT rely on `transport.onclose` firing to reject in-flight
+			// requests: a graceful close over the local Chrome pipe suppresses
+			// `onclose` (see connect/local.ts), which previously left every
+			// pending `send()` / `_sendViaSession()` promise unsettled forever
+			// (a caller `await`ing a CDP command would hang) and retained the
+			// inflight closures, session objects, and event-handler buckets for
+			// the connection's lifetime.
+			//
+			// `rejectAllInflight` drains `inflight` and rejects every
+			// `sessionDispatchWaiter`, so it is idempotent — a later
+			// `transport.onclose` (unexpected/racing close) re-invokes it on an
+			// already-empty map as a no-op.
+			this.rejectAllInflight("connection closed")
+			this.eventHandlers.clear()
+			this.sessions.clear()
+			this.sessionToTarget.clear()
+			this.sessionDispatchWaiters.clear()
+			this.transportCloseHandlers.clear()
+
 			// Release ownership so a future caller could re-wrap a fresh
 			// transport with the same identity (rare; mainly relevant in
 			// long-running tests that reuse fake transports).

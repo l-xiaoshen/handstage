@@ -73,6 +73,19 @@ export async function connectLocal(
 	const writer = chrome.stdin.getWriter()
 
 	let isClosed = false
+	// `notifiedClose` is intentionally distinct from `isClosed`: an explicit
+	// `transport.close()` (graceful shutdown) sets `isClosed` first, so gating
+	// the close notification on `!isClosed` — as the previous code did — meant a
+	// graceful close NEVER told the connection layer the pipe was gone. Tracking
+	// the notification separately lets us fire `onclose` exactly once regardless
+	// of whether the close was graceful (via `close()`) or spontaneous (pipe end
+	// / error), keeping behavior consistent with the WebSocket transport.
+	let notifiedClose = false
+	const notifyClose = (reason: string): void => {
+		if (notifiedClose) return
+		notifiedClose = true
+		transport.onclose?.(reason)
+	}
 	const transport: CDPTransport = {
 		send: (message) => {
 			if (isClosed) return
@@ -83,6 +96,7 @@ export async function connectLocal(
 			isClosed = true
 			await writer.close().catch(() => {})
 			await chrome.close().catch(() => {})
+			notifyClose("transport closed")
 		},
 	}
 
@@ -97,10 +111,8 @@ export async function connectLocal(
 				transport.onerror(err instanceof Error ? err : new Error(String(err)))
 			}
 		} finally {
-			if (transport.onclose && !isClosed) {
-				transport.onclose("Pipe closed")
-			}
 			isClosed = true
+			notifyClose("Pipe closed")
 		}
 	})()
 
