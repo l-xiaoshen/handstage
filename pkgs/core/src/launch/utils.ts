@@ -14,15 +14,24 @@ export async function waitForProcessExit(
 	exited: Promise<unknown>,
 	timeoutMs: number,
 ): Promise<boolean> {
-	return Promise.race([
-		exited.then(
-			() => true,
-			() => true,
-		),
-		new Promise<boolean>((resolve) =>
-			setTimeout(() => resolve(false), timeoutMs),
-		),
-	])
+	// Capture the timer so we can clear it once the process exits. Otherwise the
+	// pending 5s timeout keeps the event loop alive after a fast graceful close
+	// (delaying natural process exit), and every close spawns another one.
+	let timer: ReturnType<typeof setTimeout> | undefined
+	const timeout = new Promise<boolean>((resolve) => {
+		timer = setTimeout(() => resolve(false), timeoutMs)
+	})
+	try {
+		return await Promise.race([
+			exited.then(
+				() => true,
+				() => true,
+			),
+			timeout,
+		])
+	} finally {
+		if (timer) clearTimeout(timer)
+	}
 }
 
 export async function performBrowserProcessCleanup(
@@ -32,13 +41,23 @@ export async function performBrowserProcessCleanup(
 	createdTemp: boolean,
 	opts?: LocalBrowserLaunchOptions,
 ): Promise<void> {
-	kill()
-	if (!(await waitForProcessExit(exited, CHROME_EXIT_TIMEOUT_MS))) {
-		kill("SIGKILL")
-		await waitForProcessExit(exited, CHROME_EXIT_TIMEOUT_MS)
+	// `kill()` can throw (e.g. Bun's kill on an already-exited process, ESRCH).
+	// Guard it and always run temp-dir cleanup in `finally` so a throwing kill
+	// never leaks the profile directory.
+	const safeKill = (signal?: "SIGKILL") => {
+		try {
+			kill(signal)
+		} catch {}
 	}
-
-	cleanupUserDataDir(userDataDir, createdTemp, opts)
+	try {
+		safeKill()
+		if (!(await waitForProcessExit(exited, CHROME_EXIT_TIMEOUT_MS))) {
+			safeKill("SIGKILL")
+			await waitForProcessExit(exited, CHROME_EXIT_TIMEOUT_MS)
+		}
+	} finally {
+		cleanupUserDataDir(userDataDir, createdTemp, opts)
+	}
 }
 
 export interface PreparedLaunchOptions {

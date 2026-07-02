@@ -1,3 +1,4 @@
+import { registerBrowserForCleanup } from "../../launch/exitSupervisor"
 import type { Handstage } from "../handstage"
 import type { LaunchedChrome } from "../types/public/launchedChrome"
 import { LogLevel } from "../types/public/logs"
@@ -72,6 +73,18 @@ export async function connectLocal(
 
 	const writer = chrome.stdin.getWriter()
 
+	// Handstage owns this launched Chrome (it closes the process on close), so
+	// register it with the crash-supervisor: if the host process dies without a
+	// graceful close, the browser is force-killed and its temp profile removed.
+	// The disposer is invoked from transport.close() once the browser is gone so
+	// we never kill a potentially-recycled PID.
+	const deregisterCleanup = registerBrowserForCleanup({
+		pid: chrome.pid,
+		userDataDir: chrome.userDataDir,
+		createdTemp: chrome.createdTempProfile ?? false,
+		preserveUserDataDir: opts?.localBrowserLaunchOptions?.preserveUserDataDir,
+	})
+
 	let isClosed = false
 	// `notifiedClose` is intentionally distinct from `isClosed`: an explicit
 	// `transport.close()` (graceful shutdown) sets `isClosed` first, so gating
@@ -96,6 +109,8 @@ export async function connectLocal(
 			isClosed = true
 			await writer.close().catch(() => {})
 			await chrome.close().catch(() => {})
+			// Browser is gone (or best-effort closed) — stop supervising it.
+			deregisterCleanup()
 			notifyClose("transport closed")
 		},
 	}
@@ -116,16 +131,26 @@ export async function connectLocal(
 		}
 	})()
 
-	const conn = new CDPConnection(transport)
-	const lbo = opts?.localBrowserLaunchOptions ?? {}
+	try {
+		const conn = new CDPConnection(transport)
+		const lbo = opts?.localBrowserLaunchOptions ?? {}
 
-	return await createOwnedHandstage({
-		conn,
-		lbo,
-		sharedOpts,
-		logSink,
-		onContextError: async () => {
-			await chrome.close().catch(() => {})
-		},
-	})
+		return await createOwnedHandstage({
+			conn,
+			lbo,
+			sharedOpts,
+			logSink,
+			onContextError: async () => {
+				await chrome.close().catch(() => {})
+			},
+		})
+	} catch (err) {
+		// createOwnedHandstage closes the connection (→ transport.close →
+		// deregisterCleanup) on Context failure, but guard the rarer paths
+		// (e.g. CDPConnection construction) so we never leave a supervised entry
+		// registered after a failed connect. Idempotent: the disposer no-ops if
+		// already called.
+		deregisterCleanup()
+		throw err
+	}
 }
