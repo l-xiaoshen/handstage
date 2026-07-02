@@ -9,6 +9,24 @@ export class ExecutionContextRegistry {
 	private readonly byExec = new WeakMap<CDPSessionLike, Map<ExecId, FrameId>>()
 
 	/**
+	 * Cache of isolated worlds created via `Page.createIsolatedWorld`, keyed by
+	 * `${frameId}:${worldName}`.  Chrome creates a BRAND-NEW execution context
+	 * on every `createIsolatedWorld` call (worldName is a label, not a dedup
+	 * key), so calling it per locator resolution leaked renderer execution
+	 * contexts without bound.  We create each world at most once per frame and
+	 * reuse the id, evicting it when the underlying context is destroyed or the
+	 * frame's contexts are cleared (handled in {@link attachSession}).
+	 */
+	private readonly isolatedByFrame = new WeakMap<
+		CDPSessionLike,
+		Map<string, ExecId>
+	>()
+	private readonly isolatedExecKey = new WeakMap<
+		CDPSessionLike,
+		Map<ExecId, string>
+	>()
+
+	/**
 	 * Wire listeners for this session. Call BEFORE Runtime.enable.
 	 *
 	 * Returns a disposer that removes every listener installed by this
@@ -32,17 +50,34 @@ export class ExecutionContextRegistry {
 		const onDestroyed = (
 			evt: Protocol.Runtime.ExecutionContextDestroyedEvent,
 		): void => {
+			// Main-world mapping.
 			const rev = this.byExec.get(session)
 			const fwd = this.byFrame.get(session)
-			if (!rev || !fwd) return
-			const frameId = rev.get(evt.executionContextId)
-			if (!frameId) return
-			rev.delete(evt.executionContextId)
-			if (fwd.get(frameId) === evt.executionContextId) fwd.delete(frameId)
+			if (rev && fwd) {
+				const frameId = rev.get(evt.executionContextId)
+				if (frameId) {
+					rev.delete(evt.executionContextId)
+					if (fwd.get(frameId) === evt.executionContextId) fwd.delete(frameId)
+				}
+			}
+
+			// Isolated-world cache: evict so the next resolve recreates the world
+			// instead of evaluating against a destroyed context.
+			const irev = this.isolatedExecKey.get(session)
+			const ifwd = this.isolatedByFrame.get(session)
+			if (irev && ifwd) {
+				const key = irev.get(evt.executionContextId)
+				if (key !== undefined) {
+					irev.delete(evt.executionContextId)
+					if (ifwd.get(key) === evt.executionContextId) ifwd.delete(key)
+				}
+			}
 		}
 		const onCleared = (): void => {
 			this.byFrame.delete(session)
 			this.byExec.delete(session)
+			this.isolatedByFrame.delete(session)
+			this.isolatedExecKey.delete(session)
 		}
 
 		session.on("Runtime.executionContextCreated", onCreated)
@@ -58,6 +93,51 @@ export class ExecutionContextRegistry {
 
 	getMainWorld(session: CDPSessionLike, frameId: FrameId): ExecId | null {
 		return this.byFrame.get(session)?.get(frameId) ?? null
+	}
+
+	/**
+	 * Return a cached isolated-world execution context id for
+	 * `(session, frameId, worldName)`, creating it via
+	 * `Page.createIsolatedWorld` at most once.  The entry is evicted
+	 * automatically by the `executionContextDestroyed` /
+	 * `executionContextsCleared` handlers wired in {@link attachSession}, so a
+	 * post-navigation call transparently recreates the world.
+	 *
+	 * Callers must have `attachSession()` active for the session (Context does
+	 * this for every session it manages) so eviction stays correct.  Even
+	 * without it, a stale id merely causes the evaluate to fail and the caller
+	 * to fall back to the main world — it never evaluates against a live but
+	 * wrong context.
+	 */
+	async getIsolatedWorld(
+		session: CDPSessionLike,
+		frameId: FrameId,
+		worldName: string,
+	): Promise<ExecId> {
+		const key = `${frameId}:${worldName}`
+		const cached = this.isolatedByFrame.get(session)?.get(key)
+		if (cached !== undefined) return cached
+
+		const { executionContextId } = await session.send(
+			"Page.createIsolatedWorld",
+			{ frameId, worldName },
+		)
+
+		let fwd = this.isolatedByFrame.get(session)
+		if (!fwd) {
+			fwd = new Map<string, ExecId>()
+			this.isolatedByFrame.set(session, fwd)
+		}
+		let rev = this.isolatedExecKey.get(session)
+		if (!rev) {
+			rev = new Map<ExecId, string>()
+			this.isolatedExecKey.set(session, rev)
+		}
+		const prev = fwd.get(key)
+		if (prev !== undefined) rev.delete(prev)
+		fwd.set(key, executionContextId)
+		rev.set(executionContextId, key)
+		return executionContextId
 	}
 
 	async waitForMainWorld(

@@ -123,12 +123,10 @@ export class FrameSelectorResolver {
 		if (limit <= 0) return []
 
 		const session = this.frame.session
-		const { executionContextId } = await session.send(
-			"Page.createIsolatedWorld",
-			{
-				frameId: this.frame.frameId,
-				worldName: "v3-world",
-			},
+		const executionContextId = await executionContexts.getIsolatedWorld(
+			session,
+			this.frame.frameId,
+			"v3-world",
 		)
 
 		const ctxId = await executionContexts.waitForMainWorld(
@@ -240,12 +238,10 @@ export class FrameSelectorResolver {
 	private async countCss(selector: string): Promise<number> {
 		const session = this.frame.session
 
-		const { executionContextId } = await session.send(
-			"Page.createIsolatedWorld",
-			{
-				frameId: this.frame.frameId,
-				worldName: "v3-world",
-			},
+		const executionContextId = await executionContexts.getIsolatedWorld(
+			session,
+			this.frame.frameId,
+			"v3-world",
 		)
 
 		const primaryExpr = this.buildLocatorInvocation("countCssMatchesPrimary", [
