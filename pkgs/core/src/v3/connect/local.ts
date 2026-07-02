@@ -73,11 +73,9 @@ export async function connectLocal(
 
 	const writer = chrome.stdin.getWriter()
 
-	// Handstage owns this launched Chrome (it closes the process on close), so
-	// register it with the crash-supervisor: if the host process dies without a
-	// graceful close, the browser is force-killed and its temp profile removed.
-	// The disposer is invoked from transport.close() once the browser is gone so
-	// we never kill a potentially-recycled PID.
+	// Register with the crash-supervisor so an unexpected host exit force-kills
+	// the browser and removes its temp profile. Deregistered in transport.close()
+	// once the browser is gone, so we never kill a recycled PID.
 	const deregisterCleanup = registerBrowserForCleanup({
 		pid: chrome.pid,
 		userDataDir: chrome.userDataDir,
@@ -86,13 +84,9 @@ export async function connectLocal(
 	})
 
 	let isClosed = false
-	// `notifiedClose` is intentionally distinct from `isClosed`: an explicit
-	// `transport.close()` (graceful shutdown) sets `isClosed` first, so gating
-	// the close notification on `!isClosed` — as the previous code did — meant a
-	// graceful close NEVER told the connection layer the pipe was gone. Tracking
-	// the notification separately lets us fire `onclose` exactly once regardless
-	// of whether the close was graceful (via `close()`) or spontaneous (pipe end
-	// / error), keeping behavior consistent with the WebSocket transport.
+	// Tracked separately from `isClosed` so `onclose` fires exactly once whether
+	// the close is graceful (`close()`) or spontaneous (pipe end/error). Gating
+	// on `!isClosed` alone would skip notifying on a graceful close.
 	let notifiedClose = false
 	const notifyClose = (reason: string): void => {
 		if (notifiedClose) return
@@ -145,11 +139,8 @@ export async function connectLocal(
 			},
 		})
 	} catch (err) {
-		// createOwnedHandstage closes the connection (→ transport.close →
-		// deregisterCleanup) on Context failure, but guard the rarer paths
-		// (e.g. CDPConnection construction) so we never leave a supervised entry
-		// registered after a failed connect. Idempotent: the disposer no-ops if
-		// already called.
+		// Guard the rarer failure paths (e.g. CDPConnection construction) so a
+		// failed connect never leaves a supervised entry. Idempotent disposer.
 		deregisterCleanup()
 		throw err
 	}

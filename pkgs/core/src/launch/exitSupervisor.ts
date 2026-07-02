@@ -2,30 +2,21 @@
 import fs from "node:fs"
 
 /**
- * Chrome crash-supervisor.
+ * Chrome crash-supervisor. Honors the `LaunchedChrome.pid` contract: if the
+ * host process dies without a graceful `handstage.close()` (SIGTERM, uncaught
+ * exception, non-interactive exit), the launched browser would otherwise be
+ * orphaned and its temp profile leaked.
  *
- * Honors the `LaunchedChrome.pid` contract: *"used by Handstage to register a
- * crash-supervisor … Handstage will attempt to clean up this process if the
- * main node process exits unexpectedly."*
- *
- * Without this, a host process that dies without calling `handstage.close()`
- * (SIGTERM, an uncaught exception, or any non-interactive exit) would orphan
- * the launched Chrome process and leak its temporary profile directory.
- *
- * Design notes / safety:
- * - We hook `exit` plus the termination signals only. Node runs `exit`
- *   listeners after an uncaught exception too, so we deliberately do NOT add an
- *   `uncaughtException` handler (which would suppress Node's default crash
- *   behavior and clobber user handlers).
- * - `exit` handlers must be synchronous; `process.kill` and `fs.rmSync` are.
- * - On a termination signal we clean up, remove our handlers, and re-raise the
- *   signal so the process still terminates with the correct semantics and any
- *   user-installed signal handlers still run.
- * - Handlers are installed once and removed again as soon as the registry is
- *   empty, so repeated launch/close cycles never accumulate `process`
- *   listeners.
- * - Entries are always deregistered on graceful close, so we never kill a PID
- *   that may have been recycled by the OS.
+ * Safety:
+ * - Hooks `exit` + termination signals only. Node runs `exit` listeners after
+ *   an uncaught exception too, so we avoid an `uncaughtException` handler that
+ *   would suppress default crash behavior / clobber user handlers.
+ * - `exit` cleanup is synchronous (`process.kill` / `fs.rmSync`).
+ * - On a signal we clean up, remove our handlers, then re-raise so the process
+ *   still terminates correctly and user handlers still run.
+ * - Handlers install once and are removed when the registry empties (no listener
+ *   accumulation); entries are deregistered on close so we never kill a recycled
+ *   PID.
  */
 
 export interface SupervisedBrowser {

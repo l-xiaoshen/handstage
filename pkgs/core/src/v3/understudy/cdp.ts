@@ -397,20 +397,11 @@ export class CDPConnection extends BaseCDPConnection<CDPSession> {
 		try {
 			await this.transport.close()
 		} finally {
-			// Deterministically settle every awaiter and drop all references.
-			//
-			// We must NOT rely on `transport.onclose` firing to reject in-flight
-			// requests: a graceful close over the local Chrome pipe suppresses
-			// `onclose` (see connect/local.ts), which previously left every
-			// pending `send()` / `_sendViaSession()` promise unsettled forever
-			// (a caller `await`ing a CDP command would hang) and retained the
-			// inflight closures, session objects, and event-handler buckets for
-			// the connection's lifetime.
-			//
-			// `rejectAllInflight` drains `inflight` and rejects every
-			// `sessionDispatchWaiter`, so it is idempotent — a later
-			// `transport.onclose` (unexpected/racing close) re-invokes it on an
-			// already-empty map as a no-op.
+			// Settle awaiters and drop references here rather than relying on
+			// `transport.onclose` — the local Chrome pipe suppresses it on a
+			// graceful close, which would otherwise leave `send()` promises
+			// pending forever and retain the maps. Idempotent: a later racing
+			// `onclose` re-runs this on empty maps.
 			this.rejectAllInflight("connection closed")
 			this.eventHandlers.clear()
 			this.sessions.clear()
@@ -548,12 +539,9 @@ export class CDPConnection extends BaseCDPConnection<CDPSession> {
 			this.sessions.delete(params.sessionId)
 			this.sessionToTarget.delete(params.sessionId)
 
-			// Defensively drop any session-scoped event-handler buckets
-			// (`${sessionId}:Event`). Cleanup normally happens when owners call
-			// `.off()`, but a missed detach or an unregistered listener would
-			// otherwise leak these buckets for the connection's lifetime. Root
-			// event keys are plain event names and never carry a sessionId prefix,
-			// so they are unaffected.
+			// Backstop against a missed `.off()`: drop session-scoped handler
+			// buckets (`${sessionId}:Event`). Root keys are plain event names, so
+			// they're unaffected.
 			const sessionKeyPrefix = `${params.sessionId}:`
 			for (const key of Array.from(this.eventHandlers.keys())) {
 				if (key.startsWith(sessionKeyPrefix)) this.eventHandlers.delete(key)

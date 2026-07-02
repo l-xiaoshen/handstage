@@ -14,9 +14,8 @@ export async function waitForProcessExit(
 	exited: Promise<unknown>,
 	timeoutMs: number,
 ): Promise<boolean> {
-	// Capture the timer so we can clear it once the process exits. Otherwise the
-	// pending 5s timeout keeps the event loop alive after a fast graceful close
-	// (delaying natural process exit), and every close spawns another one.
+	// Clear the timer once the process exits; otherwise the pending timeout keeps
+	// the event loop alive after a fast close (and every close leaks another).
 	let timer: ReturnType<typeof setTimeout> | undefined
 	const timeout = new Promise<boolean>((resolve) => {
 		timer = setTimeout(() => resolve(false), timeoutMs)
@@ -41,9 +40,8 @@ export async function performBrowserProcessCleanup(
 	createdTemp: boolean,
 	opts?: LocalBrowserLaunchOptions,
 ): Promise<void> {
-	// `kill()` can throw (e.g. Bun's kill on an already-exited process, ESRCH).
-	// Guard it and always run temp-dir cleanup in `finally` so a throwing kill
-	// never leaks the profile directory.
+	// `kill()` can throw (e.g. Bun's kill on an already-exited process/ESRCH), so
+	// guard it and run temp-dir cleanup in `finally` regardless.
 	const safeKill = (signal?: "SIGKILL") => {
 		try {
 			kill(signal)

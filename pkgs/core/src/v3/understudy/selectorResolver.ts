@@ -107,12 +107,9 @@ export class FrameSelectorResolver {
 		const results = await this.resolveAll(query, { limit: index + 1 })
 		const selected = results[index] ?? null
 
-		// Release every resolved handle we are not returning. `resolveAll`
-		// resolves indices 0..index, but callers of resolveAtIndex only use the
-		// one at `index`; the rest are browser-side Runtime remote objects that
-		// would otherwise leak in the renderer for the connection's lifetime
-		// (e.g. every `locator.nth(n>0)` action). Best-effort — the browser may
-		// already have collected them.
+		// Release the handles we resolved but aren't returning; otherwise the
+		// intermediate remote objects leak in the renderer (e.g. every
+		// `locator.nth(n>0)` action). Best-effort.
 		const session = this.frame.session
 		for (let i = 0; i < results.length; i += 1) {
 			if (i === index) continue

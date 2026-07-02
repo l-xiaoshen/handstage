@@ -23,30 +23,12 @@ export async function launchChromeNode(
 		})
 		const child = p
 
-		// `spawn` emits 'error' asynchronously (ENOENT/EACCES/…). Without a
-		// listener Node rethrows it as an uncaught exception that crashes the
-		// host. Keep a persistent no-op listener so late errors never crash the
-		// process; the pipe streams surface I/O failures to connectLocal.
+		// Without an 'error' listener, an async spawn failure (ENOENT/EACCES)
+		// crashes the host as an uncaught exception. Swallow it here; the failure
+		// still surfaces to connectLocal via the pipe streams, so the connect
+		// rejects cleanly. (No 'spawn' await — that event isn't emitted uniformly
+		// across node/bun runtimes and would hang the launcher under Bun.)
 		child.on("error", () => {})
-
-		// Wait for the process to actually spawn (or fail) before returning, so a
-		// bad executablePath rejects cleanly here instead of surfacing later as an
-		// unusable browser. Exactly one of 'spawn' / 'error' fires.
-		await new Promise<void>((resolve, reject) => {
-			let settled = false
-			child.once("spawn", () => {
-				if (!settled) {
-					settled = true
-					resolve()
-				}
-			})
-			child.once("error", (err) => {
-				if (!settled) {
-					settled = true
-					reject(err instanceof Error ? err : new Error(String(err)))
-				}
-			})
-		})
 
 		const fd3 = child.stdio[3] // Chrome's read pipe (our WritableStream)
 		const fd4 = child.stdio[4] // Chrome's write pipe (our ReadableStream)
@@ -97,8 +79,7 @@ export async function launchChromeNode(
 
 		let closed = false
 		const close = async () => {
-			// Idempotent: repeated close() must not re-run teardown or add another
-			// 'exit' listener.
+			// Idempotent: don't re-run teardown or add another 'exit' listener.
 			if (closed) return
 			closed = true
 			try {
@@ -129,9 +110,8 @@ export async function launchChromeNode(
 			createdTempProfile: createdTemp,
 		}
 	} catch (err) {
-		// Launch setup failed after we created a temp profile and possibly
-		// spawned the process. Kill any spawned process and remove the temp
-		// profile dir so we neither orphan a process nor leak the directory.
+		// Launch setup failed after the temp profile was created (and maybe the
+		// process spawned): kill it and remove the dir so nothing is leaked.
 		if (p) {
 			try {
 				p.kill("SIGKILL")

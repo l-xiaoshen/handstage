@@ -134,14 +134,11 @@ export class NavigationResponseTracker {
 		this.addListener("Network.responseReceivedExtraInfo", (event) => {
 			this.onResponseReceivedExtraInfo(event)
 		})
-		// NOTE: loadingFinished / loadingFailed are intentionally NOT tracked here.
-		// The tracker is disposed as soon as the navigation lifecycle wait
-		// completes (in Page.goto's `finally`), which typically happens BEFORE
-		// `Network.loadingFinished` arrives. If this short-lived tracker owned the
-		// finish listeners, `response.finished()` would never resolve (hang) once
-		// the tracker tore them down. Instead, finish tracking is handed off to a
-		// Page-owned, self-removing watcher (see `page.watchResponseFinish`) that
-		// is bounded by the Page's lifetime and cleaned up on `disposeResources`.
+		// loadingFinished/Failed are intentionally NOT tracked here: this tracker
+		// is disposed when the navigation wait completes (Page.goto's finally),
+		// usually before loadingFinished arrives — owning the finish listeners
+		// here would make response.finished() hang. It's handed off to the
+		// Page-owned watcher (page.watchResponseFinish) instead.
 	}
 
 	/** Attach a CDP listener and track it for later disposal. */

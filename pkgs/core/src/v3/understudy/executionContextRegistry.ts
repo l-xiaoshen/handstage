@@ -9,13 +9,10 @@ export class ExecutionContextRegistry {
 	private readonly byExec = new WeakMap<CDPSessionLike, Map<ExecId, FrameId>>()
 
 	/**
-	 * Cache of isolated worlds created via `Page.createIsolatedWorld`, keyed by
-	 * `${frameId}:${worldName}`.  Chrome creates a BRAND-NEW execution context
-	 * on every `createIsolatedWorld` call (worldName is a label, not a dedup
-	 * key), so calling it per locator resolution leaked renderer execution
-	 * contexts without bound.  We create each world at most once per frame and
-	 * reuse the id, evicting it when the underlying context is destroyed or the
-	 * frame's contexts are cleared (handled in {@link attachSession}).
+	 * Isolated worlds created via `Page.createIsolatedWorld`, keyed by
+	 * `${frameId}:${worldName}`. Chrome makes a new context on every call
+	 * (worldName isn't a dedup key), so we create each world once and reuse it,
+	 * evicting on context destroy/clear (see {@link attachSession}).
 	 */
 	private readonly isolatedByFrame = new WeakMap<
 		CDPSessionLike,
@@ -96,18 +93,11 @@ export class ExecutionContextRegistry {
 	}
 
 	/**
-	 * Return a cached isolated-world execution context id for
-	 * `(session, frameId, worldName)`, creating it via
-	 * `Page.createIsolatedWorld` at most once.  The entry is evicted
-	 * automatically by the `executionContextDestroyed` /
-	 * `executionContextsCleared` handlers wired in {@link attachSession}, so a
-	 * post-navigation call transparently recreates the world.
-	 *
-	 * Callers must have `attachSession()` active for the session (Context does
-	 * this for every session it manages) so eviction stays correct.  Even
-	 * without it, a stale id merely causes the evaluate to fail and the caller
-	 * to fall back to the main world — it never evaluates against a live but
-	 * wrong context.
+	 * Cached isolated-world context id for `(session, frameId, worldName)`,
+	 * created via `Page.createIsolatedWorld` at most once and evicted by the
+	 * destroy/clear handlers in {@link attachSession} so a post-navigation call
+	 * recreates it. A stale id (if `attachSession` wasn't active) only makes the
+	 * evaluate fail and fall back to the main world — never a wrong live context.
 	 */
 	async getIsolatedWorld(
 		session: CDPSessionLike,

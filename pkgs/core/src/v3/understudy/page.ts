@@ -119,11 +119,10 @@ export class Page {
 	private disposed = false
 
 	/**
-	 * Self-removing watchers that resolve `Response.finished()` for navigation
-	 * responses. Ownership lives here (not on the short-lived
-	 * NavigationResponseTracker) so `finished()` still resolves after the tracker
-	 * is disposed, while remaining bounded by the Page lifetime — every pending
-	 * watcher is finalized in `disposeResources()`.
+	 * Self-removing watchers that resolve `Response.finished()`. Owned here (not
+	 * on the short-lived NavigationResponseTracker) so finished() still resolves
+	 * after the tracker is disposed; all pending ones are finalized in
+	 * `disposeResources()`.
 	 */
 	private readonly responseFinishWatchers = new Set<() => void>()
 
@@ -373,11 +372,8 @@ export class Page {
 	): void {
 		this.registry.onFrameDetached(frameId, reason)
 		this.frameCache.delete(frameId)
-		// Drop the frame's snapshot ordinal on real removal so `frameOrdinals`
-		// doesn't grow without bound over a long-lived page with churning iframes
-		// (ads/analytics/OOPIFs). On "swap" we keep it to preserve frame identity
-		// continuity across the root handoff. Ordinals only need to be stable
-		// while a frame is alive, so a detached frame's ordinal is safe to remove.
+		// Drop the ordinal on real removal so `frameOrdinals` doesn't grow
+		// unbounded with churning iframes. Kept on "swap" for identity continuity.
 		if (reason !== "swap") {
 			this.frameOrdinals.delete(frameId)
 		}
@@ -664,10 +660,9 @@ export class Page {
 
 	/**
 	 * Track completion of a navigation response so `response.finished()` resolves
-	 * even after the owning NavigationResponseTracker is disposed. The watcher
-	 * removes itself on `loadingFinished`/`loadingFailed` and is force-finalized
-	 * (resolving `finished()` with `null`) on page disposal, so it can never leak
-	 * a CDP listener or leave `finished()` hanging.
+	 * even after its NavigationResponseTracker is disposed. Removes itself on
+	 * loadingFinished/Failed and is finalized (resolving with `null`) on page
+	 * dispose, so it never leaks a listener or leaves finished() hanging.
 	 */
 	public watchResponseFinish(
 		session: CDPSessionLike,

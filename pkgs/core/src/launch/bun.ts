@@ -15,10 +15,9 @@ export async function launchChromeBun(
 	const { chromePath, finalFlags, userDataDir, createdTemp } =
 		prepareChromeLaunchOptions(lbo)
 
-	// `Bun.spawn` throws synchronously if the binary can't be launched, and the
-	// stdio-mapping check below also throws — both AFTER prepareChromeLaunchOptions
-	// created the temp profile. Wrap so we always kill any spawned process and
-	// remove the temp dir on failure instead of leaking them.
+	// `Bun.spawn` (and the stdio-mapping check) can throw after the temp profile
+	// was created; wrap so we always kill the process and remove the dir on
+	// failure instead of leaking them.
 	let p: Bun.Subprocess | undefined
 	try {
 		p = Bun.spawn([chromePath, ...finalFlags], {
@@ -51,8 +50,7 @@ export async function launchChromeBun(
 
 		let closed = false
 		const close = async () => {
-			// Idempotent: guard against repeated close().
-			if (closed) return
+			if (closed) return // idempotent
 			closed = true
 			try {
 				fd3Writer.end()
