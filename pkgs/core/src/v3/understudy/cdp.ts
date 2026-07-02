@@ -301,25 +301,45 @@ export class CDPConnection extends BaseCDPConnection<CDPSession> {
 		// @ts-expect-error: Modern runtimes like Bun support headers in native WebSocket
 		const ws = new WebSocket(wsUrl, { headers })
 		await new Promise<void>((resolve, reject) => {
-			ws.addEventListener("open", () => resolve(), { once: true })
-			ws.addEventListener("error", () => reject(new Error("WebSocket error")), {
-				once: true,
-			})
+			// Remove BOTH handshake listeners once either fires so the losing
+			// `{ once: true }` listener doesn't linger on the socket forever.
+			const cleanup = () => {
+				ws.removeEventListener("open", onOpen)
+				ws.removeEventListener("error", onErr)
+			}
+			const onOpen = () => {
+				cleanup()
+				resolve()
+			}
+			const onErr = () => {
+				cleanup()
+				reject(new Error("WebSocket error"))
+			}
+			ws.addEventListener("open", onOpen)
+			ws.addEventListener("error", onErr)
 		})
-		const transport: CDPTransport = {
-			send: (message) => ws.send(message),
-			close: () => ws.close(),
-		}
-		ws.addEventListener("message", (event) => {
+		const onMessage = (event: MessageEvent) => {
 			if (transport.onmessage) transport.onmessage(event.data.toString())
-		})
-		ws.addEventListener("close", (event) => {
+		}
+		const onClose = (event: CloseEvent) => {
 			if (transport.onclose)
 				transport.onclose(`code=${event.code} reason=${event.reason}`)
-		})
-		ws.addEventListener("error", () => {
+		}
+		const onError = () => {
 			if (transport.onerror) transport.onerror(new Error("WebSocket error"))
-		})
+		}
+		const transport: CDPTransport = {
+			send: (message) => ws.send(message),
+			close: () => {
+				ws.removeEventListener("message", onMessage)
+				ws.removeEventListener("close", onClose)
+				ws.removeEventListener("error", onError)
+				ws.close()
+			},
+		}
+		ws.addEventListener("message", onMessage)
+		ws.addEventListener("close", onClose)
+		ws.addEventListener("error", onError)
 		return new CDPConnection(transport)
 	}
 
@@ -527,6 +547,17 @@ export class CDPConnection extends BaseCDPConnection<CDPSession> {
 			}
 			this.sessions.delete(params.sessionId)
 			this.sessionToTarget.delete(params.sessionId)
+
+			// Defensively drop any session-scoped event-handler buckets
+			// (`${sessionId}:Event`). Cleanup normally happens when owners call
+			// `.off()`, but a missed detach or an unregistered listener would
+			// otherwise leak these buckets for the connection's lifetime. Root
+			// event keys are plain event names and never carry a sessionId prefix,
+			// so they are unaffected.
+			const sessionKeyPrefix = `${params.sessionId}:`
+			for (const key of Array.from(this.eventHandlers.keys())) {
+				if (key.startsWith(sessionKeyPrefix)) this.eventHandlers.delete(key)
+			}
 		} else if (msg.method === "Target.targetDestroyed") {
 			const { params } = msg
 			// Remove any session mapping for this target

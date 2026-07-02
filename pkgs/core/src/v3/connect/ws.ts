@@ -19,21 +19,32 @@ export async function connectWS(
 		level: LogLevel.Info,
 	})
 
-	const transport: CDPTransport = {
-		send: (message) => ws.send(message),
-		close: () => ws.close(),
-	}
-
-	ws.addEventListener("message", (event) => {
+	const onMessage = (event: MessageEvent) => {
 		if (transport.onmessage) transport.onmessage(event.data.toString())
-	})
-	ws.addEventListener("close", (event) => {
+	}
+	const onClose = (event: CloseEvent) => {
 		if (transport.onclose)
 			transport.onclose(`code=${event.code} reason=${event.reason}`)
-	})
-	ws.addEventListener("error", () => {
+	}
+	const onError = () => {
 		if (transport.onerror) transport.onerror(new Error("WebSocket error"))
-	})
+	}
+
+	const transport: CDPTransport = {
+		send: (message) => ws.send(message),
+		close: () => {
+			// Remove our listeners so the closure over `transport` (and the ws)
+			// is released rather than lingering on the socket.
+			ws.removeEventListener("message", onMessage)
+			ws.removeEventListener("close", onClose)
+			ws.removeEventListener("error", onError)
+			ws.close()
+		},
+	}
+
+	ws.addEventListener("message", onMessage)
+	ws.addEventListener("close", onClose)
+	ws.addEventListener("error", onError)
 
 	const conn = new CDPConnection(transport)
 	return await createOwnedHandstage({

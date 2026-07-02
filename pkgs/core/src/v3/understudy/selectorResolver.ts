@@ -105,7 +105,25 @@ export class FrameSelectorResolver {
 	): Promise<ResolvedNode | null> {
 		if (index < 0 || !Number.isFinite(index)) return null
 		const results = await this.resolveAll(query, { limit: index + 1 })
-		return results[index] ?? null
+		const selected = results[index] ?? null
+
+		// Release every resolved handle we are not returning. `resolveAll`
+		// resolves indices 0..index, but callers of resolveAtIndex only use the
+		// one at `index`; the rest are browser-side Runtime remote objects that
+		// would otherwise leak in the renderer for the connection's lifetime
+		// (e.g. every `locator.nth(n>0)` action). Best-effort — the browser may
+		// already have collected them.
+		const session = this.frame.session
+		for (let i = 0; i < results.length; i += 1) {
+			if (i === index) continue
+			const node = results[i]
+			if (!node) continue
+			void session
+				.send("Runtime.releaseObject", { objectId: node.objectId })
+				.catch(() => {})
+		}
+
+		return selected
 	}
 
 	private buildLocatorInvocation(

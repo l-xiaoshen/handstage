@@ -1,5 +1,6 @@
 import { reRenderScriptContent } from "@handstage/dom/build/reRenderScriptContent"
 import { v3ScriptContent } from "@handstage/dom/build/scriptV3Content"
+import type { Protocol } from "devtools-protocol"
 import { defaultLogger, type LogSink } from "../logger"
 import { LogLevel } from "../types/public/logs"
 import type { CDPSessionLike } from "./cdp"
@@ -47,14 +48,19 @@ export async function installV3PiercerIntoSession(
 	return true
 }
 
-/** (Optional) stream patch logs in your node console during bring-up */
+/**
+ * (Optional) stream patch logs in your node console during bring-up.
+ *
+ * Returns a disposer that removes the listener so callers can avoid leaking a
+ * `Runtime.consoleAPICalled` handler on the session.
+ */
 export function tapPiercerConsole(
 	session: CDPSessionLike,
 	label: string,
 	logger?: LogSink,
-): void {
+): () => void {
 	const sink = logger ?? defaultLogger()
-	session.on("Runtime.consoleAPICalled", (evt) => {
+	const handler = (evt: Protocol.Runtime.ConsoleAPICalledEvent) => {
 		const head = evt.args?.[0]?.value as string | undefined
 		if (head?.startsWith?.("[v3-piercer]")) {
 			sink({
@@ -66,5 +72,7 @@ export function tapPiercerConsole(
 				},
 			})
 		}
-	})
+	}
+	session.on("Runtime.consoleAPICalled", handler)
+	return () => session.off("Runtime.consoleAPICalled", handler)
 }
