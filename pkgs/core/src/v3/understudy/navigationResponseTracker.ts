@@ -17,12 +17,7 @@ import type { CDPEvent, CDPEventParams, CDPSessionLike } from "./cdp"
 import type { Page } from "./page"
 import { Response } from "./response"
 
-/**
- * Upper bound for how long the post-dispose finish listeners stay installed
- * (see {@link NavigationResponseTracker.dispose}).  After this the response is
- * resolved as finished so neither the deferred nor the session listeners can
- * outlive the navigation indefinitely.
- */
+/** Upper bound for the post-dispose finish listeners installed by `dispose()`. */
 const DETACHED_FINISH_TIMEOUT_MS = 30_000
 
 /**
@@ -95,12 +90,9 @@ export class NavigationResponseTracker {
 		this.pendingResponsesByLoader.clear()
 		this.pendingExtraInfo.clear()
 
-		// `Page.goto` (and friends) dispose the tracker as soon as navigation
-		// completes, which is usually before `Network.loadingFinished` arrives
-		// for the document request.  Removing every listener here would leave
-		// `response.finished()` pending forever.  Keep a narrow, self-removing
-		// pair of listeners alive until the selected request settles (with a
-		// hard timeout so they can't leak on requests that never finish).
+		// Navigation APIs dispose the tracker before the document request has
+		// necessarily finished; keep a self-removing listener pair so
+		// `response.finished()` still settles.
 		if (
 			this.selectedResponse &&
 			this.selectedRequestId &&
@@ -139,7 +131,6 @@ export class NavigationResponseTracker {
 		session.on("Network.loadingFinished", onFinished)
 		session.on("Network.loadingFailed", onFailed)
 		const timer = setTimeout(() => finishWith(null), DETACHED_FINISH_TIMEOUT_MS)
-		// Don't keep the process alive just for this bookkeeping timer.
 		;(timer as { unref?: () => void }).unref?.()
 	}
 

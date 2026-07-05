@@ -135,10 +135,8 @@ export class FrameRegistry {
 	 * Record that a frame detached. If `reason !== "swap"`, remove the subtree from the graph,
 	 * and clean the inverse maps. For “swap” we keep the node to preserve continuity.
 	 *
-	 * Returns every frame id removed from the graph (the detached frame plus
-	 * its descendants) so callers can prune their own frame-keyed caches —
-	 * descendants never receive their own `frameDetached` events, so without
-	 * this the caller-side caches grow for the lifetime of the page.
+	 * Returns the removed frame ids (the frame plus its descendants, which
+	 * never emit their own `frameDetached`) so callers can prune their caches.
 	 */
 	onFrameDetached(
 		frameId: FrameId,

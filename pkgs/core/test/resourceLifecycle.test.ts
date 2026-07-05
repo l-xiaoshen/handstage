@@ -1,16 +1,6 @@
 /**
- * Regression tests for memory-leak / resource-lifecycle fixes.
- *
- * Each describe block pins one class of leak:
- * - CDPConnection.close() must settle in-flight commands & dispatch waiters.
- * - ExternalConnectionAdapter.off() must detach its per-event root listener.
- * - Handstage must drop closed contexts from its registry.
- * - Page/FrameRegistry must prune frame caches for entire detached subtrees.
- * - NetworkManager.dispose() must settle pending waitForIdle waiters.
- * - TargetRouter.register() must roll back the delegate when start() fails.
- * - LifecycleWatcher aborts must never surface as unhandledRejection.
- * - response.finished() must still settle after the navigation tracker is
- *   disposed (and its detached listeners must clean themselves up).
+ * Regression tests for resource-lifecycle fixes: close/dispose paths must
+ * settle pending promises, remove listeners, and prune frame-keyed caches.
  */
 import { describe, expect, test } from "bun:test"
 import { connectTransport } from "../src/v3/connect/transport"
@@ -47,9 +37,8 @@ import {
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 describe("CDPConnection.close settles pending work", () => {
-	test("in-flight commands reject instead of hanging forever", async () => {
-		// InMemoryTransport never replies to Page.enable, so without the fix
-		// this promise (and its Inflight record) would stay pending forever.
+	test("in-flight commands reject instead of hanging", async () => {
+		// InMemoryTransport never replies to Page.enable.
 		const transport = new InMemoryTransport()
 		const conn = new CDPConnection(transport)
 
@@ -115,7 +104,7 @@ describe("ExternalConnectionAdapter root listener lifecycle", () => {
 		adapter.off("Network.loadingFinished", handler)
 		expect(external.handlerCount("Network.loadingFinished")).toBe(0)
 
-		// Re-subscribing after a full teardown must re-install the root listener.
+		// Re-subscribing must re-install the root listener.
 		adapter.on("Network.loadingFinished", handler)
 		expect(external.handlerCount("Network.loadingFinished")).toBe(1)
 
@@ -168,14 +157,13 @@ describe("frame cache pruning", () => {
 		page.onFrameAttached("F1", "F0", session)
 		page.onFrameAttached("F2", "F1", session)
 
-		// Populate the caches the way real callers do.
 		page.frameForId("F1")
 		page.frameForId("F2")
 		page.getOrdinal("F0")
 		page.getOrdinal("F1")
 		page.getOrdinal("F2")
 
-		// Only F1 emits frameDetached; F2 is removed implicitly as descendant.
+		// F2 is removed implicitly as a descendant of F1.
 		page.onFrameDetached("F1", "remove")
 
 		expect(page.listAllFrameIds()).toEqual(["F0"])
@@ -200,14 +188,13 @@ describe("NetworkManager.dispose", () => {
 		const session = new FakeSession("s-net")
 		manager.trackSession(session)
 
-		// No timeout timer (non-finite budget): without the fix this waiter
-		// could never settle after dispose() silently drops its observer.
+		// Non-finite budget → no timeout timer; only dispose() can settle this.
 		const handle = manager.waitForIdle({
 			timeoutMs: Number.POSITIVE_INFINITY,
 			startTime: 0,
 		})
 
-		// Keep the waiter busy so it is not idle when dispose runs.
+		// An in-flight request keeps the waiter from going idle on its own.
 		session.emit("Network.requestWillBeSent", {
 			requestId: "r1",
 			loaderId: "l1",
@@ -252,7 +239,7 @@ describe("TargetRouter.register rollback", () => {
 
 		await expect(router.register(delegate)).rejects.toThrow("autoattach-fail")
 
-		// The delegate must not linger inside the router after the failure.
+		// The delegate must not receive events after the failed registration.
 		const session = new FakeSession("s-rollback")
 		conn.sessions.set(session.id, session)
 		conn.emit(
@@ -262,7 +249,7 @@ describe("TargetRouter.register rollback", () => {
 		await sleep(20)
 		expect(claimAttempts).toBe(0)
 
-		// A later register must succeed and start routing again.
+		// A later register succeeds and routing resumes.
 		const unregister = await router.register(delegate)
 		conn.emit(
 			"Target.attachedToTarget",
@@ -298,10 +285,9 @@ describe("LifecycleWatcher abort safety", () => {
 				navigationCommandId: 1,
 			})
 
-			// Triggers the abort path while nobody is racing abortPromise yet.
+			// Abort while nobody is racing abortPromise yet.
 			session.emit("Page.frameDetached", { frameId: "F0", reason: "remove" })
 
-			// Give a potential unhandled rejection a macrotask to surface.
 			await sleep(25)
 			watcher.dispose()
 			await sleep(10)
@@ -356,17 +342,16 @@ describe("NavigationResponseTracker finished() after dispose", () => {
 		expect(response).not.toBeNull()
 		if (!response) throw new Error("expected a navigation response")
 
-		// Page.goto disposes the tracker right after navigation completes —
-		// often before the document request has finished loading.
+		// goto() disposes the tracker before the document request finishes.
 		tracker.dispose()
-		tracker.dispose() // idempotent: must not double-install listeners
+		tracker.dispose() // idempotent
 
 		session.emit("Network.loadingFinished", { requestId: "R1", timestamp: 2 })
 
 		const finished = await withTimeout(response.finished(), 2_000, "finished")
 		expect(finished).toBeNull()
 
-		// The detached listeners must remove themselves once settled.
+		// The detached listeners remove themselves once settled.
 		expect(session.handlerCount("Network.loadingFinished")).toBe(0)
 		expect(session.handlerCount("Network.loadingFailed")).toBe(0)
 	})

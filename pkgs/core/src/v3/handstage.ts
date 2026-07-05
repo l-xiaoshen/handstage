@@ -70,12 +70,7 @@ export class Handstage {
 		this.logSink(line)
 	}
 
-	/**
-	 * Track a context and drop it again once it closes.  Without the close
-	 * hook every created-and-closed browser context would stay referenced by
-	 * `_contexts` for the lifetime of this Handstage instance (and keep
-	 * showing up in `browserContexts()` / `pages()`).
-	 */
+	/** Track a context and drop it from the registry once it closes. */
 	private _trackContext(ctx: Context): void {
 		this._contexts.add(ctx)
 		ctx.registerOnCloseCallback(() => {

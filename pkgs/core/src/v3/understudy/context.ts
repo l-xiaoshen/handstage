@@ -146,10 +146,8 @@ export class Context implements TargetRouterDelegate {
 	}
 
 	/**
-	 * Register a callback invoked exactly once after this context finishes
-	 * closing.  Used by `Handstage` to drop closed contexts from its registry
-	 * so long-lived instances don't retain every context ever created.
-	 * If the context is already closed the callback fires immediately.
+	 * Register a callback invoked once after this context closes
+	 * (immediately if it is already closed).
 	 */
 	public registerOnCloseCallback(cb: () => void): void {
 		if (this._isClosed) {
@@ -488,10 +486,8 @@ export class Context implements TargetRouterDelegate {
 			}
 			await new Promise((r) => setTimeout(r, 25))
 		}
-		// The target never attached; drop the URL seed so the map doesn't grow
-		// with entries no attach handler will ever consume.  `ownedTargetIds`
-		// intentionally keeps the id: if the target attaches late we still own
-		// it and must close it with the context.
+		// Drop the URL seed; `ownedTargetIds` keeps the id in case the target
+		// attaches late.
 		this.pendingCreatedTargetUrl.delete(targetId)
 		throw new TimeoutError(`newPage: target not attached (${targetId})`, 5000)
 	}

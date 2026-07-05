@@ -38,10 +38,8 @@ export class NetworkManager {
 	private readonly documentRequestsByFrame = new Map<string, string>()
 
 	/**
-	 * Cleanup functions of `waitForIdle` waiters that have not settled yet.
-	 * Tracked so `dispose()` can settle them — otherwise a pending waiter
-	 * (whose observer was silently dropped by `observers.clear()`) could
-	 * never resolve and its timers/closures would outlive the manager.
+	 * Cleanups of unsettled `waitForIdle` waiters, so `dispose()` can settle
+	 * them before their observers are dropped.
 	 */
 	private readonly activeIdleCleanups = new Set<(error?: Error) => void>()
 
@@ -281,9 +279,7 @@ export class NetworkManager {
 			resolveFn = resolve
 			rejectFn = reject
 		})
-		// The waiter can be rejected from the outside (handle.dispose() or
-		// NetworkManager.dispose()) before the caller has awaited the promise;
-		// keep that from surfacing as an unhandledRejection.
+		// The waiter can be rejected externally before the caller awaits it.
 		void promise.catch(() => {})
 
 		// Trigger initial idle check so that we still respect the quiet window
@@ -313,8 +309,6 @@ export class NetworkManager {
 	 * Tear down all session listeners and clear observers/bookkeeping.
 	 */
 	public dispose(): void {
-		// Settle pending idle waiters first: their observers are about to be
-		// dropped, after which they could never resolve on their own.
 		for (const cleanup of Array.from(this.activeIdleCleanups)) {
 			cleanup(new Error("NetworkManager disposed"))
 		}
