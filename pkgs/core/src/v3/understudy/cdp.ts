@@ -369,11 +369,22 @@ export class CDPConnection extends BaseCDPConnection<CDPSession> {
 		handler: (params: CDPEventParams<E>) => void,
 	): void {
 		const set = this.eventHandlers.get(event)
-		if (set) set.delete(handler)
+		if (!set) return
+		set.delete(handler)
+		// Drop the bucket once empty (mirrors `_offSessionEvent`) so a
+		// long-lived connection doesn't accumulate stale event keys.
+		if (set.size === 0) this.eventHandlers.delete(event)
 	}
 
 	async close(): Promise<void> {
 		this._isClosed = true
+		// Settle every outstanding request and dispatch waiter before tearing
+		// the transport down.  Some transports (e.g. the local pipe transport)
+		// suppress their `onclose` callback after an explicit close, so without
+		// this the in-flight promises would never resolve and their `Inflight`
+		// records (params, stacks, resolve/reject closures) would be retained
+		// in the map forever.
+		this.rejectAllInflight("connection closed")
 		try {
 			await this.transport.close()
 		} finally {
@@ -705,8 +716,19 @@ export class ExternalConnectionAdapter extends BaseCDPConnection {
 		handler: (params: CDPEventParams<E>) => void,
 	): void {
 		const set = this.eventHandlers.get(event)
-		if (set) {
-			set.delete(handler)
+		if (!set) return
+		set.delete(handler)
+		if (set.size === 0) {
+			// Last local subscriber gone — also detach the fan-out listener we
+			// installed on the external session in `ensureRootListener`, so the
+			// wrapped session doesn't accumulate one root handler per event key
+			// for its whole lifetime.
+			this.eventHandlers.delete(event)
+			const rootHandler = this.rootEventHandlers.get(event)
+			if (rootHandler) {
+				this.rootEventHandlers.delete(event)
+				this.externalSession.off(event, rootHandler)
+			}
 		}
 	}
 
