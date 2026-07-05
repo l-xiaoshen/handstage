@@ -69,6 +69,12 @@ export class LifecycleWatcher {
 		this.abortPromise = new Promise<never>((_, reject) => {
 			this.abortReject = reject
 		})
+		// Pre-attach a no-op handler: listeners are live from construction, so
+		// an abort can fire while no caller is racing `abortPromise` yet (e.g.
+		// while `Page.navigate` is still awaiting). Without this, that
+		// rejection is unobserved and crashes with an unhandledRejection.
+		// `Promise.race` in `awaitWithAbort` still sees the rejection.
+		void this.abortPromise.catch(() => {})
 
 		this.installSessionListeners()
 	}
