@@ -18,6 +18,14 @@ import type { Page } from "./page"
 import { Response } from "./response"
 
 /**
+ * Upper bound for how long the post-dispose finish listeners stay installed
+ * (see {@link NavigationResponseTracker.dispose}).  After this the response is
+ * resolved as finished so neither the deferred nor the session listeners can
+ * outlive the navigation indefinitely.
+ */
+const DETACHED_FINISH_TIMEOUT_MS = 30_000
+
+/**
  * Watches CDP events on a given session and resolves with the navigation's
  * primary document response once identified.
  */
@@ -29,7 +37,9 @@ export class NavigationResponseTracker {
 	private expectedLoaderId: string | undefined
 	private selectedRequestId: string | null = null
 	private selectedResponse: Response | null = null
+	private selectedFinishSettled = false
 	private acceptNextWithoutLoader = false
+	private disposed = false
 
 	private responseResolved = false
 	private resolveResponse!: (value: Response | null) => void
@@ -76,12 +86,61 @@ export class NavigationResponseTracker {
 
 	/** Stop listening for CDP events and release any pending bookkeeping. */
 	public dispose(): void {
+		if (this.disposed) return
+		this.disposed = true
 		for (const { event, handler } of this.listeners) {
 			this.session.off(event, handler as never)
 		}
 		this.listeners.length = 0
 		this.pendingResponsesByLoader.clear()
 		this.pendingExtraInfo.clear()
+
+		// `Page.goto` (and friends) dispose the tracker as soon as navigation
+		// completes, which is usually before `Network.loadingFinished` arrives
+		// for the document request.  Removing every listener here would leave
+		// `response.finished()` pending forever.  Keep a narrow, self-removing
+		// pair of listeners alive until the selected request settles (with a
+		// hard timeout so they can't leak on requests that never finish).
+		if (
+			this.selectedResponse &&
+			this.selectedRequestId &&
+			!this.selectedFinishSettled
+		) {
+			this.installDetachedFinishListeners(
+				this.selectedResponse,
+				this.selectedRequestId,
+			)
+		}
+	}
+
+	/** Self-cleaning finish/fail listeners for the selected document request. */
+	private installDetachedFinishListeners(
+		response: Response,
+		requestId: string,
+	): void {
+		const session = this.session
+		let settled = false
+		const finishWith = (error: Error | null) => {
+			if (settled) return
+			settled = true
+			clearTimeout(timer)
+			session.off("Network.loadingFinished", onFinished)
+			session.off("Network.loadingFailed", onFailed)
+			response.markFinished(error)
+		}
+		const onFinished = (event: Protocol.Network.LoadingFinishedEvent) => {
+			if (event?.requestId !== requestId) return
+			finishWith(null)
+		}
+		const onFailed = (event: Protocol.Network.LoadingFailedEvent) => {
+			if (event?.requestId !== requestId) return
+			finishWith(new Error(event.errorText || "Navigation request failed"))
+		}
+		session.on("Network.loadingFinished", onFinished)
+		session.on("Network.loadingFailed", onFailed)
+		const timer = setTimeout(() => finishWith(null), DETACHED_FINISH_TIMEOUT_MS)
+		// Don't keep the process alive just for this bookkeeping timer.
+		;(timer as { unref?: () => void }).unref?.()
 	}
 
 	/**
@@ -202,6 +261,7 @@ export class NavigationResponseTracker {
 	): void {
 		if (!event?.requestId) return
 		if (event.requestId !== this.selectedRequestId) return
+		this.selectedFinishSettled = true
 		this.selectedResponse?.markFinished(null)
 	}
 
@@ -213,6 +273,7 @@ export class NavigationResponseTracker {
 		if (event.requestId !== this.selectedRequestId) return
 		// Surface Chrome's failure text through response.finished()
 		const errorText = event.errorText || "Navigation request failed"
+		this.selectedFinishSettled = true
 		this.selectedResponse?.markFinished(new Error(errorText))
 	}
 
