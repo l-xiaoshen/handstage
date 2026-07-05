@@ -65,7 +65,16 @@ export class TargetRouter {
 			this.delegates.push(delegate)
 		}
 		if (logger) this.loggers.set(delegate, logger)
-		await this.start()
+		try {
+			await this.start()
+		} catch (err) {
+			// The caller never receives the unsubscribe function on failure, so
+			// roll back the registration here.  Otherwise the router would keep
+			// a strong reference to the delegate (and keep routing events to
+			// it) for the lifetime of the connection.
+			this.unregister(delegate)
+			throw err
+		}
 		return () => this.unregister(delegate)
 	}
 
