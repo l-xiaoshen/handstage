@@ -15,6 +15,8 @@ type Handler = (params: unknown) => void
 /** Minimal in-memory `CDPSessionLike` for unit tests. */
 export class FakeSession implements CDPSessionLike {
 	public sent: Array<{ method: string; params?: unknown }> = []
+	/** Optional canned responses per CDP method (defaults to `{}`). */
+	public responses = new Map<string, unknown>()
 	private handlers = new Map<string, Set<Handler>>()
 
 	constructor(public readonly id: string) {}
@@ -24,6 +26,9 @@ export class FakeSession implements CDPSessionLike {
 		...params: CDPCommandParams<M>
 	): Promise<CDPCommandResult<M>> {
 		this.sent.push({ method, params: params[0] })
+		if (this.responses.has(method)) {
+			return Promise.resolve(this.responses.get(method) as CDPCommandResult<M>)
+		}
 		return Promise.resolve({} as CDPCommandResult<M>)
 	}
 
@@ -41,6 +46,18 @@ export class FakeSession implements CDPSessionLike {
 		handler: (params: CDPEventParams<E>) => void,
 	): void {
 		this.handlers.get(event)?.delete(handler as Handler)
+	}
+
+	/** Dispatch an event to every handler registered via {@link on}. */
+	emit(event: string, params: unknown): void {
+		for (const handler of [...(this.handlers.get(event) ?? [])]) {
+			handler(params)
+		}
+	}
+
+	/** Number of handlers currently registered for an event. */
+	handlerCount(event: string): number {
+		return this.handlers.get(event)?.size ?? 0
 	}
 
 	async close(): Promise<void> {}
