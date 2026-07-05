@@ -350,7 +350,15 @@ export class Page {
 		session: CDPSessionLike,
 	): void {
 		this.ensureOrdinal(frameId)
+		const prevRoot = this.registry.mainFrameId()
 		this.registry.onFrameAttached(frameId, parentId, session.id ?? "root")
+		// A root swap renames the registry node; drop the stale caches for the
+		// old root id so they don't accumulate across swaps.
+		const newRoot = this.registry.mainFrameId()
+		if (newRoot !== prevRoot) {
+			this.frameOrdinals.delete(prevRoot)
+			this.frameCache.delete(prevRoot)
+		}
 		// Cache is keyed by frameId → invalidate to ensure future frameForId resolves with latest owner
 		this.frameCache.delete(frameId)
 	}
@@ -362,8 +370,16 @@ export class Page {
 		frameId: string,
 		reason: "remove" | "swap" | string = "remove",
 	): void {
-		this.registry.onFrameDetached(frameId, reason)
+		// The registry prunes the whole subtree; mirror that in the Page-level
+		// frame caches.  Descendants never emit their own `frameDetached`, so
+		// pruning only `frameId` here would leak one cache entry (and one
+		// ordinal) per removed descendant for the lifetime of the page.
+		const removed = this.registry.onFrameDetached(frameId, reason)
 		this.frameCache.delete(frameId)
+		for (const fid of removed) {
+			this.frameCache.delete(fid)
+			this.frameOrdinals.delete(fid)
+		}
 	}
 
 	/**
@@ -381,6 +397,8 @@ export class Page {
 		const newRoot = this.mainFrameId()
 		if (newRoot !== prevRoot) {
 			const oldOrd = this.frameOrdinals.get(prevRoot) ?? 0
+			this.frameOrdinals.delete(prevRoot)
+			this.frameCache.delete(prevRoot)
 			this.frameOrdinals.set(newRoot, oldOrd)
 			this.mainFrameWrapper = new Frame(
 				this.mainSession,
@@ -478,8 +496,12 @@ export class Page {
 	public detachOopifSession(sessionId: string): void {
 		// Find which frames were owned by this session and prune by tree starting from each root.
 		for (const fid of this.registry.framesForSession(sessionId)) {
-			this.registry.onFrameDetached(fid, "remove")
+			const removed = this.registry.onFrameDetached(fid, "remove")
 			this.frameCache.delete(fid)
+			for (const removedId of removed) {
+				this.frameCache.delete(removedId)
+				this.frameOrdinals.delete(removedId)
+			}
 		}
 		this.teardownConsoleTap(sessionId)
 		this.sessions.delete(sessionId)
@@ -654,6 +676,7 @@ export class Page {
 		this.sessions.clear()
 		this.consoleHandlers.clear()
 		this.frameCache.clear()
+		this.frameOrdinals.clear()
 	}
 
 	public getFullFrameTree(): Protocol.Page.FrameTree {
