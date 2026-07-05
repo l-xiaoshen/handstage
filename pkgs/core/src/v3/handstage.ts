@@ -58,7 +58,7 @@ export class Handstage {
 		this.connection = connection
 		this.cleanup = cleanup
 		this.defaultContext = defaultContext
-		this._contexts.add(this.defaultContext)
+		this._trackContext(this.defaultContext)
 
 		this.logSink = logSink
 		this.verbose = opts.verbose ?? LogLevel.Info
@@ -68,6 +68,19 @@ export class Handstage {
 
 	private emitLog(line: LogLine): void {
 		this.logSink(line)
+	}
+
+	/**
+	 * Track a context and drop it again once it closes.  Without the close
+	 * hook every created-and-closed browser context would stay referenced by
+	 * `_contexts` for the lifetime of this Handstage instance (and keep
+	 * showing up in `browserContexts()` / `pages()`).
+	 */
+	private _trackContext(ctx: Context): void {
+		this._contexts.add(ctx)
+		ctx.registerOnCloseCallback(() => {
+			this._contexts.delete(ctx)
+		})
 	}
 
 	private async _immediateShutdown(reason: string): Promise<void> {
@@ -121,7 +134,7 @@ export class Handstage {
 			createOptions: options,
 			logger: this.logSink,
 		})
-		this._contexts.add(ctx)
+		this._trackContext(ctx)
 		return ctx
 	}
 

@@ -139,6 +139,25 @@ export class Context implements TargetRouterDelegate {
 	private readonly initScripts: string[] = []
 	private extraHttpHeaders: Record<string, string> | null = null
 	private _isClosed = false
+	private readonly _onCloseCallbacks = new Set<() => void>()
+
+	public get isClosed(): boolean {
+		return this._isClosed
+	}
+
+	/**
+	 * Register a callback invoked exactly once after this context finishes
+	 * closing.  Used by `Handstage` to drop closed contexts from its registry
+	 * so long-lived instances don't retain every context ever created.
+	 * If the context is already closed the callback fires immediately.
+	 */
+	public registerOnCloseCallback(cb: () => void): void {
+		if (this._isClosed) {
+			cb()
+			return
+		}
+		this._onCloseCallbacks.add(cb)
+	}
 
 	/**
 	 * Per-session disposer registry.  Holds every listener (or other
@@ -469,6 +488,11 @@ export class Context implements TargetRouterDelegate {
 			}
 			await new Promise((r) => setTimeout(r, 25))
 		}
+		// The target never attached; drop the URL seed so the map doesn't grow
+		// with entries no attach handler will ever consume.  `ownedTargetIds`
+		// intentionally keeps the id: if the target attaches late we still own
+		// it and must close it with the context.
+		this.pendingCreatedTargetUrl.delete(targetId)
 		throw new TimeoutError(`newPage: target not attached (${targetId})`, 5000)
 	}
 
@@ -557,6 +581,13 @@ export class Context implements TargetRouterDelegate {
 		this._piercerInstalled.clear()
 		this.initScripts.length = 0
 		this.extraHttpHeaders = null
+
+		for (const cb of this._onCloseCallbacks) {
+			try {
+				cb()
+			} catch {}
+		}
+		this._onCloseCallbacks.clear()
 	}
 
 	public async canClaimTarget(
