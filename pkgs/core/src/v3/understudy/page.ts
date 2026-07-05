@@ -352,8 +352,7 @@ export class Page {
 		this.ensureOrdinal(frameId)
 		const prevRoot = this.registry.mainFrameId()
 		this.registry.onFrameAttached(frameId, parentId, session.id ?? "root")
-		// A root swap renames the registry node; drop the stale caches for the
-		// old root id so they don't accumulate across swaps.
+		// On a root swap, drop the caches for the old root id.
 		const newRoot = this.registry.mainFrameId()
 		if (newRoot !== prevRoot) {
 			this.frameOrdinals.delete(prevRoot)
@@ -370,10 +369,7 @@ export class Page {
 		frameId: string,
 		reason: "remove" | "swap" | string = "remove",
 	): void {
-		// The registry prunes the whole subtree; mirror that in the Page-level
-		// frame caches.  Descendants never emit their own `frameDetached`, so
-		// pruning only `frameId` here would leak one cache entry (and one
-		// ordinal) per removed descendant for the lifetime of the page.
+		// The registry prunes the whole subtree; mirror that in the Page caches.
 		const removed = this.registry.onFrameDetached(frameId, reason)
 		this.frameCache.delete(frameId)
 		for (const fid of removed) {
