@@ -29,14 +29,34 @@ export async function launchChromeNode(
 	const stdout = new ReadableStream<Uint8Array>({
 		start(controller) {
 			fd4.on("data", (chunk: Buffer) => {
-				controller.enqueue(new Uint8Array(chunk))
+				// Guarded: a chunk can race the stream being cancelled/errored,
+				// and enqueueing on a closed controller throws inside the node
+				// 'data' callback (an uncatchable-for-callers stream error).
+				try {
+					controller.enqueue(new Uint8Array(chunk))
+				} catch {
+					fd4.destroy()
+					return
+				}
+				// Backpressure: pause the pipe when the consumer falls behind
+				// instead of buffering Chrome's output in memory without bound.
+				if ((controller.desiredSize ?? 1) <= 0) {
+					fd4.pause()
+				}
 			})
 			fd4.on("end", () => {
-				controller.close()
+				try {
+					controller.close()
+				} catch {}
 			})
 			fd4.on("error", (err) => {
-				controller.error(err)
+				try {
+					controller.error(err)
+				} catch {}
 			})
+		},
+		pull() {
+			fd4.resume()
 		},
 		cancel() {
 			fd4.destroy()
