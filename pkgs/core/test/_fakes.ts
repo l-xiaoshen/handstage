@@ -81,6 +81,7 @@ export class FakeConnection implements CDPConnectionLike {
 	public nonDefaultContextIds: string[] = []
 	public targets: Protocol.Target.TargetInfo[] = []
 	private handlers = new Map<string, Set<Handler>>()
+	private transportCloseHandlers = new Set<(why: string) => void>()
 
 	send<M extends CDPCommand>(
 		method: M,
@@ -149,8 +150,16 @@ export class FakeConnection implements CDPConnectionLike {
 		return this.targets
 	}
 
-	onTransportClosed(): void {}
-	offTransportClosed(): void {}
+	onTransportClosed(handler: (why: string) => void): void {
+		this.transportCloseHandlers.add(handler)
+	}
+	offTransportClosed(handler: (why: string) => void): void {
+		this.transportCloseHandlers.delete(handler)
+	}
+
+	emitTransportClosed(why = "test transport closed"): void {
+		for (const handler of [...this.transportCloseHandlers]) handler(why)
+	}
 
 	waitForSessionDispatch<M extends CDPCommand>(
 		_sessionId: string,
