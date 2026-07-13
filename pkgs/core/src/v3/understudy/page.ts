@@ -803,6 +803,7 @@ export class Page {
 		const tracker = new NavigationResponseTracker({
 			page: this,
 			session: this.mainSession,
+			connection: this.conn,
 			navigationCommandId,
 		})
 
@@ -846,6 +847,7 @@ export class Page {
 		const tracker = new NavigationResponseTracker({
 			page: this,
 			session: this.mainSession,
+			connection: this.conn,
 			navigationCommandId,
 		})
 		tracker.expectNavigationWithoutKnownLoader()
@@ -896,6 +898,7 @@ export class Page {
 		const tracker = new NavigationResponseTracker({
 			page: this,
 			session: this.mainSession,
+			connection: this.conn,
 			navigationCommandId,
 		})
 		tracker.expectNavigationWithoutKnownLoader()
@@ -947,6 +950,7 @@ export class Page {
 		const tracker = new NavigationResponseTracker({
 			page: this,
 			session: this.mainSession,
+			connection: this.conn,
 			navigationCommandId,
 		})
 		tracker.expectNavigationWithoutKnownLoader()

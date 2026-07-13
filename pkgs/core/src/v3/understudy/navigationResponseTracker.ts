@@ -13,7 +13,13 @@
  */
 
 import type { Protocol } from "devtools-protocol"
-import type { CDPEvent, CDPEventParams, CDPSessionLike } from "./cdp"
+import { CDPConnectionClosedError } from "../types/public/sdkErrors"
+import type {
+	CDPConnectionLike,
+	CDPEvent,
+	CDPEventParams,
+	CDPSessionLike,
+} from "./cdp"
 import type { Page } from "./page"
 import { Response } from "./response"
 
@@ -27,6 +33,7 @@ const DETACHED_FINISH_TIMEOUT_MS = 30_000
 export class NavigationResponseTracker {
 	private readonly page: Page
 	private readonly session: CDPSessionLike
+	private readonly connection: CDPConnectionLike
 	private readonly navigationCommandId: number
 
 	private expectedLoaderId: string | undefined
@@ -62,10 +69,12 @@ export class NavigationResponseTracker {
 	constructor(params: {
 		page: Page
 		session: CDPSessionLike
+		connection: CDPConnectionLike
 		navigationCommandId: number
 	}) {
 		this.page = params.page
 		this.session = params.session
+		this.connection = params.connection
 		this.navigationCommandId = params.navigationCommandId
 
 		this.responsePromise = new Promise<Response | null>((resolve) => {
@@ -118,6 +127,7 @@ export class NavigationResponseTracker {
 			clearTimeout(timer)
 			session.off("Network.loadingFinished", onFinished)
 			session.off("Network.loadingFailed", onFailed)
+			this.connection.offTransportClosed(onConnectionClosed)
 			response.markFinished(error)
 		}
 		const onFinished = (event: Protocol.Network.LoadingFinishedEvent) => {
@@ -128,10 +138,14 @@ export class NavigationResponseTracker {
 			if (event?.requestId !== requestId) return
 			finishWith(new Error(event.errorText || "Navigation request failed"))
 		}
-		session.on("Network.loadingFinished", onFinished)
-		session.on("Network.loadingFailed", onFailed)
+		const onConnectionClosed = (why: string) => {
+			finishWith(new CDPConnectionClosedError(why))
+		}
 		const timer = setTimeout(() => finishWith(null), DETACHED_FINISH_TIMEOUT_MS)
 		;(timer as { unref?: () => void }).unref?.()
+		session.on("Network.loadingFinished", onFinished)
+		session.on("Network.loadingFailed", onFailed)
+		this.connection.onTransportClosed(onConnectionClosed)
 	}
 
 	/**
