@@ -48,6 +48,12 @@ class SplitResponsePipeChrome implements LaunchedChrome {
 		} catch {}
 	}
 
+	closePipe(): void {
+		try {
+			this.stdoutController.close()
+		} catch {}
+	}
+
 	private flushRequests(): void {
 		let frameStart = 0
 
@@ -164,6 +170,17 @@ describe("Handstage connection lifecycle", () => {
 		expect(chrome.sentMethods).toContain("Browser.setDownloadBehavior")
 
 		await handstage.close()
+		expect(chrome.closeCalls).toBe(1)
+	})
+
+	test("connectLocal releases Chrome when the pipe closes first", async () => {
+		const chrome = new SplitResponsePipeChrome()
+		const handstage = await connectLocal(chrome)
+
+		chrome.closePipe()
+		await waitFor(() => chrome.closeCalls === 1)
+		await handstage.close()
+
 		expect(chrome.closeCalls).toBe(1)
 	})
 

@@ -27,7 +27,11 @@ export class FakeSession implements CDPSessionLike {
 	): Promise<CDPCommandResult<M>> {
 		this.sent.push({ method, params: params[0] })
 		if (this.responses.has(method)) {
-			return Promise.resolve(this.responses.get(method) as CDPCommandResult<M>)
+			const response = this.responses.get(method)
+			if (typeof response === "function") {
+				return Promise.resolve(response(params[0]) as CDPCommandResult<M>)
+			}
+			return Promise.resolve(response as CDPCommandResult<M>)
 		}
 		return Promise.resolve({} as CDPCommandResult<M>)
 	}
@@ -173,6 +177,10 @@ export class FakeConnection implements CDPConnectionLike {
 		for (const handler of this.handlers.get(event) ?? []) {
 			handler(params)
 		}
+	}
+
+	handlerCount(event: string): number {
+		return this.handlers.get(event)?.size ?? 0
 	}
 }
 
