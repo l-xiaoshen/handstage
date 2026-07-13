@@ -23,9 +23,6 @@ import type {
 import type { Page } from "./page"
 import { Response } from "./response"
 
-/** Upper bound for the post-dispose finish listeners installed by `dispose()`. */
-const DETACHED_FINISH_TIMEOUT_MS = 30_000
-
 /**
  * Watches CDP events on a given session and resolves with the navigation's
  * primary document response once identified.
@@ -39,7 +36,7 @@ export class NavigationResponseTracker {
 	private expectedLoaderId: string | undefined
 	private selectedRequestId: string | null = null
 	private selectedResponse: Response | null = null
-	private selectedFinishSettled = false
+	private terminalError: Error | null = null
 	private acceptNextWithoutLoader = false
 	private disposed = false
 
@@ -86,6 +83,9 @@ export class NavigationResponseTracker {
 		})
 
 		this.installListeners()
+		this.connection.on("Target.detachedFromTarget", this.onSessionDetached)
+		this.connection.on("Target.targetDestroyed", this.onTargetDestroyed)
+		this.connection.onTransportClosed(this.onConnectionClosed)
 	}
 
 	/** Stop listening for CDP events and release any pending bookkeeping. */
@@ -98,54 +98,38 @@ export class NavigationResponseTracker {
 		this.listeners.length = 0
 		this.pendingResponsesByLoader.clear()
 		this.pendingExtraInfo.clear()
-
-		// Navigation APIs dispose the tracker before the document request has
-		// necessarily finished; keep a self-removing listener pair so
-		// `response.finished()` still settles.
-		if (
-			this.selectedResponse &&
-			this.selectedRequestId &&
-			!this.selectedFinishSettled
-		) {
-			this.installDetachedFinishListeners(
-				this.selectedResponse,
-				this.selectedRequestId,
-			)
-		}
+		if (!this.selectedResponse) this.resolveResponse(null)
+		this.releaseConnectionListeners()
 	}
 
-	/** Self-cleaning finish/fail listeners for the selected document request. */
-	private installDetachedFinishListeners(
-		response: Response,
-		requestId: string,
-	): void {
-		const session = this.session
-		let settled = false
-		const finishWith = (error: Error | null) => {
-			if (settled) return
-			settled = true
-			clearTimeout(timer)
-			session.off("Network.loadingFinished", onFinished)
-			session.off("Network.loadingFailed", onFailed)
-			this.connection.offTransportClosed(onConnectionClosed)
-			response.markFinished(error)
-		}
-		const onFinished = (event: Protocol.Network.LoadingFinishedEvent) => {
-			if (event?.requestId !== requestId) return
-			finishWith(null)
-		}
-		const onFailed = (event: Protocol.Network.LoadingFailedEvent) => {
-			if (event?.requestId !== requestId) return
-			finishWith(new Error(event.errorText || "Navigation request failed"))
-		}
-		const onConnectionClosed = (why: string) => {
-			finishWith(new CDPConnectionClosedError(why))
-		}
-		const timer = setTimeout(() => finishWith(null), DETACHED_FINISH_TIMEOUT_MS)
-		;(timer as { unref?: () => void }).unref?.()
-		session.on("Network.loadingFinished", onFinished)
-		session.on("Network.loadingFailed", onFailed)
-		this.connection.onTransportClosed(onConnectionClosed)
+	private onSessionDetached = (
+		event: Protocol.Target.DetachedFromTargetEvent,
+	): void => {
+		if (!this.session.id || event.sessionId !== this.session.id) return
+		this.handleTerminalError(new Error("Navigation session detached"))
+	}
+
+	private onConnectionClosed = (why: string): void => {
+		this.handleTerminalError(new CDPConnectionClosedError(why))
+	}
+
+	private onTargetDestroyed = (
+		event: Protocol.Target.TargetDestroyedEvent,
+	): void => {
+		if (event.targetId !== this.page.targetId()) return
+		this.handleTerminalError(new Error("Navigation target destroyed"))
+	}
+
+	private handleTerminalError(error: Error): void {
+		if (this.terminalError) return
+		this.terminalError = error
+		if (!this.selectedResponse) this.resolveResponse(null)
+	}
+
+	private releaseConnectionListeners(): void {
+		this.connection.off("Target.detachedFromTarget", this.onSessionDetached)
+		this.connection.off("Target.targetDestroyed", this.onTargetDestroyed)
+		this.connection.offTransportClosed(this.onConnectionClosed)
 	}
 
 	/**
@@ -197,12 +181,6 @@ export class NavigationResponseTracker {
 		})
 		this.addListener("Network.responseReceivedExtraInfo", (event) => {
 			this.onResponseReceivedExtraInfo(event)
-		})
-		this.addListener("Network.loadingFinished", (event) => {
-			this.onLoadingFinished(event)
-		})
-		this.addListener("Network.loadingFailed", (event) => {
-			this.onLoadingFailed(event)
 		})
 	}
 
@@ -260,28 +238,6 @@ export class NavigationResponseTracker {
 		this.pendingExtraInfo.set(event.requestId, event)
 	}
 
-	/** Resolve the response's finished promise when the request completes. */
-	private onLoadingFinished(
-		event: Protocol.Network.LoadingFinishedEvent,
-	): void {
-		if (!event?.requestId) return
-		if (event.requestId !== this.selectedRequestId) return
-		this.selectedFinishSettled = true
-		this.selectedResponse?.markFinished(null)
-	}
-
-	/** Resolve the response's finished promise with an error on failure. */
-	private onLoadingFailed(event: Protocol.Network.LoadingFailedEvent): void {
-		// Ignore malformed events or ones without a request id
-		if (!event?.requestId) return
-		// Only the tracked document request should toggle the response state
-		if (event.requestId !== this.selectedRequestId) return
-		// Surface Chrome's failure text through response.finished()
-		const errorText = event.errorText || "Navigation request failed"
-		this.selectedFinishSettled = true
-		this.selectedResponse?.markFinished(new Error(errorText))
-	}
-
 	/**
 	 * Create the `Response` wrapper for the chosen document response and
 	 * resolve awaiting consumers. Subsequent events flesh out the header/body
@@ -311,6 +267,7 @@ export class NavigationResponseTracker {
 		const response = new Response({
 			page: this.page,
 			session: this.session,
+			connection: this.connection,
 			requestId: event.requestId,
 			frameId: event.frameId,
 			loaderId: event.loaderId,
@@ -320,6 +277,7 @@ export class NavigationResponseTracker {
 
 		this.selectedRequestId = event.requestId
 		this.selectedResponse = response
+		this.releaseConnectionListeners()
 
 		const extraInfo = this.pendingExtraInfo.get(event.requestId)
 		if (extraInfo) {

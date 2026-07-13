@@ -1,7 +1,7 @@
 import type { Protocol } from "devtools-protocol"
 import { defaultLogger, type LogSink } from "../logger"
 import { HandstageEvalError } from "../types/public/sdkErrors"
-import type { CDPSessionLike } from "./cdp"
+import { type CDPSessionLike, sendCDPWithSignal } from "./cdp"
 import { executionContexts } from "./executionContextRegistry"
 import { Locator } from "./locator"
 
@@ -37,6 +37,7 @@ export class Frame implements FrameManager {
 		public pageId: string,
 		private readonly remoteBrowser: boolean,
 		logger?: LogSink,
+		private readonly disposalSignal?: AbortSignal,
 	) {
 		this.sessionId = this.session.id ?? null
 		this.logger = logger ?? defaultLogger()
@@ -189,6 +190,7 @@ export class Frame implements FrameManager {
 		type?: "png" | "jpeg"
 		quality?: number
 		scale?: number
+		signal?: AbortSignal
 	}): Promise<Uint8Array> {
 		await this.session.send("Page.enable")
 		const format = options?.type ?? "png"
@@ -223,7 +225,15 @@ export class Frame implements FrameManager {
 			params.quality = Math.min(100, Math.max(0, q))
 		}
 
-		const { data } = await this.session.send("Page.captureScreenshot", params)
+		const capture = options?.signal
+			? sendCDPWithSignal(
+					this.session,
+					"Page.captureScreenshot",
+					options.signal,
+					params,
+				)
+			: this.session.send("Page.captureScreenshot", params)
+		const { data } = await capture
 		const binaryString = atob(data)
 		const len = binaryString.length
 		const bytes = new Uint8Array(len)
@@ -247,6 +257,7 @@ export class Frame implements FrameManager {
 						this.pageId,
 						this.remoteBrowser,
 						this.logger,
+						this.disposalSignal,
 					),
 				)
 			}
@@ -265,19 +276,38 @@ export class Frame implements FrameManager {
 		await this.session.send("Page.enable")
 		const targetState = state.toLowerCase()
 		const timeout = Math.max(0, timeoutMs)
+		if (this.disposalSignal?.aborted) {
+			throw this.disposalSignal.reason
+		}
 		await new Promise<void>((resolve, reject) => {
 			let done = false
 			let timer: ReturnType<typeof setTimeout> | null = null
-			const finish = () => {
-				if (done) return
-				done = true
+			const cleanup = () => {
 				this.session.off("Page.lifecycleEvent", handler)
+				this.disposalSignal?.removeEventListener("abort", onAbort)
 				if (timer) {
 					clearTimeout(timer)
 					timer = null
 				}
+			}
+			const finish = () => {
+				if (done) return
+				done = true
+				cleanup()
 				resolve()
 			}
+			const fail = (error: Error) => {
+				if (done) return
+				done = true
+				cleanup()
+				reject(error)
+			}
+			const onAbort = () =>
+				fail(
+					this.disposalSignal?.reason instanceof Error
+						? this.disposalSignal.reason
+						: new Error("Frame disposed"),
+				)
 			const handler = (evt: Protocol.Page.LifecycleEventEvent) => {
 				const sameFrame = evt.frameId === this.frameId
 				// need to normalize here because CDP lifecycle names look like 'DOMContentLoaded'
@@ -288,12 +318,10 @@ export class Frame implements FrameManager {
 				}
 			}
 			this.session.on("Page.lifecycleEvent", handler)
+			this.disposalSignal?.addEventListener("abort", onAbort, { once: true })
 
 			timer = setTimeout(() => {
-				if (done) return
-				done = true
-				this.session.off("Page.lifecycleEvent", handler)
-				reject(
+				fail(
 					new Error(
 						`waitForLoadState(${state}) timed out after ${timeout}ms for frame ${this.frameId}`,
 					),

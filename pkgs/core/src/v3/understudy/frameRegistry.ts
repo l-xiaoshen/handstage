@@ -296,6 +296,11 @@ export class FrameRegistry {
 		return [...(this.framesBySession.get(sessionId) ?? new Set())]
 	}
 
+	clear(): void {
+		this.frames.clear()
+		this.framesBySession.clear()
+	}
+
 	private ensureNode(fid: FrameId): void {
 		if (this.frames.has(fid)) return
 		this.frames.set(fid, {

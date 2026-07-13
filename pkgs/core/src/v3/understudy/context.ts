@@ -11,19 +11,21 @@ import type {
 import type { LocalBrowserLaunchOptions } from "../types/public/index"
 import { LogLevel } from "../types/public/logs"
 import {
+	CDPConnectionClosedError,
 	CookieSetError,
 	CookieValidationError,
 	HandstageSetExtraHTTPHeadersError,
 	PageNotFoundError,
 	TimeoutError,
 } from "../types/public/sdkErrors"
-import type {
-	CDPCommand,
-	CDPCommandParams,
-	CDPConnectionLike,
-	CDPEvent,
-	CDPEventParams,
-	CDPSessionLike,
+import {
+	type CDPCommand,
+	type CDPCommandParams,
+	type CDPConnectionLike,
+	type CDPEvent,
+	type CDPEventParams,
+	type CDPSessionLike,
+	sendCDPWithSignal,
 } from "./cdp"
 import {
 	cookieMatchesFilter,
@@ -139,6 +141,7 @@ export class Context implements TargetRouterDelegate {
 	private readonly initScripts: string[] = []
 	private extraHttpHeaders: Record<string, string> | null = null
 	private _isClosed = false
+	private closePromise: Promise<void> | null = null
 	private readonly _onCloseCallbacks = new Set<() => void>()
 
 	public get isClosed(): boolean {
@@ -157,6 +160,12 @@ export class Context implements TargetRouterDelegate {
 		this._onCloseCallbacks.add(cb)
 	}
 
+	private assertOpen(): void {
+		if (this._isClosed) {
+			throw new CDPConnectionClosedError("browser context is closed")
+		}
+	}
+
 	/**
 	 * Per-session disposer registry.  Holds every listener (or other
 	 * teardown callback) this Context registered against a given child
@@ -167,11 +176,16 @@ export class Context implements TargetRouterDelegate {
 	 * for the connection's lifetime.
 	 */
 	private readonly _sessionCleanups = new Map<SessionId, SessionCleanup[]>()
+	private readonly _wiredFrameSessions = new Set<SessionId>()
 
 	private _registerSessionCleanup(
 		sessionId: SessionId,
 		cleanup: SessionCleanup,
 	): void {
+		if (this._isClosed) {
+			cleanup()
+			return
+		}
 		let cleanups = this._sessionCleanups.get(sessionId)
 		if (!cleanups) {
 			cleanups = []
@@ -305,7 +319,7 @@ export class Context implements TargetRouterDelegate {
 		if (this._piercerInstalled.has(id)) return true
 
 		const installed = await installV3PiercerIntoSession(session)
-		if (installed) {
+		if (installed && !this._isClosed) {
 			this._piercerInstalled.add(id)
 		}
 		return installed
@@ -315,7 +329,9 @@ export class Context implements TargetRouterDelegate {
 		script: InitScriptSource<Arg>,
 		arg?: Arg,
 	): Promise<void> {
+		this.assertOpen()
 		const source = await normalizeInitScriptSource(script, arg)
+		this.assertOpen()
 		if (this.initScripts.includes(source)) return
 		this.initScripts.push(source)
 		const pages = this.pages()
@@ -325,6 +341,7 @@ export class Context implements TargetRouterDelegate {
 	public async setExtraHTTPHeaders(
 		headers: Record<string, string>,
 	): Promise<void> {
+		this.assertOpen()
 		const nextHeaders = { ...headers }
 		this.extraHttpHeaders = nextHeaders
 
@@ -371,6 +388,7 @@ export class Context implements TargetRouterDelegate {
 		downloadPath?: string
 		acceptDownloads?: boolean
 	}): Promise<void> {
+		this.assertOpen()
 		if (
 			options.downloadPath === undefined &&
 			options.acceptDownloads === undefined
@@ -451,6 +469,7 @@ export class Context implements TargetRouterDelegate {
 	 * Waits until the target is attached and registered.
 	 */
 	public async newPage(url = "about:blank"): Promise<Page> {
+		this.assertOpen()
 		const targetUrl = String(url ?? "about:blank")
 		// `browserContextId` is only forwarded for dedicated contexts.  Chrome
 		// silently routes targets without a `browserContextId` to the default
@@ -466,6 +485,10 @@ export class Context implements TargetRouterDelegate {
 			"Target.createTarget",
 			createParams,
 		)
+		if (this._isClosed) {
+			await this.conn.send("Target.closeTarget", { targetId }).catch(() => {})
+			this.assertOpen()
+		}
 		this.ownedTargetIds.add(targetId)
 		this.pendingCreatedTargetUrl.set(targetId, "about:blank")
 		// Best-effort bring-to-front
@@ -473,6 +496,12 @@ export class Context implements TargetRouterDelegate {
 
 		const deadline = Date.now() + 5000
 		while (Date.now() < deadline) {
+			if (this._isClosed) {
+				this.pendingCreatedTargetUrl.delete(targetId)
+				this.ownedTargetIds.delete(targetId)
+				await this.conn.send("Target.closeTarget", { targetId }).catch(() => {})
+				this.assertOpen()
+			}
 			const page = this.pagesByTarget.get(targetId)
 			if (page) {
 				// we created at about:blank; navigate only after attach so init scripts run
@@ -486,32 +515,24 @@ export class Context implements TargetRouterDelegate {
 			}
 			await new Promise((r) => setTimeout(r, 25))
 		}
-		// Drop the URL seed; `ownedTargetIds` keeps the id in case the target
-		// attaches late.
 		this.pendingCreatedTargetUrl.delete(targetId)
+		this.ownedTargetIds.delete(targetId)
+		await this.conn.send("Target.closeTarget", { targetId }).catch(() => {})
 		throw new TimeoutError(`newPage: target not attached (${targetId})`, 5000)
 	}
 
 	/**
-	 * Tear down this context.
-	 *
-	 * Order matters here:
-	 *   1. Mark closed and detach **all** listeners first.  Otherwise, the
-	 *      detach storms triggered by closing pages or disposing the browser
-	 *      context fire `Target.detachedFromTarget` events that mutate state
-	 *      we are about to wipe — risking dangling references or double-frees.
-	 *   2. Close pages individually so each `Page` can dispose its
-	 *      `NetworkManager`, console handlers, and other per-page resources.
-	 *   3. Default context → close the underlying CDP connection.
-	 *      Dedicated context → call `Target.disposeBrowserContext` so Chrome
-	 *      releases the context's storage; the connection is shared and must
-	 *      stay open for sibling contexts.
-	 *   4. Drop all internal state.
+	 * Remove listeners before closing pages. Dedicated contexts also release
+	 * their browser-side context; connection ownership remains with Handstage.
 	 */
 	async close(): Promise<void> {
-		if (this._isClosed) return
+		if (this.closePromise) return this.closePromise
 		this._isClosed = true
+		this.closePromise = this.closeResources()
+		return this.closePromise
+	}
 
+	private async closeResources(): Promise<void> {
 		this.routerUnsubscribe?.()
 		this.routerUnsubscribe = null
 
@@ -546,21 +567,31 @@ export class Context implements TargetRouterDelegate {
 		// We NEVER close the underlying CDP connection here — that is Handstage's
 		// responsibility (or the caller's for shared connections).
 		if (this.ownsBrowserContext && this.browserContextId) {
-			await this.conn
-				.send("Target.disposeBrowserContext", {
+			const abortController = new AbortController()
+			const timer = setTimeout(() => {
+				abortController.abort(
+					new TimeoutError("Target.disposeBrowserContext", 2000),
+				)
+			}, 2000)
+			await sendCDPWithSignal(
+				this.conn,
+				"Target.disposeBrowserContext",
+				abortController.signal,
+				{
 					browserContextId: this.browserContextId,
+				},
+			).catch((err) => {
+				this.logger({
+					category: "ctx",
+					message: "Target.disposeBrowserContext failed during close",
+					level: LogLevel.Debug,
+					attributes: {
+						browserContextId: this.browserContextId,
+						error: err instanceof Error ? err.message : String(err),
+					},
 				})
-				.catch((err) => {
-					this.logger({
-						category: "ctx",
-						message: "Target.disposeBrowserContext failed during close",
-						level: LogLevel.Debug,
-						attributes: {
-							browserContextId: this.browserContextId,
-							error: err instanceof Error ? err.message : String(err),
-						},
-					})
-				})
+			})
+			clearTimeout(timer)
 		}
 
 		this.pagesByTarget.clear()
@@ -575,6 +606,7 @@ export class Context implements TargetRouterDelegate {
 
 		this._sessionInit.clear()
 		this._piercerInstalled.clear()
+		this._wiredFrameSessions.clear()
 		this.initScripts.length = 0
 		this.extraHttpHeaders = null
 
@@ -644,6 +676,16 @@ export class Context implements TargetRouterDelegate {
 	public onRouterTargetDestroyed(targetId: string): void {
 		if (this._isClosed) return
 		this.cleanupByTarget(targetId)
+	}
+
+	private async resumeAndDetach(sessionId: SessionId): Promise<void> {
+		await this.conn
+			.getSession(sessionId)
+			?.send("Runtime.runIfWaitingForDebugger")
+			.catch(() => {})
+		await this.conn
+			.send("Target.detachFromTarget", { sessionId })
+			.catch(() => {})
 	}
 
 	private async getNonDefaultBrowserContextIds(): Promise<Set<string> | null> {
@@ -725,18 +767,20 @@ export class Context implements TargetRouterDelegate {
 		info: Protocol.Target.TargetInfo,
 		sessionId: SessionId,
 	): Promise<void> {
-		if (this._isClosed) return
+		if (this._isClosed) {
+			await this.resumeAndDetach(sessionId)
+			return
+		}
 
 		// TargetRouter should only call us for owned targets.  Keep a defensive
 		// ownership check here so direct/internal calls do not accidentally
 		// mutate this context for a sibling browser context.
 		if (!(await this.canClaimTarget(info))) {
-			const foreignSession = this.conn.getSession(sessionId)
-			if (foreignSession) {
-				await foreignSession
-					.send("Runtime.runIfWaitingForDebugger")
-					.catch(() => {})
-			}
+			await this.resumeAndDetach(sessionId)
+			return
+		}
+		if (this._isClosed) {
+			await this.resumeAndDetach(sessionId)
 			return
 		}
 
@@ -789,14 +833,17 @@ export class Context implements TargetRouterDelegate {
 			method: M,
 			...params: CDPCommandParams<M>
 		) => {
-			const dispatched = this.conn
-				.waitForSessionDispatch(sessionId, method, ...params)
-				.then(() => true)
-				.catch(() => false)
-			const response = session
-				.send(method, ...params)
-				.then(() => true)
-				.catch(() => false)
+			const queued = session.sendQueued
+				? session.sendQueued(method, ...params)
+				: (() => {
+						const response = session.send(method, ...params)
+						return {
+							dispatched: response.then(() => {}),
+							response,
+						}
+					})()
+			const dispatched = queued.dispatched.then(() => true).catch(() => false)
+			const response = queued.response.then(() => true).catch(() => false)
 			return { dispatched, response }
 		}
 		const initScriptOps: Array<{
@@ -874,6 +921,10 @@ export class Context implements TargetRouterDelegate {
 		// Header propagation is independent of init-script determinism but still
 		// part of pre-resume attach setup; awaited above for ordering/lifecycle.
 		void headerResults
+		if (this._isClosed) {
+			await this.resumeAndDetach(sessionId)
+			return
+		}
 		if (!preResumeDispatched || !resumedDispatched || !resumedOk) {
 			// Short-lived child targets can detach before resume is acknowledged.
 			// Keep this noisy only for top-level pages where missing attach is fatal.
@@ -922,6 +973,11 @@ export class Context implements TargetRouterDelegate {
 				} catch (error) {
 					createError = error
 				}
+				if (this._isClosed) {
+					page?.disposeResources()
+					await this.resumeAndDetach(sessionId)
+					return
+				}
 				if (!page) {
 					this.logger({
 						category: "ctx",
@@ -941,6 +997,9 @@ export class Context implements TargetRouterDelegate {
 				}
 				this.wireSessionToOwnerPage(sessionId, page)
 				this.pagesByTarget.set(info.targetId, page)
+				page.registerOnCloseCallback(() => {
+					this.cleanupByTarget(info.targetId)
+				})
 				this.mainFrameToTarget.set(page.mainFrameId(), info.targetId)
 				this.sessionOwnerPage.set(sessionId, page)
 				this.frameOwnerPage.set(page.mainFrameId(), page)
@@ -969,10 +1028,18 @@ export class Context implements TargetRouterDelegate {
 
 			const piercerReady = await this.ensurePiercer(session).catch(() => false)
 			if (!piercerReady) return
+			if (this._isClosed) {
+				await this.resumeAndDetach(sessionId)
+				return
+			}
 
 			// Child (iframe / OOPIF)
 			try {
 				const { frameTree } = await session.send("Page.getFrameTree")
+				if (this._isClosed) {
+					await this.resumeAndDetach(sessionId)
+					return
+				}
 				const childMainId = frameTree.frame.id
 
 				// Try to find owner Page now (it may already have the node in its tree)
@@ -1076,8 +1143,17 @@ export class Context implements TargetRouterDelegate {
 			if (p === page) this.frameOwnerPage.delete(fid)
 		}
 
+		const pageSessionIds: string[] = []
 		for (const [sid, p] of Array.from(this.sessionOwnerPage.entries())) {
-			if (p === page) this.sessionOwnerPage.delete(sid)
+			if (p !== page) continue
+			pageSessionIds.push(sid)
+			this.sessionOwnerPage.delete(sid)
+		}
+		for (const sessionId of pageSessionIds) {
+			this._drainSessionCleanups(sessionId)
+			this._sessionInit.delete(sessionId)
+			this._piercerInstalled.delete(sessionId)
+			this._wiredFrameSessions.delete(sessionId)
 		}
 
 		for (const [fid] of Array.from(this.pendingOopifByMainFrame.entries())) {
@@ -1098,8 +1174,14 @@ export class Context implements TargetRouterDelegate {
 	 * We forward the *emitting session* with every event so Page can stamp ownership precisely.
 	 */
 	private installFrameEventBridges(sessionId: SessionId, owner: Page): void {
+		if (this._isClosed) return
 		const session = this.conn.getSession(sessionId)
 		if (!session) return
+		if (this._wiredFrameSessions.has(sessionId)) return
+		this._wiredFrameSessions.add(sessionId)
+		this._registerSessionCleanup(sessionId, () => {
+			this._wiredFrameSessions.delete(sessionId)
+		})
 
 		this._addSessionListener(session, "Page.frameAttached", (evt) => {
 			const { frameId, parentFrameId } = evt
@@ -1193,6 +1275,7 @@ export class Context implements TargetRouterDelegate {
 	 * domain/path/secure attributes match are included.
 	 */
 	async cookies(urls?: string | string[]): Promise<Cookie[]> {
+		this.assertOpen()
 		const urlList = !urls ? [] : typeof urls === "string" ? [urls] : urls
 
 		const { cookies } = await this.conn.send(
@@ -1223,6 +1306,7 @@ export class Context implements TargetRouterDelegate {
 	 * We surface CDP errors if the browser rejects a cookie.
 	 */
 	async addCookies(cookies: CookieParam[]): Promise<void> {
+		this.assertOpen()
 		const normalized = normalizeCookieParams(cookies)
 		if (!normalized.length) return
 
@@ -1255,6 +1339,7 @@ export class Context implements TargetRouterDelegate {
 	 *   the Storage domain does not support targeted deletes.
 	 */
 	async clearCookies(options?: ClearCookieOptions): Promise<void> {
+		this.assertOpen()
 		const hasFilter =
 			options?.name !== undefined ||
 			options?.domain !== undefined ||

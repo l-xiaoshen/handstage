@@ -40,6 +40,7 @@ export class LifecycleWatcher {
 	private abortReject: ((error: Error) => void) | null = null
 	private abortPromise: Promise<never>
 	private abortError: Error | null = null
+	private readonly abortController = new AbortController()
 	private disposed = false
 
 	private expectedLoaderId: string | undefined
@@ -95,6 +96,7 @@ export class LifecycleWatcher {
 					this.page.waitForMainLoadState(
 						"domcontentloaded",
 						this.timeRemaining(deadline),
+						this.abortController.signal,
 					),
 				)
 				return
@@ -102,7 +104,11 @@ export class LifecycleWatcher {
 
 			while (true) {
 				await this.awaitWithAbort(
-					this.page.waitForMainLoadState("load", this.timeRemaining(deadline)),
+					this.page.waitForMainLoadState(
+						"load",
+						this.timeRemaining(deadline),
+						this.abortController.signal,
+					),
 				)
 
 				if (this.waitUntil !== "networkidle") break
@@ -128,6 +134,9 @@ export class LifecycleWatcher {
 	public dispose(): void {
 		if (this.disposed) return
 		this.disposed = true
+		if (!this.abortController.signal.aborted) {
+			this.abortController.abort(new Error("Lifecycle watcher disposed"))
+		}
 
 		if (this.idleHandle) {
 			void this.idleHandle.promise.catch(() => {})
@@ -222,6 +231,13 @@ export class LifecycleWatcher {
 	private triggerAbort(error: Error): void {
 		if (this.abortError) return
 		this.abortError = error
+		this.abortController.abort(error)
+		if (this.idleHandle) {
+			const handle = this.idleHandle
+			this.idleHandle = null
+			void handle.promise.catch(() => {})
+			handle.dispose()
+		}
 		if (this.abortReject) {
 			this.abortReject(error)
 			this.abortReject = null
