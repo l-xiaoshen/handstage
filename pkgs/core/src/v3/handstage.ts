@@ -120,15 +120,22 @@ export class Handstage {
 	public async createBrowserContext(
 		options?: CreateContextOptions,
 	): Promise<Context> {
-		if (!this.connection) {
+		if (this._isClosing || !this.connection) {
 			throw new Error(
 				"Cannot create browser context: Handstage instance is closed",
 			)
 		}
-		const ctx = await Context.createIsolatedFromConnection(this.connection, {
+		const connection = this.connection
+		const ctx = await Context.createIsolatedFromConnection(connection, {
 			createOptions: options,
 			logger: this.logSink,
 		})
+		if (this._isClosing || this.connection !== connection) {
+			await ctx.close().catch(() => {})
+			throw new Error(
+				"Cannot create browser context: Handstage instance is closed",
+			)
+		}
 		this._trackContext(ctx)
 		return ctx
 	}
