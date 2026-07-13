@@ -26,10 +26,16 @@ function formatRemoteObject(obj: RemoteObject | undefined): string {
 }
 
 export class ConsoleMessage {
-	constructor(
-		private readonly event: Protocol.Runtime.ConsoleAPICalledEvent,
-		private readonly pageRef?: Page,
-	) {}
+	private readonly event: Protocol.Runtime.ConsoleAPICalledEvent
+	private readonly pageRef?: Page
+
+	constructor(event: Protocol.Runtime.ConsoleAPICalledEvent, pageRef?: Page) {
+		this.event = {
+			...event,
+			args: event.args?.map(({ objectId: _objectId, ...arg }) => arg),
+		}
+		this.pageRef = pageRef
+	}
 
 	type(): Protocol.Runtime.ConsoleAPICalledEvent["type"] {
 		return this.event.type

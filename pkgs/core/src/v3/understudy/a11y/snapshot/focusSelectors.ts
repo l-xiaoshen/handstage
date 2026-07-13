@@ -219,7 +219,14 @@ export async function resolveObjectIdForXPath(
 		contextId,
 		awaitPromise: true,
 	})
-	if (exceptionDetails) return null
+	if (exceptionDetails) {
+		if (result.objectId) {
+			await session
+				.send("Runtime.releaseObject", { objectId: result.objectId })
+				.catch(() => {})
+		}
+		return null
+	}
 	return result?.objectId ?? null
 }
 
@@ -260,7 +267,14 @@ export async function resolveObjectIdForCss(
 				awaitPromise: true,
 			},
 		)
-		if (exceptionDetails) return null
+		if (exceptionDetails) {
+			if (result.objectId) {
+				await session
+					.send("Runtime.releaseObject", { objectId: result.objectId })
+					.catch(() => {})
+			}
+			return null
+		}
 		return result?.objectId ?? null
 	}
 

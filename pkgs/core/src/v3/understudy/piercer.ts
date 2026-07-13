@@ -1,5 +1,6 @@
 import { reRenderScriptContent } from "@handstage/dom/build/reRenderScriptContent"
 import { v3ScriptContent } from "@handstage/dom/build/scriptV3Content"
+import type { Protocol } from "devtools-protocol"
 import { defaultLogger, type LogSink } from "../logger"
 import { LogLevel } from "../types/public/logs"
 import type { CDPSessionLike } from "./cdp"
@@ -52,9 +53,9 @@ export function tapPiercerConsole(
 	session: CDPSessionLike,
 	label: string,
 	logger?: LogSink,
-): void {
+): () => void {
 	const sink = logger ?? defaultLogger()
-	session.on("Runtime.consoleAPICalled", (evt) => {
+	const handler = (evt: Protocol.Runtime.ConsoleAPICalledEvent) => {
 		const head = evt.args?.[0]?.value as string | undefined
 		if (head?.startsWith?.("[v3-piercer]")) {
 			sink({
@@ -66,5 +67,7 @@ export function tapPiercerConsole(
 				},
 			})
 		}
-	})
+	}
+	session.on("Runtime.consoleAPICalled", handler)
+	return () => session.off("Runtime.consoleAPICalled", handler)
 }

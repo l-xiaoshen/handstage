@@ -53,9 +53,10 @@ export async function a11yForFrame(
 	const nodesForOutline = await (async () => {
 		const sel = opts.focusSelector?.trim()
 		if (!sel) return nodes
+		let objectId: string | null = null
 		try {
 			const looksLikeXPath = /^xpath=/i.test(sel) || sel.startsWith("/")
-			const objectId = looksLikeXPath
+			objectId = looksLikeXPath
 				? await resolveObjectIdForXPath(session, sel, frameId)
 				: await resolveObjectIdForCss(session, sel, frameId)
 			if (!objectId) return nodes
@@ -84,6 +85,12 @@ export async function a11yForFrame(
 				)
 		} catch {
 			return nodes
+		} finally {
+			if (objectId) {
+				await session
+					.send("Runtime.releaseObject", { objectId })
+					.catch(() => {})
+			}
 		}
 	})()
 

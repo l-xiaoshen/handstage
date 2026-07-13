@@ -105,7 +105,17 @@ export class FrameSelectorResolver {
 	): Promise<ResolvedNode | null> {
 		if (index < 0 || !Number.isFinite(index)) return null
 		const results = await this.resolveAll(query, { limit: index + 1 })
-		return results[index] ?? null
+		const selected = results[index] ?? null
+		await Promise.all(
+			results
+				.filter((result) => result !== selected)
+				.map((result) =>
+					this.frame.session
+						.send("Runtime.releaseObject", { objectId: result.objectId })
+						.catch(() => {}),
+				),
+		)
+		return selected
 	}
 
 	private buildLocatorInvocation(
@@ -414,6 +424,13 @@ export class FrameSelectorResolver {
 			})
 
 			if (evalRes.exceptionDetails || !evalRes.result.objectId) {
+				if (evalRes.result.objectId) {
+					await session
+						.send("Runtime.releaseObject", {
+							objectId: evalRes.result.objectId,
+						})
+						.catch(() => {})
+				}
 				return null
 			}
 
