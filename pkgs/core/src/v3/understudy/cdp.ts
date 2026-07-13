@@ -246,8 +246,16 @@ export class CDPConnection extends BaseCDPConnection<CDPSession> {
 	public readonly id: string | null = null // root
 	private transportCloseHandlers = new Set<(why: string) => void>()
 	private _isClosed = false
+	private _closeReason: string | null = null
+	private _closePromise: Promise<void> | null = null
 
 	public onTransportClosed(handler: (why: string) => void): void {
+		if (this._closeReason) {
+			try {
+				handler(this._closeReason)
+			} catch {}
+			return
+		}
 		this.transportCloseHandlers.add(handler)
 	}
 	public offTransportClosed(handler: (why: string) => void): void {
@@ -262,6 +270,34 @@ export class CDPConnection extends BaseCDPConnection<CDPSession> {
 		}
 	}
 
+	private handleTransportClosed(why: string): void {
+		if (this._closeReason) return
+		this._closeReason = why
+		this._isClosed = true
+		this.rejectAllInflight(why)
+		this.emitTransportClosed(why)
+		this.clearRetainedState()
+	}
+
+	private clearRetainedState(): void {
+		this.eventHandlers.clear()
+		this.sessions.clear()
+		this.sessionToTarget.clear()
+		this.sessionDispatchWaiters.clear()
+		this.transportCloseHandlers.clear()
+		this.transport.onmessage = undefined
+		this.transport.onclose = undefined
+		this.transport.onerror = undefined
+	}
+
+	private releaseTransportOwnership(): void {
+		try {
+			delete (this.transport as unknown as Record<symbol, unknown>)[
+				TRANSPORT_OWNED
+			]
+		} catch {}
+	}
+
 	constructor(transport: CDPTransport) {
 		super()
 		const owned = (transport as unknown as Record<symbol, unknown>)[
@@ -273,17 +309,15 @@ export class CDPConnection extends BaseCDPConnection<CDPSession> {
 		;(transport as unknown as Record<symbol, unknown>)[TRANSPORT_OWNED] = this
 		this.transport = transport
 		this.transport.onclose = (reason) => {
-			this._isClosed = true
 			const why = `transport-close reason=${String(reason || "")}`
-			this.rejectAllInflight(why)
-			this.emitTransportClosed(why)
+			this.handleTransportClosed(why)
+			this.releaseTransportOwnership()
 		}
 
 		this.transport.onerror = (err) => {
-			this._isClosed = true
 			const why = `transport-error ${err?.message ?? String(err)}`
-			this.rejectAllInflight(why)
-			this.emitTransportClosed(why)
+			this.handleTransportClosed(why)
+			this.releaseTransportOwnership()
 		}
 		this.transport.onmessage = (data) => this.onMessage(data)
 	}
@@ -375,22 +409,19 @@ export class CDPConnection extends BaseCDPConnection<CDPSession> {
 	}
 
 	async close(): Promise<void> {
-		this._isClosed = true
-		// Settle in-flight requests and waiters; some transports (e.g. the
-		// local pipe) suppress `onclose` after an explicit close.
-		this.rejectAllInflight("connection closed")
-		try {
-			await this.transport.close()
-		} finally {
-			// Release ownership so a future caller could re-wrap a fresh
-			// transport with the same identity (rare; mainly relevant in
-			// long-running tests that reuse fake transports).
+		if (this._closePromise) return this._closePromise
+
+		this._closePromise = (async () => {
+			this.handleTransportClosed("connection closed")
 			try {
-				delete (this.transport as unknown as Record<symbol, unknown>)[
-					TRANSPORT_OWNED
-				]
-			} catch {}
-		}
+				await this.transport.close()
+			} finally {
+				this.clearRetainedState()
+				this.releaseTransportOwnership()
+			}
+		})()
+
+		return this._closePromise
 	}
 
 	private rejectAllInflight(why: string): void {
@@ -629,6 +660,7 @@ export class ExternalConnectionAdapter extends BaseCDPConnection {
 	private rootEventHandlers = new Map<CDPEvent, EventHandler>()
 	private sessionDispatchWaiters = new Set<SessionDispatchWaiter>()
 	private sessionToTarget = new Map<string, string>()
+	private closeReason: string | null = null
 
 	constructor(private externalSession: ExternalCDPSession) {
 		super()
@@ -656,7 +688,7 @@ export class ExternalConnectionAdapter extends BaseCDPConnection {
 		})
 
 		this.externalSession.onclose = (reason: string) => {
-			this.emitTransportClosed(`external-session-close reason=${reason}`)
+			this.handleTransportClosed(`external-session-close reason=${reason}`)
 		}
 	}
 
@@ -666,6 +698,16 @@ export class ExternalConnectionAdapter extends BaseCDPConnection {
 				h(why)
 			} catch {}
 		}
+	}
+
+	private handleTransportClosed(why: string): void {
+		if (this.closeReason) return
+		this.closeReason = why
+		for (const waiter of Array.from(this.sessionDispatchWaiters)) {
+			waiter.reject(new CDPConnectionClosedError(why))
+		}
+		this.sessionDispatchWaiters.clear()
+		this.emitTransportClosed(why)
 	}
 
 	get id() {
@@ -724,10 +766,7 @@ export class ExternalConnectionAdapter extends BaseCDPConnection {
 	}
 
 	async close(): Promise<void> {
-		for (const waiter of Array.from(this.sessionDispatchWaiters)) {
-			waiter.reject(new CDPConnectionClosedError("connection closed"))
-		}
-		this.sessionDispatchWaiters.clear()
+		this.handleTransportClosed("connection closed")
 
 		for (const [event, handler] of this.rootEventHandlers.entries()) {
 			this.externalSession.off(event, handler)
@@ -737,6 +776,7 @@ export class ExternalConnectionAdapter extends BaseCDPConnection {
 
 		this.transportCloseHandlers.clear()
 		this.sessions.clear()
+		this.sessionToTarget.clear()
 
 		if (this.externalSession.onclose) {
 			this.externalSession.onclose = undefined
@@ -771,6 +811,12 @@ export class ExternalConnectionAdapter extends BaseCDPConnection {
 	}
 
 	onTransportClosed(handler: (why: string) => void): void {
+		if (this.closeReason) {
+			try {
+				handler(this.closeReason)
+			} catch {}
+			return
+		}
 		this.transportCloseHandlers.add(handler)
 	}
 
