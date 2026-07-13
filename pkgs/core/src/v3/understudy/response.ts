@@ -16,10 +16,11 @@
 import type { Protocol } from "devtools-protocol"
 import type { SerializableResponse } from "../types/private/index"
 import {
+	CDPConnectionClosedError,
 	ResponseBodyError,
 	ResponseParseError,
 } from "../types/public/sdkErrors"
-import type { CDPSessionLike } from "./cdp"
+import type { CDPConnectionLike, CDPSessionLike } from "./cdp"
 import type { Frame } from "./frame"
 import type { Page } from "./page"
 
@@ -89,6 +90,7 @@ function parseHeadersText(
 export class Response {
 	private readonly page: Page
 	private readonly session: CDPSessionLike
+	private readonly connection?: CDPConnectionLike
 	private readonly requestId: string
 	private readonly frameId?: string
 	private readonly loaderId?: string
@@ -107,6 +109,7 @@ export class Response {
 
 	private extraInfoHeaders: Protocol.Network.Headers | null = null
 	private extraInfoHeadersText: string | undefined
+	private finishCleanup: (() => void) | null = null
 
 	/**
 	 * Build a response wrapper from the CDP notification associated with a
@@ -117,6 +120,7 @@ export class Response {
 	constructor(params: {
 		page: Page
 		session: CDPSessionLike
+		connection?: CDPConnectionLike
 		requestId: string
 		frameId?: string
 		loaderId?: string
@@ -125,6 +129,7 @@ export class Response {
 	}) {
 		this.page = params.page
 		this.session = params.session
+		this.connection = params.connection
 		this.requestId = params.requestId
 		this.frameId = params.frameId
 		this.loaderId = params.loaderId
@@ -150,6 +155,44 @@ export class Response {
 			const values = splitHeaderValues(String(value))
 			this.headerValuesMap.set(lower, values)
 			this.headersObject[lower] = values.join(", ")
+		}
+		this.installFinishListeners()
+	}
+
+	private installFinishListeners(): void {
+		const onFinished = (event: Protocol.Network.LoadingFinishedEvent) => {
+			if (event.requestId === this.requestId) this.markFinished(null)
+		}
+		const onFailed = (event: Protocol.Network.LoadingFailedEvent) => {
+			if (event.requestId !== this.requestId) return
+			this.markFinished(
+				new Error(event.errorText || "Navigation request failed"),
+			)
+		}
+		const onDetached = (event: Protocol.Target.DetachedFromTargetEvent) => {
+			if (!this.session.id || event.sessionId !== this.session.id) return
+			this.markFinished(new Error("Navigation session detached"))
+		}
+		const onDestroyed = (event: Protocol.Target.TargetDestroyedEvent) => {
+			if (event.targetId !== this.page.targetId()) return
+			this.markFinished(new Error("Navigation target destroyed"))
+		}
+		const onConnectionClosed = (why: string) => {
+			this.markFinished(new CDPConnectionClosedError(why))
+		}
+
+		this.session.on("Network.loadingFinished", onFinished)
+		this.session.on("Network.loadingFailed", onFailed)
+		this.connection?.on("Target.detachedFromTarget", onDetached)
+		this.connection?.on("Target.targetDestroyed", onDestroyed)
+		this.connection?.onTransportClosed(onConnectionClosed)
+		this.finishCleanup = () => {
+			this.session.off("Network.loadingFinished", onFinished)
+			this.session.off("Network.loadingFailed", onFailed)
+			this.connection?.off("Target.detachedFromTarget", onDetached)
+			this.connection?.off("Target.targetDestroyed", onDestroyed)
+			this.connection?.offTransportClosed(onConnectionClosed)
+			this.finishCleanup = null
 		}
 	}
 
@@ -383,6 +426,7 @@ export class Response {
 	public markFinished(error: Error | null): void {
 		if (this.finishedSettled) return
 		this.finishedSettled = true
+		this.finishCleanup?.()
 		if (error) {
 			this.finishedDeferred.resolve(error)
 		} else {

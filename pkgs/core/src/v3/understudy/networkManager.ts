@@ -42,12 +42,14 @@ export class NetworkManager {
 	 * them before their observers are dropped.
 	 */
 	private readonly activeIdleCleanups = new Set<(error?: Error) => void>()
+	private disposed = false
 
 	/**
 	 * Begin tracking network traffic for a CDP session (top-level or OOPIF).
 	 * Safe to call multiple times; duplicate registrations are ignored.
 	 */
 	public trackSession(session: CDPSessionLike): void {
+		if (this.disposed) return
 		const sid = this.sessionKey(session)
 		if (this.sessions.has(sid)) return
 
@@ -171,8 +173,10 @@ export class NetworkManager {
 		entry.detach()
 		this.sessions.delete(sid)
 
-		for (const key of [...this.requests.keys()]) {
-			if (key.startsWith(`${sid}:`)) this.requests.delete(key)
+		for (const [key, info] of [...this.requests.entries()]) {
+			if (info.sessionId !== sid) continue
+			this.requests.delete(key)
+			this.emitFailure(info)
 		}
 
 		for (const [frameId, key] of [...this.documentRequestsByFrame.entries()]) {
@@ -187,6 +191,7 @@ export class NetworkManager {
 	 * Returns a disposer that removes the observer.
 	 */
 	public addObserver(observer: NetworkObserver): () => void {
+		if (this.disposed) return () => {}
 		this.observers.add(observer)
 		return () => {
 			this.observers.delete(observer)
@@ -198,6 +203,11 @@ export class NetworkManager {
 	 * The waiter automatically unregisters itself on completion or timeout.
 	 */
 	public waitForIdle(options: WaitForIdleOptions): WaitForIdleHandle {
+		if (this.disposed) {
+			const promise = Promise.reject(new Error("NetworkManager disposed"))
+			void promise.catch(() => {})
+			return { promise, dispose: () => {} }
+		}
 		const startTime = options.startTime ?? Date.now()
 		const idleTimeMs = options.idleTimeMs ?? DEFAULT_IDLE_WAIT
 		const timeoutMs = options.timeoutMs
@@ -309,6 +319,8 @@ export class NetworkManager {
 	 * Tear down all session listeners and clear observers/bookkeeping.
 	 */
 	public dispose(): void {
+		if (this.disposed) return
+		this.disposed = true
 		for (const cleanup of Array.from(this.activeIdleCleanups)) {
 			cleanup(new Error("NetworkManager disposed"))
 		}

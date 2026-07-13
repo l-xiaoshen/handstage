@@ -235,13 +235,16 @@ async function ensureChildFrameReady(
 
 	await new Promise<void>((resolve) => {
 		let done = false
+		let pollTimer: ReturnType<typeof setTimeout> | null = null
 		const finish = () => {
 			if (done) return
 			done = true
+			if (pollTimer) clearTimeout(pollTimer)
 			parentSession.off("Page.lifecycleEvent", onLifecycle)
 			resolve()
 		}
 		const onLifecycle = (evt: Protocol.Page.LifecycleEventEvent) => {
+			if (page.isDisposed()) return finish()
 			if (
 				evt.frameId !== childFrameId ||
 				(evt.name !== "DOMContentLoaded" &&
@@ -256,9 +259,9 @@ async function ensureChildFrameReady(
 				const nowOwner = page.getSessionForFrame(childFrameId)
 				if (nowOwner && nowOwner !== parentSession) {
 					const left = Math.max(150, deadline - Date.now())
-					executionContexts
+					void executionContexts
 						.waitForMainWorld(nowOwner, childFrameId, left)
-						.finally(finish)
+						.then(finish, finish)
 				}
 			} catch {}
 		}
@@ -266,19 +269,20 @@ async function ensureChildFrameReady(
 
 		const tick = () => {
 			if (done) return
+			if (page.isDisposed()) return finish()
 			if (hasMainWorldOnParent()) return finish()
 			try {
 				const nowOwner = page.getSessionForFrame(childFrameId)
 				if (nowOwner && nowOwner !== parentSession) {
 					const left = Math.max(150, deadline - Date.now())
-					executionContexts
+					void executionContexts
 						.waitForMainWorld(nowOwner, childFrameId, left)
-						.finally(finish)
+						.then(finish, finish)
 					return
 				}
 			} catch {}
 			if (Date.now() >= deadline) return finish()
-			setTimeout(tick, 50)
+			pollTimer = setTimeout(tick, 50)
 		}
 		tick()
 	})

@@ -24,17 +24,19 @@ import {
 	CDPConnectionClosedError,
 	HandstageEvalError,
 	HandstageInvalidArgumentError,
+	TimeoutError,
 } from "../types/public/sdkErrors"
 import {
 	captureHybridSnapshot,
 	resolveXpathForLocation,
 } from "./a11y/snapshot/index"
-import type {
-	CDPCommand,
-	CDPCommandParams,
-	CDPCommandResult,
-	CDPConnectionLike,
-	CDPSessionLike,
+import {
+	type CDPCommand,
+	type CDPCommandParams,
+	type CDPCommandResult,
+	type CDPConnectionLike,
+	type CDPSessionLike,
+	sendCDPWithSignal,
 } from "./cdp"
 import { type ConsoleListener, ConsoleMessage } from "./consoleMessage"
 import { deepLocatorFromPage, resolveLocatorTarget } from "./deepLocator"
@@ -117,6 +119,18 @@ export class Page {
 	private readonly initScripts: string[] = []
 	private extraHTTPHeaders: Record<string, string> = {}
 	private disposed = false
+	private closePromise: Promise<void> | null = null
+	private readonly disposeController = new AbortController()
+	private readonly activeLifecycleWaitCleanups = new Set<
+		(error: Error) => void
+	>()
+	private readonly closeCallbacks = new Set<() => void>()
+
+	private assertOpen(): void {
+		if (this.disposed) {
+			throw new CDPConnectionClosedError("page is disposed")
+		}
+	}
 
 	/** Per-instance debug log sink — fans out to sub-managers (NetworkManager, etc.). */
 	public readonly logger: LogSink
@@ -144,6 +158,7 @@ export class Page {
 			this.pageId,
 			false,
 			this.logger,
+			this.disposeController.signal,
 		)
 
 		this.networkManager = new NetworkManager()
@@ -171,6 +186,7 @@ export class Page {
 
 	// Register a new init script and fan it out to all active sessions for this page.
 	public async registerInitScript(source: string): Promise<void> {
+		this.assertOpen()
 		if (this.initScripts.includes(source)) return
 		this.initScripts.push(source)
 
@@ -269,6 +285,7 @@ export class Page {
 	}
 
 	public async enableCursorOverlay(): Promise<void> {
+		this.assertOpen()
 		if (this.cursorEnabled) return
 		await this.ensureCursorScript()
 		this.cursorEnabled = true
@@ -402,6 +419,7 @@ export class Page {
 				this.pageId,
 				false,
 				this.logger,
+				this.disposeController.signal,
 			)
 		}
 
@@ -445,6 +463,7 @@ export class Page {
 		childSession: CDPSessionLike,
 		childMainFrameId: string,
 	): void {
+		if (this.disposed) return
 		if (childSession.id) this.sessions.set(childSession.id, childSession)
 
 		this.networkManager.trackSession(childSession)
@@ -481,6 +500,7 @@ export class Page {
 					}
 				}
 
+				if (this.disposed) return
 				this.registry.seedFromFrameTree(childSession.id ?? "child", frameTree)
 			} catch {
 				// If snapshot races, live events will still converge the registry.
@@ -519,7 +539,14 @@ export class Page {
 		if (hit) return hit
 
 		const sess = this.getSessionForFrame(frameId)
-		const f = new Frame(sess, frameId, this.pageId, false, this.logger)
+		const f = new Frame(
+			sess,
+			frameId,
+			this.pageId,
+			false,
+			this.logger,
+			this.disposeController.signal,
+		)
 		this.frameCache.set(frameId, f)
 		return f
 	}
@@ -538,6 +565,7 @@ export class Page {
 	}
 
 	public on(event: "console", listener: ConsoleListener): Page {
+		this.assertOpen()
 		if (event !== "console") {
 			throw new HandstageInvalidArgumentError(`Unsupported event: ${event}`)
 		}
@@ -585,6 +613,16 @@ export class Page {
 		return this._targetId
 	}
 
+	/** @internal */
+	public isDisposed(): boolean {
+		return this.disposed
+	}
+
+	/** @internal */
+	public registerOnCloseCallback(callback: () => void): void {
+		this.closeCallbacks.add(callback)
+	}
+
 	/**
 	 * Bring this page's tab to the foreground in the browser.
 	 *
@@ -620,6 +658,7 @@ export class Page {
 		method: M,
 		...params: CDPCommandParams<M>
 	): Promise<CDPCommandResult<M>> {
+		this.assertOpen()
 		return this.mainSession.send(method, ...params)
 	}
 
@@ -641,31 +680,68 @@ export class Page {
 		return this.mainFrameWrapper
 	}
 
-	/**
-	 * Close this top-level page (tab). Best-effort via Target.closeTarget.
-	 */
+	/** Close this top-level page and confirm that its target is gone. */
 	public async close(): Promise<void> {
-		try {
-			await this.conn.send("Target.closeTarget", { targetId: this._targetId })
-		} catch {}
-		const deadline = Date.now() + 2000
-		while (Date.now() < deadline) {
+		if (this.closePromise) return this.closePromise
+		this.closePromise = (async () => {
+			const timeoutMs = 2000
+			const abortController = new AbortController()
+			let targetClosed = false
+			const timer = setTimeout(() => {
+				abortController.abort(new TimeoutError("page.close", timeoutMs))
+			}, timeoutMs)
 			try {
-				const targets = await this.conn.getTargets()
-				if (!targets.some((t) => t.targetId === this._targetId)) {
-					break
+				const result = await sendCDPWithSignal(
+					this.conn,
+					"Target.closeTarget",
+					abortController.signal,
+					{ targetId: this._targetId },
+				)
+				if (result.success === false) {
+					throw new Error(`Browser refused to close target ${this._targetId}`)
 				}
-			} catch (err) {
-				if (err instanceof CDPConnectionClosedError) break
+				while (true) {
+					const { targetInfos } = await sendCDPWithSignal(
+						this.conn,
+						"Target.getTargets",
+						abortController.signal,
+					)
+					if (
+						!targetInfos.some((target) => target.targetId === this._targetId)
+					) {
+						targetClosed = true
+						return
+					}
+					await new Promise((resolve) => setTimeout(resolve, 25))
+				}
+			} catch (error) {
+				if (error instanceof CDPConnectionClosedError) targetClosed = true
+				else throw error
+			} finally {
+				clearTimeout(timer)
+				if (targetClosed) {
+					for (const callback of this.closeCallbacks) {
+						try {
+							callback()
+						} catch {}
+					}
+					this.closeCallbacks.clear()
+				}
+				this.disposeResources()
 			}
-			await new Promise((r) => setTimeout(r, 25))
-		}
-		this.disposeResources()
+		})()
+		return this.closePromise
 	}
 
 	public disposeResources(): void {
 		if (this.disposed) return
 		this.disposed = true
+		this.disposeController.abort(
+			new CDPConnectionClosedError("page is disposed"),
+		)
+		for (const cleanup of [...this.activeLifecycleWaitCleanups]) {
+			cleanup(new CDPConnectionClosedError("page is disposed"))
+		}
 		this.networkManager.dispose()
 		this.removeAllConsoleTaps()
 		this.consoleListeners.clear()
@@ -673,6 +749,12 @@ export class Page {
 		this.consoleHandlers.clear()
 		this.frameCache.clear()
 		this.frameOrdinals.clear()
+		this.initScripts.length = 0
+		this.extraHTTPHeaders = {}
+		this._pressedModifiers.clear()
+		this.cursorEnabled = false
+		this.closeCallbacks.clear()
+		this.registry.clear()
 	}
 
 	public getFullFrameTree(): Protocol.Page.FrameTree {
@@ -726,7 +808,7 @@ export class Page {
 		void session.send("Runtime.enable").catch(() => {})
 
 		const handler = (evt: Protocol.Runtime.ConsoleAPICalledEvent) => {
-			this.emitConsole(evt)
+			this.emitConsole(evt, session)
 		}
 
 		session.on("Runtime.consoleAPICalled", handler)
@@ -763,9 +845,10 @@ export class Page {
 		}
 	}
 
-	private emitConsole(evt: Protocol.Runtime.ConsoleAPICalledEvent): void {
-		if (this.consoleListeners.size === 0) return
-
+	private emitConsole(
+		evt: Protocol.Runtime.ConsoleAPICalledEvent,
+		session: CDPSessionLike,
+	): void {
 		const message = new ConsoleMessage(evt, this)
 		const listeners = [...this.consoleListeners]
 
@@ -784,6 +867,12 @@ export class Page {
 				})
 			}
 		}
+		for (const arg of evt.args ?? []) {
+			if (!arg.objectId) continue
+			void session
+				.send("Runtime.releaseObject", { objectId: arg.objectId })
+				.catch(() => {})
+		}
 	}
 
 	// -------- Convenience APIs delegated to the current main frame --------
@@ -796,6 +885,7 @@ export class Page {
 		url: string,
 		options?: { waitUntil?: LoadState; timeoutMs?: number },
 	): Promise<Response | null> {
+		this.assertOpen()
 		const waitUntil: LoadState = options?.waitUntil ?? "domcontentloaded"
 		const timeout = options?.timeoutMs ?? 15000
 
@@ -839,6 +929,7 @@ export class Page {
 		timeoutMs?: number
 		ignoreCache?: boolean
 	}): Promise<Response | null> {
+		this.assertOpen()
 		const waitUntil = options?.waitUntil
 		const timeout = options?.timeoutMs ?? 15000
 
@@ -885,6 +976,7 @@ export class Page {
 		waitUntil?: LoadState
 		timeoutMs?: number
 	}): Promise<Response | null> {
+		this.assertOpen()
 		const { entries, currentIndex } = await this.mainSession.send(
 			"Page.getNavigationHistory",
 		)
@@ -937,6 +1029,7 @@ export class Page {
 		waitUntil?: LoadState
 		timeoutMs?: number
 	}): Promise<Response | null> {
+		this.assertOpen()
 		const { entries, currentIndex } = await this.mainSession.send(
 			"Page.getNavigationHistory",
 		)
@@ -990,6 +1083,7 @@ export class Page {
 	}
 
 	private beginNavigationCommand(): number {
+		this.assertOpen()
 		const id = ++this.navigationCommandSeq
 		this.latestNavigationCommandId = id
 		return id
@@ -1058,6 +1152,7 @@ export class Page {
 	 * @param options.type Image format (`"png"` by default).
 	 */
 	async screenshot(options?: ScreenshotOptions): Promise<Uint8Array> {
+		this.assertOpen()
 		const opts = options ?? {}
 		const type = opts.type ?? "png"
 
@@ -1091,39 +1186,54 @@ export class Page {
 		)
 
 		const cleanupTasks: ScreenshotCleanup[] = []
+		const abortController = new AbortController()
+		const drainCleanups = async () => {
+			const pending = cleanupTasks.splice(0)
+			await runScreenshotCleanups(pending)
+		}
+		const installCleanup = async (
+			pending: Promise<ScreenshotCleanup>,
+		): Promise<void> => {
+			const cleanup = await pending
+			if (abortController.signal.aborted) {
+				await runScreenshotCleanups([cleanup])
+				abortController.signal.throwIfAborted()
+			}
+			cleanupTasks.push(cleanup)
+		}
 
 		const exec = async (): Promise<Uint8Array> => {
 			try {
 				if (opts.omitBackground) {
-					cleanupTasks.push(await setTransparentBackground(this.mainSession))
+					await installCleanup(setTransparentBackground(this.mainSession))
 				}
 
 				if (animationsMode === "disabled") {
-					cleanupTasks.push(await disableAnimations(frames))
+					await installCleanup(disableAnimations(frames))
 				}
 
 				if (caretMode === "hide") {
-					cleanupTasks.push(await hideCaret(frames))
+					await installCleanup(hideCaret(frames))
 				}
 
 				if (opts.style?.trim()) {
-					cleanupTasks.push(
-						await applyStyleToFrames(frames, opts.style, "custom"),
-					)
+					await installCleanup(applyStyleToFrames(frames, opts.style, "custom"))
 				}
 
 				if (maskLocators.length > 0) {
-					cleanupTasks.push(
-						await applyMaskOverlays(maskLocators, opts.maskColor ?? "#FF00FF"),
+					await installCleanup(
+						applyMaskOverlays(maskLocators, opts.maskColor ?? "#FF00FF"),
 					)
 				}
 
+				abortController.signal.throwIfAborted()
 				const buffer = await this.mainFrameWrapper.screenshot({
 					fullPage: opts.fullPage,
 					clip,
 					type,
 					quality: type === "jpeg" ? opts.quality : undefined,
 					scale: captureScale,
+					signal: abortController.signal,
 				})
 
 				if (opts.path) {
@@ -1132,11 +1242,17 @@ export class Page {
 
 				return buffer
 			} finally {
-				await runScreenshotCleanups(cleanupTasks)
+				await drainCleanups()
 			}
 		}
 
-		return await withTimeout(exec(), opts.timeout, "screenshot")
+		try {
+			return await withTimeout(exec(), opts.timeout, "screenshot")
+		} catch (error) {
+			abortController.abort(error)
+			await drainCleanups()
+			throw error
+		}
 	}
 
 	/**
@@ -1150,6 +1266,7 @@ export class Page {
 	 * @return void
 	 */
 	async setExtraHTTPHeaders(headers: Record<string, string>): Promise<void> {
+		this.assertOpen()
 		const headersToSet = { ...headers }
 		this.extraHTTPHeaders = headersToSet
 
@@ -2216,16 +2333,33 @@ export class Page {
 	async waitForMainLoadState(
 		state: LoadState,
 		timeoutMs = 15000,
+		signal?: AbortSignal,
 	): Promise<void> {
+		const abortError = () =>
+			signal?.reason instanceof Error
+				? signal.reason
+				: new Error("Lifecycle wait aborted")
+		if (this.disposed) {
+			throw new CDPConnectionClosedError("page is disposed")
+		}
+		if (signal?.aborted) throw abortError()
+
 		await this.mainSession
 			.send("Page.setLifecycleEventsEnabled", { enabled: true })
 			.catch(() => {})
+		if (this.disposed) {
+			throw new CDPConnectionClosedError("page is disposed")
+		}
+		if (signal?.aborted) throw abortError()
 
-		// Fast path: check the *current* main frame's readyState.
 		if (
 			(state === "domcontentloaded" || state === "load") &&
 			(await this.isMainLoadStateReady(state))
 		) {
+			if (this.disposed) {
+				throw new CDPConnectionClosedError("page is disposed")
+			}
+			if (signal?.aborted) throw abortError()
 			return
 		}
 
@@ -2236,33 +2370,40 @@ export class Page {
 			let pollTimer: ReturnType<typeof setTimeout> | null = null
 			let pollInFlight = false
 
-			const off = () => {
-				this.mainSession.off("Page.lifecycleEvent", onLifecycle)
-				this.mainSession.off("Page.domContentEventFired", onDomContent)
-				this.mainSession.off("Page.loadEventFired", onLoad)
-			}
-			const clearPollTimer = () => {
+			const cleanup = () => {
+				if (timer) {
+					clearTimeout(timer)
+					timer = null
+				}
 				if (pollTimer) {
 					clearTimeout(pollTimer)
 					pollTimer = null
 				}
+				this.mainSession.off("Page.lifecycleEvent", onLifecycle)
+				this.mainSession.off("Page.domContentEventFired", onDomContent)
+				this.mainSession.off("Page.loadEventFired", onLoad)
+				signal?.removeEventListener("abort", onAbort)
+				this.activeLifecycleWaitCleanups.delete(fail)
 			}
 
 			const finish = () => {
 				if (done) return
 				done = true
-				if (timer) {
-					clearTimeout(timer)
-					timer = null
-				}
-				clearPollTimer()
-				off()
+				cleanup()
 				resolve()
 			}
 
+			const fail = (error: Error) => {
+				if (done) return
+				done = true
+				cleanup()
+				reject(error)
+			}
+
+			const onAbort = () => fail(abortError())
+
 			const onLifecycle = (evt: Protocol.Page.LifecycleEventEvent) => {
 				if (evt.name !== wanted) return
-				// Compare against the *current* main frame id when the event arrives.
 				if (evt.frameId === this.mainFrameId()) finish()
 			}
 
@@ -2278,9 +2419,9 @@ export class Page {
 			// Backups for sites that don't emit lifecycle consistently
 			this.mainSession.on("Page.domContentEventFired", onDomContent)
 			this.mainSession.on("Page.loadEventFired", onLoad)
+			this.activeLifecycleWaitCleanups.add(fail)
+			signal?.addEventListener("abort", onAbort, { once: true })
 
-			// Fallback polling closes lifecycle-event races in remote environments
-			// where readyState has advanced but the corresponding event was missed.
 			const pollReadyState = async () => {
 				if (done || pollInFlight) return
 				pollInFlight = true
@@ -2297,7 +2438,6 @@ export class Page {
 					pollInFlight = false
 				}
 				if (!done) {
-					clearPollTimer()
 					pollTimer = setTimeout(() => {
 						void pollReadyState()
 					}, 100)
@@ -2306,11 +2446,7 @@ export class Page {
 			void pollReadyState()
 
 			timer = setTimeout(() => {
-				if (done) return
-				done = true
-				clearPollTimer()
-				off()
-				reject(
+				fail(
 					new Error(
 						`waitForMainLoadState(${state}) timed out after ${timeoutMs}ms`,
 					),

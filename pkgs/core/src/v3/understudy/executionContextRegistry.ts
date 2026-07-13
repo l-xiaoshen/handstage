@@ -7,6 +7,11 @@ type ExecId = Protocol.Runtime.ExecutionContextId
 export class ExecutionContextRegistry {
 	private readonly byFrame = new WeakMap<CDPSessionLike, Map<FrameId, ExecId>>()
 	private readonly byExec = new WeakMap<CDPSessionLike, Map<ExecId, FrameId>>()
+	private readonly pendingWaits = new WeakMap<
+		CDPSessionLike,
+		Set<(error: Error) => void>
+	>()
+	private readonly detachedSessions = new WeakSet<CDPSessionLike>()
 
 	/**
 	 * Wire listeners for this session. Call BEFORE Runtime.enable.
@@ -18,6 +23,7 @@ export class ExecutionContextRegistry {
 	 * keyed by `${sessionId}:Runtime.*` for the connection's lifetime.
 	 */
 	attachSession(session: CDPSessionLike): () => void {
+		this.detachedSessions.delete(session)
 		const onCreated = (
 			evt: Protocol.Runtime.ExecutionContextCreatedEvent,
 		): void => {
@@ -53,6 +59,19 @@ export class ExecutionContextRegistry {
 			session.off("Runtime.executionContextCreated", onCreated)
 			session.off("Runtime.executionContextDestroyed", onDestroyed)
 			session.off("Runtime.executionContextsCleared", onCleared)
+			this.detachSession(session)
+		}
+	}
+
+	private detachSession(session: CDPSessionLike): void {
+		this.detachedSessions.add(session)
+		this.byFrame.delete(session)
+		this.byExec.delete(session)
+		const waits = this.pendingWaits.get(session)
+		if (!waits) return
+		this.pendingWaits.delete(session)
+		for (const cancel of [...waits]) {
+			cancel(new Error(`session ${session.id ?? "root"} detached`))
 		}
 	}
 
@@ -65,15 +84,38 @@ export class ExecutionContextRegistry {
 		frameId: FrameId,
 		timeoutMs: number = 800,
 	): Promise<ExecId> {
+		if (this.detachedSessions.has(session)) {
+			throw new Error(`session ${session.id ?? "root"} detached`)
+		}
 		const cached = this.getMainWorld(session, frameId)
 		if (cached) return cached
 
 		await session.send("Runtime.enable").catch(() => {})
+		if (this.detachedSessions.has(session)) {
+			throw new Error(`session ${session.id ?? "root"} detached`)
+		}
 		const after = this.getMainWorld(session, frameId)
 		if (after) return after
 
 		return await new Promise<ExecId>((resolve, reject) => {
 			let done = false
+			let waits = this.pendingWaits.get(session)
+			if (!waits) {
+				waits = new Set()
+				this.pendingWaits.set(session, waits)
+			}
+			const cleanup = () => {
+				clearTimeout(timer)
+				session.off("Runtime.executionContextCreated", onCreated)
+				waits?.delete(cancel)
+				if (waits?.size === 0) this.pendingWaits.delete(session)
+			}
+			const cancel = (error: Error) => {
+				if (done) return
+				done = true
+				cleanup()
+				reject(error)
+			}
 			const onCreated = (
 				evt: Protocol.Runtime.ExecutionContextCreatedEvent,
 			): void => {
@@ -85,19 +127,15 @@ export class ExecutionContextRegistry {
 					this.register(session, frameId, evt.context.id)
 					if (!done) {
 						done = true
-						clearTimeout(timer)
-						session.off("Runtime.executionContextCreated", onCreated)
+						cleanup()
 						resolve(evt.context.id)
 					}
 				}
 			}
 			const timer = setTimeout(() => {
-				if (!done) {
-					done = true
-					session.off("Runtime.executionContextCreated", onCreated)
-					reject(new Error(`main world not ready for frame ${frameId}`))
-				}
+				cancel(new Error(`main world not ready for frame ${frameId}`))
 			}, timeoutMs)
+			waits.add(cancel)
 			session.on("Runtime.executionContextCreated", onCreated)
 		})
 	}
