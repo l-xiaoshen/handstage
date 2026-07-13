@@ -3,6 +3,7 @@
  * settle pending promises, remove listeners, and prune frame-keyed caches.
  */
 import { describe, expect, test } from "bun:test"
+import { connectConnection } from "../src/v3/connect/connection"
 import { connectTransport } from "../src/v3/connect/transport"
 import { withTimeout } from "../src/v3/timeoutConfig"
 import { CDPConnectionClosedError } from "../src/v3/types/public/sdkErrors"
@@ -57,6 +58,40 @@ describe("CDPConnection.close settles pending work", () => {
 
 		await expect(waiter).rejects.toBeInstanceOf(CDPConnectionClosedError)
 	})
+
+	test("close clears retained state and is idempotent", async () => {
+		const transport = new InMemoryTransport()
+		const conn = new CDPConnection(transport)
+		const session = new FakeSession("s-close")
+		const onLoad = () => {}
+		let closeNotifications = 0
+
+		conn.on("Page.loadEventFired", onLoad)
+		conn.onTransportClosed(() => {
+			closeNotifications += 1
+		})
+
+		const internals = conn as unknown as {
+			sessions: Map<string, FakeSession>
+			sessionToTarget: Map<string, string>
+			eventHandlers: Map<string, Set<unknown>>
+			transportCloseHandlers: Set<(why: string) => void>
+		}
+		internals.sessions.set(session.id, session)
+		internals.sessionToTarget.set(session.id, "t-close")
+
+		await Promise.all([conn.close(), conn.close()])
+
+		expect(transport.closeCalls).toBe(1)
+		expect(closeNotifications).toBe(1)
+		expect(internals.sessions.size).toBe(0)
+		expect(internals.sessionToTarget.size).toBe(0)
+		expect(internals.eventHandlers.size).toBe(0)
+		expect(internals.transportCloseHandlers.size).toBe(0)
+		expect(transport.onmessage).toBeUndefined()
+		expect(transport.onclose).toBeUndefined()
+		expect(transport.onerror).toBeUndefined()
+	})
 })
 
 describe("ExternalConnectionAdapter root listener lifecycle", () => {
@@ -97,6 +132,10 @@ describe("ExternalConnectionAdapter root listener lifecycle", () => {
 		const external = new FakeExternalSession()
 		const adapter = new ExternalConnectionAdapter(external)
 		const handler = () => {}
+		let closeNotifications = 0
+		adapter.onTransportClosed(() => {
+			closeNotifications += 1
+		})
 
 		adapter.on("Network.loadingFinished", handler)
 		expect(external.handlerCount("Network.loadingFinished")).toBe(1)
@@ -110,6 +149,7 @@ describe("ExternalConnectionAdapter root listener lifecycle", () => {
 
 		await adapter.close()
 		expect(external.handlerCount("Network.loadingFinished")).toBe(0)
+		expect(closeNotifications).toBe(1)
 	})
 })
 
@@ -128,6 +168,60 @@ describe("Handstage context registry", () => {
 		expect(handstage.browserContexts()).not.toContain(ctx)
 
 		await handstage.close()
+	})
+
+	class DelayedContextConnection extends FakeConnection {
+		private startCreate!: () => void
+		private finishCreate: (() => void) | null = null
+		public readonly createStarted = new Promise<void>((resolve) => {
+			this.startCreate = resolve
+		})
+
+		override send<M extends CDPCommand>(
+			method: M,
+			...params: CDPCommandParams<M>
+		): Promise<CDPCommandResult<M>> {
+			if (method === "Target.createBrowserContext") {
+				this.startCreate()
+				return new Promise<CDPCommandResult<M>>((resolve) => {
+					this.finishCreate = () =>
+						resolve({
+							browserContextId: "ctx-race",
+						} as CDPCommandResult<M>)
+				})
+			}
+			return super.send(method, ...params)
+		}
+
+		releaseCreate(): void {
+			this.finishCreate?.()
+		}
+	}
+
+	test("createBrowserContext cannot race with close()", async () => {
+		const conn = new DelayedContextConnection()
+		const handstage = await connectConnection(conn)
+
+		const creating = handstage.createBrowserContext()
+		const outcome = creating.then(
+			() => null,
+			(error: unknown) => error,
+		)
+		await conn.createStarted
+
+		const closing = handstage.close()
+		conn.releaseCreate()
+
+		const error = await outcome
+		expect(error).toBeInstanceOf(Error)
+		expect((error as Error).message).toContain("closed")
+		await closing
+		expect(handstage.browserContexts()).toHaveLength(0)
+		expect(
+			conn.sent.some(
+				(entry) => entry.method === "Target.disposeBrowserContext",
+			),
+		).toBe(true)
 	})
 })
 
@@ -325,6 +419,7 @@ describe("NavigationResponseTracker finished() after dispose", () => {
 
 	test("loadingFinished after dispose still resolves finished()", async () => {
 		const session = new FakeSession("s-nav")
+		const connection = new FakeConnection()
 		const fakePage = {
 			mainFrameId: () => "F0",
 			isCurrentNavigationCommand: () => true,
@@ -333,6 +428,7 @@ describe("NavigationResponseTracker finished() after dispose", () => {
 		const tracker = new NavigationResponseTracker({
 			page: fakePage,
 			session,
+			connection,
 			navigationCommandId: 1,
 		})
 		tracker.setExpectedLoaderId("L1")
@@ -358,6 +454,7 @@ describe("NavigationResponseTracker finished() after dispose", () => {
 
 	test("loadingFailed after dispose surfaces the error", async () => {
 		const session = new FakeSession("s-nav-fail")
+		const connection = new FakeConnection()
 		const fakePage = {
 			mainFrameId: () => "F0",
 			isCurrentNavigationCommand: () => true,
@@ -366,6 +463,7 @@ describe("NavigationResponseTracker finished() after dispose", () => {
 		const tracker = new NavigationResponseTracker({
 			page: fakePage,
 			session,
+			connection,
 			navigationCommandId: 1,
 		})
 		tracker.setExpectedLoaderId("L2")
@@ -383,6 +481,34 @@ describe("NavigationResponseTracker finished() after dispose", () => {
 		const finished = await withTimeout(response.finished(), 2_000, "finished")
 		expect(finished).toBeInstanceOf(Error)
 		expect((finished as Error).message).toContain("net::ERR_CONNECTION_RESET")
+		expect(session.handlerCount("Network.loadingFinished")).toBe(0)
+		expect(session.handlerCount("Network.loadingFailed")).toBe(0)
+	})
+
+	test("connection close settles finished() immediately", async () => {
+		const session = new FakeSession("s-nav-close")
+		const connection = new FakeConnection()
+		const fakePage = {
+			mainFrameId: () => "F0",
+			isCurrentNavigationCommand: () => true,
+		} as unknown as PageType
+
+		const tracker = new NavigationResponseTracker({
+			page: fakePage,
+			session,
+			connection,
+			navigationCommandId: 1,
+		})
+		tracker.setExpectedLoaderId("L3")
+		session.emit("Network.responseReceived", documentResponseEvent("R3", "L3"))
+		const response = await tracker.navigationCompleted()
+		if (!response) throw new Error("expected a navigation response")
+
+		tracker.dispose()
+		connection.emitTransportClosed("remote closed")
+
+		const finished = await withTimeout(response.finished(), 100, "finished")
+		expect(finished).toBeInstanceOf(CDPConnectionClosedError)
 		expect(session.handlerCount("Network.loadingFinished")).toBe(0)
 		expect(session.handlerCount("Network.loadingFailed")).toBe(0)
 	})
