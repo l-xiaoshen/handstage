@@ -72,24 +72,34 @@ export async function connectLocal(
 
 	const writer = chrome.stdin.getWriter()
 
-	let isClosed = false
+	let pipeClosed = false
+	let closePromise: Promise<void> | null = null
+	const closeResources = (): Promise<void> => {
+		if (closePromise) return closePromise
+		pipeClosed = true
+		closePromise = (async () => {
+			try {
+				await writer.abort()
+			} catch {
+			} finally {
+				writer.releaseLock()
+			}
+			await chrome.close()
+		})()
+		return closePromise
+	}
 	const transport: CDPTransport = {
 		send: (message) => {
-			if (isClosed) return
+			if (pipeClosed) return
 			writer.write(encodeNullDelimitedMessage(message)).catch(() => {})
 		},
-		close: async () => {
-			if (isClosed) return
-			isClosed = true
-			await writer.close().catch(() => {})
-			await chrome.close().catch(() => {})
-		},
+		close: closeResources,
 	}
 
 	void (async () => {
 		try {
 			for await (const message of readNullDelimitedMessages(chrome.stdout)) {
-				if (isClosed) break
+				if (pipeClosed) break
 				if (transport.onmessage) transport.onmessage(message)
 			}
 		} catch (err) {
@@ -97,10 +107,19 @@ export async function connectLocal(
 				transport.onerror(err instanceof Error ? err : new Error(String(err)))
 			}
 		} finally {
-			if (transport.onclose && !isClosed) {
-				transport.onclose("Pipe closed")
-			}
-			isClosed = true
+			const notifyClose = !pipeClosed
+			pipeClosed = true
+			if (notifyClose) transport.onclose?.("Pipe closed")
+			await closeResources().catch((error) => {
+				logger({
+					category: "init",
+					message: "Failed to release Chrome pipe resources",
+					level: LogLevel.Error,
+					attributes: {
+						error: error instanceof Error ? error.message : String(error),
+					},
+				})
+			})
 		}
 	})()
 
@@ -113,7 +132,7 @@ export async function connectLocal(
 		sharedOpts,
 		logSink,
 		onContextError: async () => {
-			await chrome.close().catch(() => {})
+			await closeResources()
 		},
 	})
 }

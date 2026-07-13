@@ -1,7 +1,7 @@
 import type { Handstage } from "../handstage"
 import { LogLevel } from "../types/public/logs"
 import type { HandstageConnectOptions } from "../types/public/options"
-import { CDPConnection, type CDPTransport } from "../understudy/cdp"
+import { CDPConnection, createWebSocketTransport } from "../understudy/cdp"
 import {
 	connectOptionsToLocalBrowserLaunchOptions,
 	createOwnedHandstage,
@@ -19,23 +19,7 @@ export async function connectWS(
 		level: LogLevel.Info,
 	})
 
-	const transport: CDPTransport = {
-		send: (message) => ws.send(message),
-		close: () => ws.close(),
-	}
-
-	ws.addEventListener("message", (event) => {
-		if (transport.onmessage) transport.onmessage(event.data.toString())
-	})
-	ws.addEventListener("close", (event) => {
-		if (transport.onclose)
-			transport.onclose(`code=${event.code} reason=${event.reason}`)
-	})
-	ws.addEventListener("error", () => {
-		if (transport.onerror) transport.onerror(new Error("WebSocket error"))
-	})
-
-	const conn = new CDPConnection(transport)
+	const conn = new CDPConnection(createWebSocketTransport(ws))
 	return await createOwnedHandstage({
 		conn,
 		lbo: connectOptionsToLocalBrowserLaunchOptions(opts),
