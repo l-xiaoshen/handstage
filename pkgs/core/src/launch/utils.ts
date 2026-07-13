@@ -14,15 +14,20 @@ export async function waitForProcessExit(
 	exited: Promise<unknown>,
 	timeoutMs: number,
 ): Promise<boolean> {
-	return Promise.race([
-		exited.then(
-			() => true,
-			() => true,
-		),
-		new Promise<boolean>((resolve) =>
-			setTimeout(() => resolve(false), timeoutMs),
-		),
-	])
+	let timer: ReturnType<typeof setTimeout> | undefined
+	try {
+		return await Promise.race([
+			exited.then(
+				() => true,
+				() => true,
+			),
+			new Promise<boolean>((resolve) => {
+				timer = setTimeout(() => resolve(false), timeoutMs)
+			}),
+		])
+	} finally {
+		if (timer) clearTimeout(timer)
+	}
 }
 
 export async function performBrowserProcessCleanup(
@@ -32,13 +37,18 @@ export async function performBrowserProcessCleanup(
 	createdTemp: boolean,
 	opts?: LocalBrowserLaunchOptions,
 ): Promise<void> {
-	kill()
-	if (!(await waitForProcessExit(exited, CHROME_EXIT_TIMEOUT_MS))) {
-		kill("SIGKILL")
-		await waitForProcessExit(exited, CHROME_EXIT_TIMEOUT_MS)
+	let confirmedExit = false
+	try {
+		kill()
+		confirmedExit = await waitForProcessExit(exited, CHROME_EXIT_TIMEOUT_MS)
+		if (!confirmedExit) {
+			kill("SIGKILL")
+			confirmedExit = await waitForProcessExit(exited, CHROME_EXIT_TIMEOUT_MS)
+		}
+	} finally {
+		if (confirmedExit) cleanupUserDataDir(userDataDir, createdTemp, opts)
 	}
-
-	cleanupUserDataDir(userDataDir, createdTemp, opts)
+	if (!confirmedExit) throw new Error("Chrome did not exit after SIGKILL")
 }
 
 export interface PreparedLaunchOptions {

@@ -104,9 +104,9 @@ export class CDPConnectionClosedError extends HandstageError {
 
 /**
  * Raised when a caller tries to wrap a `CDPTransport` (via
- * `new CDPConnection(transport)` / `connectTransport`) or an
- * `ExternalCDPSession` (via `connectSession`) that is already owned by
- * another `CDPConnection` / `ExternalConnectionAdapter`.
+ * `new CDPConnection(transport)` / `connectTransport`), `WebSocket` (via
+ * `connectWS`), or `ExternalCDPSession` (via `connectSession`) that is
+ * already owned.
  *
  * Silently double-wrapping would clobber `transport.onmessage` / `.onclose` /
  * `.onerror` and stall the first owner.  If you actually want two `Handstage`
@@ -114,13 +114,16 @@ export class CDPConnectionClosedError extends HandstageError {
  * use `connectConnection(existingConnection)` for both instances.
  */
 export class HandstageTransportAlreadyOwnedError extends HandstageError {
-	constructor(kind: "transport" | "session") {
+	constructor(kind: "transport" | "websocket" | "session") {
 		super(
 			kind === "transport"
 				? "CDPTransport already owned by another CDPConnection. " +
 						"Construct the CDPConnection once and share it via connectConnection() " +
 						"instead of wrapping the same transport twice."
-				: "ExternalCDPSession already owned by another ExternalConnectionAdapter. " +
+				: kind === "websocket"
+					? "WebSocket already owned by another CDPConnection. " +
+						"Share the existing connection via connectConnection() instead of calling connectWS twice."
+					: "ExternalCDPSession already owned by another ExternalConnectionAdapter. " +
 						"Construct the adapter once and share the resulting CDPConnectionLike via " +
 						"connectConnection() instead of calling connectSession twice with the same session.",
 		)

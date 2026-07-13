@@ -39,11 +39,14 @@ export class TargetRouter {
 	private delegates: TargetRouterDelegate[] = []
 	private loggers = new Map<TargetRouterDelegate, LogSink>()
 	private sessionOwners = new Map<SessionId, TargetRouterDelegate>()
+	private sessionTargets = new Map<SessionId, TargetId>()
 	private started = false
 	private closed = false
 	private startPromise: Promise<void> | null = null
 
-	private constructor(private readonly conn: CDPConnectionLike) {}
+	private constructor(private readonly conn: CDPConnectionLike) {
+		this.conn.onTransportClosed(this.onConnectionClosed)
+	}
 
 	public static forConnection(conn: CDPConnectionLike): TargetRouter {
 		let router = routers.get(conn)
@@ -79,7 +82,10 @@ export class TargetRouter {
 		this.delegates = this.delegates.filter((d) => d !== delegate)
 		this.loggers.delete(delegate)
 		for (const [sessionId, owner] of [...this.sessionOwners.entries()]) {
-			if (owner === delegate) this.sessionOwners.delete(sessionId)
+			if (owner === delegate) {
+				this.sessionOwners.delete(sessionId)
+				this.sessionTargets.delete(sessionId)
+			}
 		}
 
 		// Keep the root Target listeners installed even with zero delegates.
@@ -116,6 +122,9 @@ export class TargetRouter {
 
 			try {
 				await this.conn.enableAutoAttach()
+				if (this.closed) {
+					throw new Error("TargetRouter closed during startup")
+				}
 				this.started = true
 			} catch (err) {
 				this.stop()
@@ -136,7 +145,17 @@ export class TargetRouter {
 		this.conn.off("Target.detachedFromTarget", this.onDetachedFromTarget)
 		this.conn.off("Target.targetDestroyed", this.onTargetDestroyed)
 		this.sessionOwners.clear()
+		this.sessionTargets.clear()
 		this.started = false
+	}
+
+	private onConnectionClosed = (): void => {
+		if (this.closed) return
+		this.closed = true
+		this.stop()
+		this.delegates = []
+		this.loggers.clear()
+		this.conn.offTransportClosed(this.onConnectionClosed)
 	}
 
 	private onAttachedToTarget = (
@@ -170,8 +189,13 @@ export class TargetRouter {
 			await this.resumeAndDetach(evt.sessionId)
 			return
 		}
+		if (this.closed || !this.delegates.includes(owner)) {
+			await this.resumeAndDetach(evt.sessionId)
+			return
+		}
 
 		this.sessionOwners.set(evt.sessionId, owner)
+		this.sessionTargets.set(evt.sessionId, evt.targetInfo.targetId)
 		await owner.onRouterAttachedToTarget(evt.targetInfo, evt.sessionId)
 	}
 
@@ -180,6 +204,7 @@ export class TargetRouter {
 	): void => {
 		const owner = this.sessionOwners.get(evt.sessionId)
 		this.sessionOwners.delete(evt.sessionId)
+		this.sessionTargets.delete(evt.sessionId)
 		if (owner) {
 			owner.onRouterDetachedFromTarget(evt.sessionId, evt.targetId ?? null)
 			return
@@ -193,6 +218,13 @@ export class TargetRouter {
 	private onTargetDestroyed = (
 		evt: Protocol.Target.TargetDestroyedEvent,
 	): void => {
+		for (const [sessionId, targetId] of [...this.sessionTargets.entries()]) {
+			if (targetId !== evt.targetId) continue
+			const owner = this.sessionOwners.get(sessionId)
+			this.sessionTargets.delete(sessionId)
+			this.sessionOwners.delete(sessionId)
+			owner?.onRouterDetachedFromTarget(sessionId, evt.targetId)
+		}
 		for (const delegate of this.delegates) {
 			delegate.onRouterTargetDestroyed(evt.targetId)
 		}

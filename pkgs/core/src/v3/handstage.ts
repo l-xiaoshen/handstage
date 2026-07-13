@@ -2,6 +2,7 @@ import type { LogSink } from "./logger"
 import type { CreateContextOptions } from "./types/public/context"
 import { LogLevel, type LogLine } from "./types/public/logs"
 import type { HandstageSharedOptions } from "./types/public/options"
+import { CDPConnectionClosedError } from "./types/public/sdkErrors"
 import type { CDPConnectionLike } from "./understudy/cdp"
 import { Context } from "./understudy/context"
 import type { Page } from "./understudy/page"
@@ -27,6 +28,7 @@ const HANDSTAGE_CONSTRUCTOR_TOKEN: unique symbol = Symbol(
  */
 export class Handstage {
 	private _isClosing = false
+	private _closePromise: Promise<void> | null = null
 
 	private _onCDPClosed = (why: string) => {
 		this._immediateShutdown(`CDP transport closed: ${why}`).catch(() => {})
@@ -93,7 +95,7 @@ export class Handstage {
 				message: `closing resources → ${reason}`,
 				level: LogLevel.Error,
 			})
-			await this.close({ force: true })
+			await this.close()
 		} catch {}
 	}
 
@@ -121,7 +123,7 @@ export class Handstage {
 		options?: CreateContextOptions,
 	): Promise<Context> {
 		if (this._isClosing || !this.connection) {
-			throw new Error(
+			throw new CDPConnectionClosedError(
 				"Cannot create browser context: Handstage instance is closed",
 			)
 		}
@@ -132,7 +134,7 @@ export class Handstage {
 		})
 		if (this._isClosing || this.connection !== connection) {
 			await ctx.close().catch(() => {})
-			throw new Error(
+			throw new CDPConnectionClosedError(
 				"Cannot create browser context: Handstage instance is closed",
 			)
 		}
@@ -171,31 +173,33 @@ export class Handstage {
 	}
 
 	/** Best-effort cleanup of context and launched resources. */
-	async close(opts?: { force?: boolean }): Promise<void> {
-		if (this._isClosing && !opts?.force) return
+	async close(_opts?: { force?: boolean }): Promise<void> {
+		if (this._closePromise) return this._closePromise
 		this._isClosing = true
 
-		try {
-			if (this.connection && this._onCDPClosed) {
-				this.connection.offTransportClosed?.(this._onCDPClosed)
-			}
-		} catch {}
-
-		try {
+		this._closePromise = (async () => {
 			try {
-				const closes = []
-				for (const ctx of this._contexts) {
-					closes.push(ctx.close())
+				if (this.connection && this._onCDPClosed) {
+					this.connection.offTransportClosed?.(this._onCDPClosed)
 				}
-				await Promise.allSettled(closes)
 			} catch {}
 
-			await this.cleanup?.()
-		} finally {
-			this._contexts.clear()
-			this.connection = null
-			this._isClosing = false
-		}
+			try {
+				try {
+					const closes = []
+					for (const ctx of this._contexts) {
+						closes.push(ctx.close())
+					}
+					await Promise.allSettled(closes)
+				} catch {}
+
+				await this.cleanup?.()
+			} finally {
+				this._contexts.clear()
+				this.connection = null
+			}
+		})()
+		return this._closePromise
 	}
 
 	public get logger(): (logLine: LogLine) => void {
