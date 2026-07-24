@@ -4,13 +4,27 @@ function buildConsolePayload(line: LogLine): Record<string, unknown> {
 	const payload: Record<string, unknown> = {
 		message: line.message,
 	}
-	if (line.category !== undefined) payload.category = line.category
-	if (line.timestamp !== undefined) payload.timestamp = line.timestamp
-	if (line.id !== undefined) payload.id = line.id
-	if (line.attributes !== undefined) payload.attributes = line.attributes
-	if (line.traceId !== undefined) payload.traceId = line.traceId
-	if (line.spanId !== undefined) payload.spanId = line.spanId
-	if (line.traceFlags !== undefined) payload.traceFlags = line.traceFlags
+	if (line.category !== undefined) {
+		payload.category = line.category
+	}
+	if (line.timestamp !== undefined) {
+		payload.timestamp = line.timestamp
+	}
+	if (line.id !== undefined) {
+		payload.id = line.id
+	}
+	if (line.attributes !== undefined) {
+		payload.attributes = line.attributes
+	}
+	if (line.traceId !== undefined) {
+		payload.traceId = line.traceId
+	}
+	if (line.spanId !== undefined) {
+		payload.spanId = line.spanId
+	}
+	if (line.traceFlags !== undefined) {
+		payload.traceFlags = line.traceFlags
+	}
 	return payload
 }
 

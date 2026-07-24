@@ -15,7 +15,12 @@ import {
 	HandstageInvalidArgumentError,
 	HandstageLocatorError,
 } from "../types/public/sdkErrors"
+import { sendCDPWithSignal } from "./cdp"
 import type { Frame } from "./frame"
+import {
+	releaseDiscardedEvaluationHandles,
+	releaseObjectIds,
+} from "./runtimeObjectUtils"
 import { FrameSelectorResolver, type SelectorQuery } from "./selectorResolver"
 
 const MAX_REMOTE_UPLOAD_BYTES = 50 * 1024 * 1024 // 50MB guard copied from Playwright
@@ -85,10 +90,12 @@ export class Locator {
 					returnByValue: true,
 				})
 				const ok = Boolean(res.result.value)
-				if (!ok)
+				await releaseDiscardedEvaluationHandles(session, res)
+				if (!ok) {
 					throw new HandstageInvalidArgumentError(
 						'Target is not an <input type="file"> element',
 					)
+				}
 			} catch (e) {
 				throw new HandstageInvalidArgumentError(
 					e instanceof Error
@@ -109,7 +116,7 @@ export class Locator {
 
 			await this.assignFilesViaPayloadInjection(objectId, normalized)
 		} finally {
-			await session.send("Runtime.releaseObject", { objectId }).catch(() => {})
+			await releaseObjectIds(session, [objectId])
 		}
 	}
 
@@ -141,7 +148,7 @@ export class Locator {
 			const chunkSize = 8192
 			for (let i = 0; i < len; i += chunkSize) {
 				const chunk = payload.buffer.subarray(i, i + chunkSize)
-				binary += String.fromCharCode.apply(null, chunk as unknown as number[])
+				binary += String.fromCharCode(...chunk)
 			}
 			return {
 				name: payload.name,
@@ -164,6 +171,7 @@ export class Locator {
 		})
 
 		const ok = Boolean(res.result?.value)
+		await releaseDiscardedEvaluationHandles(session, res)
 		if (!ok) {
 			throw new HandstageInvalidArgumentError(
 				"Unable to assign file payloads to remote input element",
@@ -183,7 +191,7 @@ export class Locator {
 			const { node } = await session.send("DOM.describeNode", { objectId })
 			return node.backendNodeId
 		} finally {
-			await session.send("Runtime.releaseObject", { objectId }).catch(() => {})
+			await releaseObjectIds(session, [objectId])
 		}
 	}
 
@@ -207,11 +215,13 @@ export class Locator {
 				.send("DOM.scrollIntoViewIfNeeded", { objectId })
 				.catch(() => {})
 			const box = await session.send("DOM.getBoxModel", { objectId })
-			if (!box.model) throw new ElementNotVisibleError(this.selector)
+			if (!box.model) {
+				throw new ElementNotVisibleError(this.selector)
+			}
 			const { cx, cy } = this.centerFromBoxContent(box.model.content)
 			return { x: Math.round(cx), y: Math.round(cy) }
 		} finally {
-			await session.send("Runtime.releaseObject", { objectId }).catch(() => {})
+			await releaseObjectIds(session, [objectId])
 		}
 	}
 
@@ -226,23 +236,51 @@ export class Locator {
 		contentColor?: { r: number; g: number; b: number; a?: number }
 	}): Promise<void> {
 		const session = this.frame.session
-		const { objectId } = await this.resolveNode()
+		const resolutionSignal = this.frame.combineWithDisposalSignal(
+			new AbortController().signal,
+		)
+		const { objectId } = await this.resolveNode(resolutionSignal)
 		const duration = Math.max(0, options?.durationMs ?? 800)
 
 		const borderColor = options?.borderColor ?? { r: 255, g: 0, b: 0, a: 0.9 }
 		const contentColor =
 			options?.contentColor ?? ({ r: 255, g: 200, b: 0, a: 0.2 } as const)
+		let highlightDispatched = false
+		const runBounded = async <T>(
+			operation: (signal: AbortSignal) => Promise<T>,
+		): Promise<T> => {
+			const controller = new AbortController()
+			const timer = setTimeout(
+				() => controller.abort(new Error("Overlay command timed out")),
+				1000,
+			)
+			try {
+				return await operation(
+					this.frame.combineWithDisposalSignal(controller.signal),
+				)
+			} finally {
+				clearTimeout(timer)
+			}
+		}
 
 		try {
-			await session.send("Overlay.enable").catch(() => {})
-			await session
-				.send("DOM.scrollIntoViewIfNeeded", { objectId })
-				.catch(() => {})
+			await runBounded((signal) =>
+				sendCDPWithSignal(session, "Overlay.enable", signal),
+			).catch(() => {})
+			await runBounded((signal) =>
+				sendCDPWithSignal(session, "DOM.scrollIntoViewIfNeeded", signal, {
+					objectId,
+				}),
+			).catch(() => {})
 
-			await session.send("DOM.enable").catch(() => {})
+			await runBounded((signal) =>
+				sendCDPWithSignal(session, "DOM.enable", signal),
+			).catch(() => {})
 			let backendNodeId: Protocol.DOM.BackendNodeId | undefined
 			try {
-				const { node } = await session.send("DOM.describeNode", { objectId })
+				const { node } = await runBounded((signal) =>
+					sendCDPWithSignal(session, "DOM.describeNode", signal, { objectId }),
+				)
 				backendNodeId = node.backendNodeId
 			} catch {
 				backendNodeId = undefined
@@ -257,28 +295,51 @@ export class Locator {
 				contentColor,
 			}
 
-			const highlightOnce = async () => {
-				await session.send("Overlay.highlightNode", {
-					...(backendNodeId ? { backendNodeId } : { objectId }),
-					highlightConfig,
+			const highlightOnce = async (initial = false) => {
+				await runBounded(async (signal) => {
+					signal.throwIfAborted()
+					if (initial) {
+						highlightDispatched = true
+					}
+					await sendCDPWithSignal(session, "Overlay.highlightNode", signal, {
+						...(backendNodeId ? { backendNodeId } : { objectId }),
+						highlightConfig,
+					})
 				})
 			}
 
-			await highlightOnce()
+			await highlightOnce(true)
 
 			if (duration > 0) {
 				const start = Date.now()
 				const tick = Math.min(300, Math.max(100, Math.floor(duration / 50)))
 				while (Date.now() - start < duration) {
-					await new Promise((r) => setTimeout(r, tick))
+					await this.frame.waitForDelay(tick)
 					try {
 						await highlightOnce()
 					} catch {}
 				}
-				await session.send("Overlay.hideHighlight").catch(() => {})
 			}
 		} finally {
-			await session.send("Runtime.releaseObject", { objectId }).catch(() => {})
+			const cleanupTasks: Promise<unknown>[] = []
+			if (highlightDispatched) {
+				const cleanupController = new AbortController()
+				const timer = setTimeout(
+					() => cleanupController.abort(new Error("Overlay cleanup timed out")),
+					1000,
+				)
+				cleanupTasks.push(
+					sendCDPWithSignal(
+						session,
+						"Overlay.hideHighlight",
+						cleanupController.signal,
+					)
+						.catch(() => {})
+						.finally(() => clearTimeout(timer)),
+				)
+			}
+			cleanupTasks.push(releaseObjectIds(session, [objectId]))
+			await Promise.allSettled(cleanupTasks)
 		}
 	}
 
@@ -295,7 +356,9 @@ export class Locator {
 				.catch(() => {})
 
 			const box = await session.send("DOM.getBoxModel", { objectId })
-			if (!box.model) throw new ElementNotVisibleError(this.selector)
+			if (!box.model) {
+				throw new ElementNotVisibleError(this.selector)
+			}
 			const { cx, cy } = this.centerFromBoxContent(box.model.content)
 
 			await session.send("Input.dispatchMouseEvent", {
@@ -305,7 +368,7 @@ export class Locator {
 				button: "none",
 			})
 		} finally {
-			await session.send("Runtime.releaseObject", { objectId }).catch(() => {})
+			await releaseObjectIds(session, [objectId])
 		}
 	}
 
@@ -331,7 +394,9 @@ export class Locator {
 			await session.send("DOM.scrollIntoViewIfNeeded", { objectId })
 
 			const box = await session.send("DOM.getBoxModel", { objectId })
-			if (!box.model) throw new ElementNotVisibleError(this.selector)
+			if (!box.model) {
+				throw new ElementNotVisibleError(this.selector)
+			}
 			const { cx, cy } = this.centerFromBoxContent(box.model.content)
 
 			const dispatches: Array<Promise<unknown>> = []
@@ -366,12 +431,7 @@ export class Locator {
 			}
 			await Promise.all(dispatches)
 		} finally {
-			try {
-				await session.send("Runtime.releaseObject", { objectId })
-			} catch {
-				// If the context navigated or was destroyed (e.g., link opens new tab),
-				// releaseObject may fail with -32000. Ignore as best-effort cleanup.
-			}
+			await releaseObjectIds(session, [objectId])
 		}
 	}
 
@@ -396,7 +456,7 @@ export class Locator {
 			await session
 				.send("DOM.scrollIntoViewIfNeeded", { objectId })
 				.catch(() => {})
-			await session.send("Runtime.callFunctionOn", {
+			const res = await session.send("Runtime.callFunctionOn", {
 				objectId,
 				functionDeclaration: locatorScriptSources.dispatchDomClick,
 				arguments: [
@@ -406,8 +466,9 @@ export class Locator {
 				],
 				returnByValue: true,
 			})
+			await releaseDiscardedEvaluationHandles(session, res)
 		} finally {
-			await session.send("Runtime.releaseObject", { objectId }).catch(() => {})
+			await releaseObjectIds(session, [objectId])
 		}
 	}
 
@@ -420,14 +481,15 @@ export class Locator {
 		const session = this.frame.session
 		const { objectId } = await this.resolveNode()
 		try {
-			await session.send("Runtime.callFunctionOn", {
+			const res = await session.send("Runtime.callFunctionOn", {
 				objectId,
 				functionDeclaration: locatorScriptSources.scrollElementToPercent,
-				arguments: [{ value: percent as unknown as number }],
+				arguments: [{ value: percent }],
 				returnByValue: true,
 			})
+			await releaseDiscardedEvaluationHandles(session, res)
 		} finally {
-			await session.send("Runtime.releaseObject", { objectId }).catch(() => {})
+			await releaseObjectIds(session, [objectId])
 		}
 	}
 
@@ -456,6 +518,7 @@ export class Locator {
 					res.exceptionDetails.exception?.description ??
 					res.exceptionDetails.text ??
 					"Unknown exception during locator().fill()"
+				await releaseDiscardedEvaluationHandles(session, res)
 				throw new HandstageLocatorError("Filling", this.selector, message)
 			}
 
@@ -463,6 +526,7 @@ export class Locator {
 				| { status?: string; reason?: string; value?: string }
 				| null
 				| undefined
+			await releaseDiscardedEvaluationHandles(session, res)
 			const status =
 				typeof result === "object" && result ? result.status : undefined
 
@@ -471,9 +535,7 @@ export class Locator {
 			}
 
 			if (status === "needsinput") {
-				await session
-					.send("Runtime.releaseObject", { objectId })
-					.catch(() => {})
+				await releaseObjectIds(session, [objectId])
 				releaseNeeded = false
 
 				const valueToType =
@@ -489,10 +551,9 @@ export class Locator {
 							returnByValue: true,
 						})
 						prepared = Boolean(prepRes.result.value)
+						await releaseDiscardedEvaluationHandles(session, prepRes)
 					} finally {
-						await session
-							.send("Runtime.releaseObject", { objectId: prepObjectId })
-							.catch(() => {})
+						await releaseObjectIds(session, [prepObjectId])
 					}
 				} catch {
 					// Ignore preparation failures; we'll fall back to typing best-effort.
@@ -540,9 +601,7 @@ export class Locator {
 			}
 		} finally {
 			if (releaseNeeded) {
-				await session
-					.send("Runtime.releaseObject", { objectId })
-					.catch(() => {})
+				await releaseObjectIds(session, [objectId])
 			}
 		}
 	}
@@ -558,11 +617,12 @@ export class Locator {
 		const { objectId } = await this.resolveNode()
 
 		try {
-			await session.send("Runtime.callFunctionOn", {
+			const res = await session.send("Runtime.callFunctionOn", {
 				objectId,
 				functionDeclaration: locatorScriptSources.focusElement,
 				returnByValue: true,
 			})
+			await releaseDiscardedEvaluationHandles(session, res)
 
 			if (!options?.delay) {
 				await session.send("Input.insertText", { text })
@@ -582,10 +642,10 @@ export class Locator {
 					key: ch,
 				})
 
-				await new Promise((r) => setTimeout(r, options.delay))
+				await this.frame.waitForDelay(options.delay)
 			}
 		} finally {
-			await session.send("Runtime.releaseObject", { objectId })
+			await releaseObjectIds(session, [objectId])
 		}
 	}
 
@@ -606,9 +666,15 @@ export class Locator {
 				returnByValue: true,
 			})
 
-			return (res.result.value as string[]) ?? []
+			const selected = Array.isArray(res.result.value)
+				? res.result.value.filter(
+						(value): value is string => typeof value === "string",
+					)
+				: []
+			await releaseDiscardedEvaluationHandles(session, res)
+			return selected
 		} finally {
-			await session.send("Runtime.releaseObject", { objectId })
+			await releaseObjectIds(session, [objectId])
 		}
 	}
 
@@ -624,9 +690,11 @@ export class Locator {
 				functionDeclaration: locatorScriptSources.isElementVisible,
 				returnByValue: true,
 			})
-			return Boolean(res.result.value)
+			const visible = Boolean(res.result.value)
+			await releaseDiscardedEvaluationHandles(session, res)
+			return visible
 		} finally {
-			await session.send("Runtime.releaseObject", { objectId })
+			await releaseObjectIds(session, [objectId])
 		}
 	}
 
@@ -643,9 +711,11 @@ export class Locator {
 				functionDeclaration: locatorScriptSources.isElementChecked,
 				returnByValue: true,
 			})
-			return Boolean(res.result.value)
+			const checked = Boolean(res.result.value)
+			await releaseDiscardedEvaluationHandles(session, res)
+			return checked
 		} finally {
-			await session.send("Runtime.releaseObject", { objectId })
+			await releaseObjectIds(session, [objectId])
 		}
 	}
 
@@ -661,9 +731,11 @@ export class Locator {
 				functionDeclaration: locatorScriptSources.readElementInputValue,
 				returnByValue: true,
 			})
-			return String(res.result.value ?? "")
+			const value = String(res.result.value ?? "")
+			await releaseDiscardedEvaluationHandles(session, res)
+			return value
 		} finally {
-			await session.send("Runtime.releaseObject", { objectId })
+			await releaseObjectIds(session, [objectId])
 		}
 	}
 
@@ -679,9 +751,11 @@ export class Locator {
 				functionDeclaration: locatorScriptSources.readElementTextContent,
 				returnByValue: true,
 			})
-			return String(res.result.value ?? "")
+			const value = String(res.result.value ?? "")
+			await releaseDiscardedEvaluationHandles(session, res)
+			return value
 		} finally {
-			await session.send("Runtime.releaseObject", { objectId })
+			await releaseObjectIds(session, [objectId])
 		}
 	}
 
@@ -697,9 +771,11 @@ export class Locator {
 				functionDeclaration: locatorScriptSources.readElementInnerHTML,
 				returnByValue: true,
 			})
-			return String(res.result.value ?? "")
+			const html = String(res.result.value ?? "")
+			await releaseDiscardedEvaluationHandles(session, res)
+			return html
 		} finally {
-			await session.send("Runtime.releaseObject", { objectId })
+			await releaseObjectIds(session, [objectId])
 		}
 	}
 
@@ -715,9 +791,11 @@ export class Locator {
 				functionDeclaration: locatorScriptSources.readElementInnerText,
 				returnByValue: true,
 			})
-			return String(res.result.value ?? "")
+			const text = String(res.result.value ?? "")
+			await releaseDiscardedEvaluationHandles(session, res)
+			return text
 		} finally {
-			await session.send("Runtime.releaseObject", { objectId })
+			await releaseObjectIds(session, [objectId])
 		}
 	}
 
@@ -749,19 +827,25 @@ export class Locator {
 	 * Resolve `this.selector` within the frame to `{ objectId, nodeId? }`:
 	 * Delegates to a shared selector resolver so all selector logic stays in sync.
 	 */
-	public async resolveNode(): Promise<{
+	public async resolveNode(signal?: AbortSignal): Promise<{
 		nodeId: Protocol.DOM.NodeId | null
 		objectId: Protocol.Runtime.RemoteObjectId
 	}> {
 		const session = this.frame.session
 
-		await session.send("Runtime.enable")
-		await session.send("DOM.enable")
+		if (signal) {
+			await sendCDPWithSignal(session, "Runtime.enable", signal)
+			await sendCDPWithSignal(session, "DOM.enable", signal)
+		} else {
+			await session.send("Runtime.enable")
+			await session.send("DOM.enable")
+		}
 
 		const index = this.nthIndex < 0 ? 0 : this.nthIndex
 		const resolved = await this.selectorResolver.resolveAtIndex(
 			this.selectorQuery,
 			index,
+			signal,
 		)
 		if (!resolved) {
 			throw new HandstageElementNotFoundError([this.selector])
@@ -774,21 +858,28 @@ export class Locator {
 	 * Resolve all matching nodes for this locator.
 	 * If the locator is narrowed via nth(), only that index is returned.
 	 */
-	public async resolveNodesForMask(): Promise<
+	public async resolveNodesForMask(signal?: AbortSignal): Promise<
 		Array<{
 			nodeId: Protocol.DOM.NodeId | null
 			objectId: Protocol.Runtime.RemoteObjectId
+			objectGroup?: string
 		}>
 	> {
 		const session = this.frame.session
 
-		await session.send("Runtime.enable")
-		await session.send("DOM.enable")
+		if (signal) {
+			await sendCDPWithSignal(session, "Runtime.enable", signal)
+			await sendCDPWithSignal(session, "DOM.enable", signal)
+		} else {
+			await session.send("Runtime.enable")
+			await session.send("DOM.enable")
+		}
 
 		if (this.nthIndex >= 0) {
 			const resolved = await this.selectorResolver.resolveAtIndex(
 				this.selectorQuery,
 				this.nthIndex,
+				signal,
 			)
 			if (!resolved) {
 				throw new HandstageElementNotFoundError([this.selector])
@@ -796,7 +887,12 @@ export class Locator {
 			return [resolved]
 		}
 
-		const resolved = await this.selectorResolver.resolveAll(this.selectorQuery)
+		const resolved = await this.selectorResolver.resolveAll(
+			this.selectorQuery,
+			{
+				signal,
+			},
+		)
 		if (!resolved.length) {
 			throw new HandstageElementNotFoundError([this.selector])
 		}

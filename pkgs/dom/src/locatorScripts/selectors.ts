@@ -2,28 +2,38 @@ import { resolveXPathAtIndex } from "./xpathResolver"
 
 const parseTargetIndex = (value: unknown): number => {
 	const num = Number(value ?? 0)
-	if (!Number.isFinite(num) || num < 0) return 0
+	if (!Number.isFinite(num) || num < 0) {
+		return 0
+	}
 	return Math.floor(num)
 }
 
 const collectCssMatches = (selector: string, limit: number): Element[] => {
-	if (!selector) return []
+	if (!selector) {
+		return []
+	}
 	const seenRoots = new WeakSet<Node>()
 	const seenElements = new Set<Element>()
 	const results: Element[] = []
 	const queue: Array<Document | ShadowRoot> = [document]
 
 	const visit = (root: Document | ShadowRoot): void => {
-		if (!root || seenRoots.has(root) || results.length >= limit) return
+		if (!root || seenRoots.has(root) || results.length >= limit) {
+			return
+		}
 		seenRoots.add(root)
 
 		try {
 			const matches = root.querySelectorAll(selector)
 			for (const element of matches) {
-				if (seenElements.has(element)) continue
+				if (seenElements.has(element)) {
+					continue
+				}
 				seenElements.add(element)
 				results.push(element)
-				if (results.length >= limit) return
+				if (results.length >= limit) {
+					return
+				}
 			}
 		} catch {}
 
@@ -35,16 +45,22 @@ const collectCssMatches = (selector: string, limit: number): Element[] => {
 				NodeFilter.SHOW_ELEMENT,
 			)
 			for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-				if (!(node instanceof Element)) continue
+				if (!(node instanceof Element)) {
+					continue
+				}
 				const open = node.shadowRoot
-				if (open) queue.push(open)
+				if (open) {
+					queue.push(open)
+				}
 			}
 		} catch {}
 	}
 
 	while (queue.length && results.length < limit) {
 		const next = queue.shift()
-		if (next) visit(next)
+		if (next) {
+			visit(next)
+		}
 	}
 
 	return results
@@ -55,7 +71,9 @@ export function resolveCssSelector(
 	targetIndexRaw?: number,
 ): Element | null {
 	const selector = String(selectorRaw ?? "").trim()
-	if (!selector) return null
+	if (!selector) {
+		return null
+	}
 
 	const targetIndex = parseTargetIndex(targetIndexRaw)
 	const matches = collectCssMatches(selector, targetIndex + 1)
@@ -67,7 +85,9 @@ export function resolveCssSelectorPierce(
 	targetIndexRaw?: number,
 ): Element | null {
 	const selector = String(selectorRaw ?? "").trim()
-	if (!selector) return null
+	if (!selector) {
+		return null
+	}
 
 	const targetIndex = parseTargetIndex(targetIndexRaw)
 	const backdoor = window.__handstageV3__
@@ -92,17 +112,22 @@ export function resolveCssSelectorPierce(
 	const queue: Array<Document | ShadowRoot> = [document]
 
 	const visit = (root: Document | ShadowRoot): void => {
-		if (!root || seenRoots.has(root) || results.length >= targetIndex + 1)
+		if (!root || seenRoots.has(root) || results.length >= targetIndex + 1) {
 			return
+		}
 		seenRoots.add(root)
 
 		try {
 			const matches = root.querySelectorAll(selector)
 			for (const element of matches) {
-				if (seenElements.has(element)) continue
+				if (seenElements.has(element)) {
+					continue
+				}
 				seenElements.add(element)
 				results.push(element)
-				if (results.length >= targetIndex + 1) return
+				if (results.length >= targetIndex + 1) {
+					return
+				}
 			}
 		} catch {}
 
@@ -114,18 +139,26 @@ export function resolveCssSelectorPierce(
 				NodeFilter.SHOW_ELEMENT,
 			)
 			for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-				if (!(node instanceof Element)) continue
+				if (!(node instanceof Element)) {
+					continue
+				}
 				const open = node.shadowRoot
-				if (open) queue.push(open)
+				if (open) {
+					queue.push(open)
+				}
 				const closed = getClosedRoot(node)
-				if (closed) queue.push(closed)
+				if (closed) {
+					queue.push(closed)
+				}
 			}
 		} catch {}
 	}
 
 	while (queue.length && results.length < targetIndex + 1) {
 		const next = queue.shift()
-		if (next) visit(next)
+		if (next) {
+			visit(next)
+		}
 	}
 
 	return results[targetIndex] ?? null
@@ -136,7 +169,9 @@ export function resolveTextSelector(
 	targetIndexRaw?: number,
 ): Element | null {
 	const needle = String(rawNeedle ?? "")
-	if (!needle) return null
+	if (!needle) {
+		return null
+	}
 	const needleLc = needle.toLowerCase()
 	const targetIndex = parseTargetIndex(targetIndexRaw)
 
@@ -154,20 +189,28 @@ export function resolveTextSelector(
 	])
 
 	const shouldSkip = (node: Element | null | undefined): boolean => {
-		if (!node) return false
+		if (!node) {
+			return false
+		}
 		const tag = node.tagName?.toUpperCase() ?? ""
 		return skipTags.has(tag)
 	}
 
 	const extractText = (node: Element): string => {
 		try {
-			if (shouldSkip(node)) return ""
+			if (shouldSkip(node)) {
+				return ""
+			}
 			const inner = (node as HTMLElement).innerText
-			if (typeof inner === "string" && inner.trim()) return inner.trim()
+			if (typeof inner === "string" && inner.trim()) {
+				return inner.trim()
+			}
 		} catch {}
 		try {
 			const text = node.textContent
-			if (typeof text === "string") return text.trim()
+			if (typeof text === "string") {
+				return text.trim()
+			}
 		} catch {}
 		return ""
 	}
@@ -203,7 +246,9 @@ export function resolveTextSelector(
 	}> = []
 
 	const enqueue = (node: Node | null | undefined) => {
-		if (!node || seen.has(node)) return
+		if (!node || seen.has(node)) {
+			return
+		}
 		seen.add(node)
 		queue.push(node)
 	}
@@ -224,7 +269,9 @@ export function resolveTextSelector(
 
 	while (queue.length) {
 		const root = queue.shift()
-		if (!root) continue
+		if (!root) {
+			continue
+		}
 
 		if (root instanceof Element && matches(root)) {
 			matchesList.push({
@@ -237,10 +284,14 @@ export function resolveTextSelector(
 		}
 
 		const walker = walkerFor(root)
-		if (!walker) continue
+		if (!walker) {
+			continue
+		}
 
 		for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-			if (!(node instanceof Element)) continue
+			if (!(node instanceof Element)) {
+				continue
+			}
 
 			if (matches(node)) {
 				matchesList.push({
@@ -253,10 +304,14 @@ export function resolveTextSelector(
 			}
 
 			const open = node.shadowRoot
-			if (open) enqueue(open)
+			if (open) {
+				enqueue(open)
+			}
 
 			const closed = getClosedRoot(node)
-			if (closed) enqueue(closed)
+			if (closed) {
+				enqueue(closed)
+			}
 		}
 	}
 
@@ -265,7 +320,9 @@ export function resolveTextSelector(
 		const el = item.element
 		let skip = false
 		for (const other of matchesList) {
-			if (item === other) continue
+			if (item === other) {
+				continue
+			}
 			try {
 				if (el.contains(other.element)) {
 					skip = true

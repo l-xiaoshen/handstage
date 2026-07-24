@@ -1,6 +1,10 @@
 import { a11yScriptSources } from "@handstage/dom/build/a11yScripts.generated"
 import type { Protocol } from "devtools-protocol"
 import type { CDPSessionLike } from "../../cdp"
+import {
+	releaseDiscardedEvaluationHandles,
+	releaseObjectIds,
+} from "../../runtimeObjectUtils"
 
 /**
  * Build the absolute XPath for a node by walking through every iframe host
@@ -20,11 +24,15 @@ export async function buildAbsoluteXPathFromChain(
 			step.parentSession,
 			step.iframeBackendNodeId,
 		)
-		if (!xp) continue
+		if (!xp) {
+			continue
+		}
 		prefix = prefix ? prefixXPath(prefix, xp) : normalizeXPath(xp)
 	}
 	const leaf = await absoluteXPathForBackendNode(leafSession, leafBackendNodeId)
-	if (!leaf) return prefix || "/"
+	if (!leaf) {
+		return prefix || "/"
+	}
 	return prefix ? prefixXPath(prefix, leaf) : normalizeXPath(leaf)
 }
 
@@ -36,22 +44,31 @@ export async function absoluteXPathForBackendNode(
 	session: CDPSessionLike,
 	backendNodeId: number,
 ): Promise<string | null> {
+	let objectId: string | undefined
 	try {
 		const { object } = await session.send("DOM.resolveNode", { backendNodeId })
-		const objectId = object?.objectId
-		if (!objectId) return null
+		objectId = object?.objectId
+		if (!objectId) {
+			return null
+		}
 
-		const { result } = await session.send("Runtime.callFunctionOn", {
+		const evaluation = await session.send("Runtime.callFunctionOn", {
 			objectId,
 			functionDeclaration: a11yScriptSources.nodeToAbsoluteXPath,
 			returnByValue: true,
 		})
-		await session.send("Runtime.releaseObject", { objectId }).catch(() => {})
-		return typeof result?.value === "string" && result.value
-			? result.value
+		await releaseDiscardedEvaluationHandles(session, evaluation)
+		if (evaluation.exceptionDetails) {
+			return null
+		}
+		return typeof evaluation.result.value === "string" &&
+			evaluation.result.value
+			? evaluation.result.value
 			: null
 	} catch {
 		return null
+	} finally {
+		await releaseObjectIds(session, [objectId])
 	}
 }
 
@@ -61,19 +78,28 @@ export async function absoluteXPathForBackendNode(
  */
 export function prefixXPath(parentAbs: string, child: string): string {
 	const p = parentAbs === "/" ? "" : parentAbs.replace(/\/$/, "")
-	if (!child || child === "/") return p || "/"
-	if (child.startsWith("//"))
+	if (!child || child === "/") {
+		return p || "/"
+	}
+	if (child.startsWith("//")) {
 		return p ? `${p}//${child.slice(2)}` : `//${child.slice(2)}`
+	}
 	const c = child.replace(/^\//, "")
 	return p ? `${p}/${c}` : `/${c}`
 }
 
 /** Normalize an XPath: strip `xpath=`, ensure leading '/', remove trailing '/'. */
 export function normalizeXPath(x?: string): string {
-	if (!x) return ""
+	if (!x) {
+		return ""
+	}
 	let s = x.trim().replace(/^xpath=/i, "")
-	if (!s.startsWith("/")) s = `/${s}`
-	if (s.length > 1 && s.endsWith("/")) s = s.slice(0, -1)
+	if (!s.startsWith("/")) {
+		s = `/${s}`
+	}
+	if (s.length > 1 && s.endsWith("/")) {
+		s = s.slice(0, -1)
+	}
 	return s
 }
 
@@ -102,11 +128,19 @@ export function buildChildXPathSegments(kids: Protocol.DOM.Node[]): string[] {
 /** Join two XPath fragments while preserving special shadow-root hops. */
 export function joinXPath(base: string, step: string): string {
 	if (step === "//") {
-		if (!base || base === "/") return "//"
+		if (!base || base === "/") {
+			return "//"
+		}
 		return base.endsWith("/") ? `${base}/` : `${base}//`
 	}
-	if (!base || base === "/") return step ? `/${step}` : "/"
-	if (base.endsWith("//")) return `${base}${step}`
-	if (!step) return base
+	if (!base || base === "/") {
+		return step ? `/${step}` : "/"
+	}
+	if (base.endsWith("//")) {
+		return `${base}${step}`
+	}
+	if (!step) {
+		return base
+	}
 	return `${base}/${step}`
 }

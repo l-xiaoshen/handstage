@@ -64,6 +64,11 @@ export class FakeSession implements CDPSessionLike {
 		return this.handlers.get(event)?.size ?? 0
 	}
 
+	/** Snapshot handlers to exercise callbacks already queued before teardown. */
+	handlersFor(event: string): Handler[] {
+		return [...(this.handlers.get(event) ?? [])]
+	}
+
 	async close(): Promise<void> {}
 }
 
@@ -162,7 +167,9 @@ export class FakeConnection implements CDPConnectionLike {
 	}
 
 	emitTransportClosed(why = "test transport closed"): void {
-		for (const handler of [...this.transportCloseHandlers]) handler(why)
+		for (const handler of [...this.transportCloseHandlers]) {
+			handler(why)
+		}
 	}
 
 	waitForSessionDispatch<M extends CDPCommand>(
@@ -242,9 +249,13 @@ export class InMemoryTransport implements CDPTransport {
 		} catch {
 			return
 		}
-		if (!parsed || typeof parsed.id !== "number") return
+		if (!parsed || typeof parsed.id !== "number") {
+			return
+		}
 		const reply = this.synthesize(parsed.method ?? "")
-		if (reply === undefined) return
+		if (reply === undefined) {
+			return
+		}
 		const payload = JSON.stringify({ id: parsed.id, result: reply })
 		queueMicrotask(() => this.onmessage?.(payload))
 	}
@@ -277,7 +288,9 @@ export class InMemoryTransport implements CDPTransport {
 export async function waitFor(assertion: () => boolean): Promise<void> {
 	const deadline = Date.now() + 500
 	while (Date.now() < deadline) {
-		if (assertion()) return
+		if (assertion()) {
+			return
+		}
 		await new Promise((resolve) => setTimeout(resolve, 5))
 	}
 	if (!assertion()) {

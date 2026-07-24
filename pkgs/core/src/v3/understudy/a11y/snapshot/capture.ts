@@ -53,7 +53,9 @@ export async function captureHybridSnapshot(
 	const context = buildFrameContext(page)
 
 	const scopedSnapshot = await tryScopedSnapshot(page, options, context, pierce)
-	if (scopedSnapshot) return scopedSnapshot
+	if (scopedSnapshot) {
+		return scopedSnapshot
+	}
 
 	const framesInScope = includeIframes ? [...context.frames] : [context.rootId]
 	if (!framesInScope.includes(context.rootId)) {
@@ -97,7 +99,9 @@ export function buildFrameContext(page: Page): FrameContext {
 	const parentByFrame: FrameParentIndex = new Map()
 	;(function index(n: Protocol.Page.FrameTree, parent: string | null) {
 		parentByFrame.set(n.frame.id, parent)
-		for (const c of n.childFrames ?? []) index(c, n.frame.id)
+		for (const c of n.childFrames ?? []) {
+			index(c, n.frame.id)
+		}
 	})(frameTree, null)
 	const frames = page.listAllFrameIds()
 	return { rootId, parentByFrame, frames }
@@ -119,7 +123,9 @@ export async function tryScopedSnapshot(
 	pierce: boolean,
 ): Promise<HybridSnapshot | null> {
 	const requestedFocus = options?.focusSelector?.trim()
-	if (!requestedFocus) return null
+	if (!requestedFocus) {
+		return null
+	}
 
 	const logScopeFallback = () => {
 		page.logger({
@@ -241,7 +247,9 @@ export async function buildSessionIndexes(
 	for (const frameId of frames) {
 		const sess = ownerSession(page, frameId)
 		const sid = sess.id ?? "root"
-		if (!sessionById.has(sid)) sessionById.set(sid, sess)
+		if (!sessionById.has(sid)) {
+			sessionById.set(sid, sess)
+		}
 	}
 	for (const [sid, sess] of sessionById.entries()) {
 		const idx = await buildSessionDomIndex(sess, pierce)
@@ -292,7 +300,9 @@ export async function collectPerFrameMaps(
 				})
 				if (typeof backendNodeId === "number") {
 					const cdBe = idx.contentDocRootByIframe.get(backendNodeId)
-					if (typeof cdBe === "number") docRootBe = cdBe
+					if (typeof cdBe === "number") {
+						docRootBe = cdBe
+					}
 				}
 			} catch {}
 		}
@@ -305,15 +315,21 @@ export async function collectPerFrameMaps(
 
 		for (const [be, nodeAbs] of idx.absByBe.entries()) {
 			const nodeDocRoot = idx.docRootOf.get(be)
-			if (nodeDocRoot !== docRootBe) continue
+			if (nodeDocRoot !== docRootBe) {
+				continue
+			}
 
 			// Translate absolute XPaths into document-relative ones for this frame.
 			const rel = relativizeXPath(baseAbs, nodeAbs)
 			const key = enc(be)
 			xpathMap[key] = rel
 			const tag = idx.tagByBe.get(be)
-			if (tag) tagNameMap[key] = tag
-			if (idx.scrollByBe.get(be)) scrollableMap[key] = true
+			if (tag) {
+				tagNameMap[key] = tag
+			}
+			if (idx.scrollByBe.get(be)) {
+				scrollableMap[key] = true
+			}
 		}
 
 		const { outline, urlMap } = await a11yForFrame(sess, frameId, {
@@ -369,8 +385,12 @@ export async function computeFramePrefixes(
 		}
 
 		for (const child of context.frames) {
-			if (!included.has(child)) continue
-			if (context.parentByFrame.get(child) !== parent) continue
+			if (!included.has(child)) {
+				continue
+			}
+			if (context.parentByFrame.get(child) !== parent) {
+				continue
+			}
 			queue.push(child)
 
 			const parentSess = parentSession(page, context.parentByFrame, child)
@@ -427,7 +447,9 @@ export function mergeFramesIntoSnapshot(
 
 	for (const frameId of frameIds) {
 		const maps = perFrameMaps.get(frameId)
-		if (!maps) continue
+		if (!maps) {
+			continue
+		}
 
 		const abs = absPrefix.get(frameId) ?? ""
 		const isRoot = abs === "" || abs === "/"
@@ -448,7 +470,9 @@ export function mergeFramesIntoSnapshot(
 	for (const { frameId, outline } of perFrameOutlines) {
 		const parentEnc = iframeHostEncByChild.get(frameId)
 		// The key is the parent iframe's encoded id so injectSubtrees can nest lines.
-		if (parentEnc) idToTree.set(parentEnc, outline)
+		if (parentEnc) {
+			idToTree.set(parentEnc, outline)
+		}
 	}
 
 	const rootOutline =

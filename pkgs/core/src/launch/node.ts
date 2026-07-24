@@ -23,16 +23,63 @@ export async function launchChromeNode(
 		throw error
 	}
 
-	const p: ChildProcess = spawn(chromePath, finalFlags, {
-		stdio: ["ignore", "ignore", "ignore", "pipe", "pipe"],
-	})
-	p.once("error", () => {
+	let p: ChildProcess
+	try {
+		p = spawn(chromePath, finalFlags, {
+			stdio: ["ignore", "ignore", "ignore", "pipe", "pipe"],
+		})
+	} catch (error) {
 		cleanupUserDataDir(userDataDir, createdTemp, lbo)
+		throw error
+	}
+
+	// Bun's node:child_process shim sets pid without emitting Node's spawn event.
+	let startupSettled = typeof p.pid === "number" && p.pid > 0
+	let resolveStartup!: () => void
+	let rejectStartup!: (error: Error) => void
+	const startup = new Promise<void>((resolve, reject) => {
+		resolveStartup = resolve
+		rejectStartup = reject
+		if (startupSettled) {
+			resolve()
+		}
 	})
+	const onSpawn = () => {
+		if (startupSettled) {
+			return
+		}
+		startupSettled = true
+		resolveStartup()
+	}
+	const onProcessError = (error: Error) => {
+		if (startupSettled) {
+			return
+		}
+		startupSettled = true
+		p.off("spawn", onSpawn)
+		rejectStartup(error)
+	}
+	p.once("spawn", onSpawn)
+	p.on("error", onProcessError)
 	const exited = new Promise<void>((resolve) => {
-		if (p.exitCode !== null || p.signalCode !== null) resolve()
-		else p.once("exit", () => resolve())
+		const onClose = () => {
+			p.off("spawn", onSpawn)
+			p.off("error", onProcessError)
+			resolve()
+		}
+		if (p.exitCode !== null || p.signalCode !== null) {
+			onClose()
+		} else {
+			p.once("close", onClose)
+		}
 	})
+	try {
+		await startup
+	} catch (error) {
+		await exited
+		cleanupUserDataDir(userDataDir, createdTemp, lbo)
+		throw error
+	}
 
 	const fd3 = p.stdio[3] // Chrome's read pipe (our WritableStream)
 	const fd4 = p.stdio[4] // Chrome's write pipe (our ReadableStream)
@@ -44,6 +91,7 @@ export async function launchChromeNode(
 			userDataDir,
 			createdTemp,
 			lbo,
+			() => p.unref(),
 		)
 		throw new Error("Failed to map Chrome pipes to stdio")
 	}
@@ -59,7 +107,9 @@ export async function launchChromeNode(
 				fd4.off("error", onError)
 			}
 			const finish = () => {
-				if (settled) return
+				if (settled) {
+					return
+				}
 				settled = true
 				cleanup()
 				try {
@@ -83,7 +133,9 @@ export async function launchChromeNode(
 			const onEnd = () => finish()
 			const onClose = () => finish()
 			const onError = (err: Error) => {
-				if (settled) return
+				if (settled) {
+					return
+				}
 				settled = true
 				cleanup()
 				try {
@@ -105,8 +157,29 @@ export async function launchChromeNode(
 		},
 	})
 
+	let stdinController: WritableStreamDefaultController | null = null
+	let stdinError: Error | null = null
+	const onStdinError = (error: Error) => {
+		stdinError = error
+		try {
+			stdinController?.error(error)
+		} catch {}
+	}
+	fd3.on("error", onStdinError)
+	fd3.once("close", () => {
+		fd3.off("error", onStdinError)
+		stdinController = null
+	})
+
 	const stdin = new WritableStream<Uint8Array>({
+		start(controller) {
+			stdinController = controller
+		},
 		write(chunk, controller) {
+			if (stdinError) {
+				controller.error(stdinError)
+				return Promise.reject(stdinError)
+			}
 			return new Promise((resolve, reject) => {
 				fd3.write(chunk, (err) => {
 					if (err) {
@@ -123,16 +196,17 @@ export async function launchChromeNode(
 				fd3.end(resolve)
 			})
 		},
-		abort(err) {
-			if (err === undefined) fd3.destroy()
-			else fd3.destroy(err instanceof Error ? err : new Error(String(err)))
+		abort() {
+			fd3.destroy()
 		},
 	})
 
 	let closePromise: Promise<void> | null = null
-	const close = (): Promise<void> => {
-		if (closePromise) return closePromise
-		closePromise = (async () => {
+	const close = async (): Promise<void> => {
+		if (closePromise) {
+			return closePromise
+		}
+		const operation = (async () => {
 			fd3.destroy()
 			fd4.destroy()
 
@@ -142,9 +216,18 @@ export async function launchChromeNode(
 				userDataDir,
 				createdTemp,
 				lbo,
+				() => p.unref(),
 			)
 		})()
-		return closePromise
+		closePromise = operation
+		try {
+			await operation
+		} catch (error) {
+			if (closePromise === operation) {
+				closePromise = null
+			}
+			throw error
+		}
 	}
 
 	return {

@@ -18,7 +18,9 @@ import { CookieValidationError } from "../types/public/sdkErrors"
  * If `urls` is empty every cookie passes.
  */
 export function filterCookies(cookies: Cookie[], urls: string[]): Cookie[] {
-	if (!urls.length) return cookies
+	if (!urls.length) {
+		return cookies
+	}
 	const parsed = urls.map((u) => {
 		try {
 			return new URL(u)
@@ -29,8 +31,12 @@ export function filterCookies(cookies: Cookie[], urls: string[]): Cookie[] {
 	return cookies.filter((c) => {
 		for (const url of parsed) {
 			let domain = c.domain
-			if (!domain.startsWith(".")) domain = `.${domain}`
-			if (!`.${url.hostname}`.endsWith(domain)) continue
+			if (!domain.startsWith(".")) {
+				domain = `.${domain}`
+			}
+			if (!`.${url.hostname}`.endsWith(domain)) {
+				continue
+			}
 			// Path must match on a "/" boundary: cookie path "/foo" should match
 			// "/foo" and "/foo/bar" but NOT "/foobar".
 			const p = url.pathname
@@ -39,13 +45,16 @@ export function filterCookies(cookies: Cookie[], urls: string[]): Cookie[] {
 				(c.path.length < p.length &&
 					!c.path.endsWith("/") &&
 					p[c.path.length] !== "/")
-			)
+			) {
 				continue
+			}
 			const isLoopback =
 				url.hostname === "localhost" ||
 				url.hostname === "127.0.0.1" ||
 				url.hostname === "[::1]"
-			if (url.protocol !== "https:" && !isLoopback && c.secure) continue
+			if (url.protocol !== "https:" && !isLoopback && c.secure) {
+				continue
+			}
 			return true
 		}
 		return false
@@ -156,7 +165,9 @@ export function cookieMatchesFilter(
 		prop: "name" | "domain" | "path",
 		value: string | RegExp | undefined,
 	): boolean => {
-		if (value === undefined) return true
+		if (value === undefined) {
+			return true
+		}
 		if (value instanceof RegExp) {
 			value.lastIndex = 0
 			return value.test(cookie[prop])

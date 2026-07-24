@@ -26,6 +26,8 @@ export async function withPage<T extends Record<string, unknown>>(
 	fn: (page: Page) => Promise<T>,
 ): Promise<({ ok: true } & T) | ErrResult> {
 	const page = ctx.resolvePageByTargetId(pageId)
-	if (!page) return errResult(`Unknown pageId: ${pageId}`)
+	if (!page) {
+		return errResult(`Unknown pageId: ${pageId}`)
+	}
 	return tryAgentResult(() => fn(page))
 }

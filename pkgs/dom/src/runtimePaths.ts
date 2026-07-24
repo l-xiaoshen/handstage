@@ -44,23 +44,37 @@ const readCallsitePath = (callsite: NodeJS.CallSite): string | null => {
 	const callsiteWithScript = callsite as CallSiteWithScriptName
 	const rawPath =
 		callsite.getFileName() ?? callsiteWithScript.getScriptNameOrSourceURL?.()
-	if (!rawPath) return null
-	if (rawPath.startsWith("node:")) return null
-	if (EVAL_FRAMES.has(rawPath)) return null
+	if (!rawPath) {
+		return null
+	}
+	if (rawPath.startsWith("node:")) {
+		return null
+	}
+	if (EVAL_FRAMES.has(rawPath)) {
+		return null
+	}
 	return normalizePath(rawPath)
 }
 
 const isInternalCallsite = (callsite: NodeJS.CallSite): boolean => {
 	const functionName = callsite.getFunctionName()
-	if (functionName && INTERNAL_FRAME_NAMES.has(functionName)) return true
+	if (functionName && INTERNAL_FRAME_NAMES.has(functionName)) {
+		return true
+	}
 
 	const methodName = callsite.getMethodName()
-	if (methodName && INTERNAL_FRAME_NAMES.has(methodName)) return true
+	if (methodName && INTERNAL_FRAME_NAMES.has(methodName)) {
+		return true
+	}
 
 	const callsiteString = callsite.toString()
 	for (const frameName of INTERNAL_FRAME_NAMES) {
-		if (callsiteString.includes(`${frameName} (`)) return true
-		if (callsiteString.includes(`.${frameName} (`)) return true
+		if (callsiteString.includes(`${frameName} (`)) {
+			return true
+		}
+		if (callsiteString.includes(`.${frameName} (`)) {
+			return true
+		}
 	}
 	return false
 }
@@ -71,8 +85,12 @@ const resolveCallerFilePath = (): string => {
 
 	for (const callsite of readCallsites()) {
 		const filePath = readCallsitePath(callsite)
-		if (!filePath) continue
-		if (isInternalCallsite(callsite)) continue
+		if (!filePath) {
+			continue
+		}
+		if (isInternalCallsite(callsite)) {
+			continue
+		}
 		if (filePath.includes(PACKAGE_SEGMENT)) {
 			packageCandidates.push(filePath)
 			continue
@@ -81,10 +99,14 @@ const resolveCallerFilePath = (): string => {
 	}
 
 	const packageCandidate = packageCandidates[0]
-	if (packageCandidate) return packageCandidate
+	if (packageCandidate) {
+		return packageCandidate
+	}
 
 	const fallbackCandidate = fallbackCandidates[0]
-	if (fallbackCandidate) return fallbackCandidate
+	if (fallbackCandidate) {
+		return fallbackCandidate
+	}
 
 	throw new Error("Unable to resolve caller file path.")
 }
@@ -112,6 +134,8 @@ export const createRequireFromCaller = () => createRequire(getCurrentFilePath())
 
 export const isMainModule = (): boolean => {
 	const entryScript = process.argv.at(1)
-	if (!entryScript) return false
+	if (!entryScript) {
+		return false
+	}
 	return normalizePath(entryScript) === getCurrentFilePath()
 }

@@ -26,7 +26,9 @@ export async function waitForProcessExit(
 			}),
 		])
 	} finally {
-		if (timer) clearTimeout(timer)
+		if (timer) {
+			clearTimeout(timer)
+		}
 	}
 }
 
@@ -36,19 +38,46 @@ export async function performBrowserProcessCleanup(
 	userDataDir: string | undefined,
 	createdTemp: boolean,
 	opts?: LocalBrowserLaunchOptions,
+	onAbandon?: () => void,
 ): Promise<void> {
 	let confirmedExit = false
+	const killErrors: unknown[] = []
 	try {
-		kill()
+		try {
+			kill()
+		} catch (error) {
+			killErrors.push(error)
+		}
 		confirmedExit = await waitForProcessExit(exited, CHROME_EXIT_TIMEOUT_MS)
 		if (!confirmedExit) {
-			kill("SIGKILL")
+			try {
+				kill("SIGKILL")
+			} catch (error) {
+				killErrors.push(error)
+			}
 			confirmedExit = await waitForProcessExit(exited, CHROME_EXIT_TIMEOUT_MS)
 		}
 	} finally {
-		if (confirmedExit) cleanupUserDataDir(userDataDir, createdTemp, opts)
+		if (confirmedExit) {
+			cleanupUserDataDir(userDataDir, createdTemp, opts)
+		}
 	}
-	if (!confirmedExit) throw new Error("Chrome did not exit after SIGKILL")
+	if (!confirmedExit) {
+		try {
+			onAbandon?.()
+		} catch {}
+		void exited
+			.then(() => cleanupUserDataDir(userDataDir, createdTemp, opts))
+			.catch(() => {})
+		const timeoutError = new Error("Chrome did not exit after SIGKILL")
+		if (killErrors.length > 0) {
+			throw new AggregateError(
+				[...killErrors, timeoutError],
+				"Failed to terminate Chrome",
+			)
+		}
+		throw timeoutError
+	}
 }
 
 export interface PreparedLaunchOptions {
@@ -91,8 +120,12 @@ export function prepareChromeLaunchOptions(
 		"--remote-debugging-pipe",
 	]
 
-	if (lbo.devtools) chromeFlags.push("--auto-open-devtools-for-tabs")
-	if (lbo.locale) chromeFlags.push(`--lang=${lbo.locale}`)
+	if (lbo.devtools) {
+		chromeFlags.push("--auto-open-devtools-for-tabs")
+	}
+	if (lbo.locale) {
+		chromeFlags.push(`--lang=${lbo.locale}`)
+	}
 	if (lbo.viewport?.width && lbo.viewport?.height) {
 		chromeFlags.push(
 			`--window-size=${lbo.viewport.width},${lbo.viewport.height + 87}`,
@@ -103,14 +136,25 @@ export function prepareChromeLaunchOptions(
 			`--force-device-scale-factor=${Math.max(0.1, lbo.deviceScaleFactor)}`,
 		)
 	}
-	if (lbo.hasTouch) chromeFlags.push("--touch-events=enabled")
-	if (lbo.ignoreHTTPSErrors) chromeFlags.push("--ignore-certificate-errors")
-	if (lbo.proxy?.server) chromeFlags.push(`--proxy-server=${lbo.proxy.server}`)
-	if (lbo.proxy?.bypass)
+	if (lbo.hasTouch) {
+		chromeFlags.push("--touch-events=enabled")
+	}
+	if (lbo.ignoreHTTPSErrors) {
+		chromeFlags.push("--ignore-certificate-errors")
+	}
+	if (lbo.proxy?.server) {
+		chromeFlags.push(`--proxy-server=${lbo.proxy.server}`)
+	}
+	if (lbo.proxy?.bypass) {
 		chromeFlags.push(`--proxy-bypass-list=${lbo.proxy.bypass}`)
-	if (userDataDir) chromeFlags.push(`--user-data-dir=${userDataDir}`)
+	}
+	if (userDataDir) {
+		chromeFlags.push(`--user-data-dir=${userDataDir}`)
+	}
 
-	if (Array.isArray(lbo.args)) chromeFlags.push(...lbo.args)
+	if (Array.isArray(lbo.args)) {
+		chromeFlags.push(...lbo.args)
+	}
 
 	const finalFlags = chromeFlags.filter(
 		(f): f is string => typeof f === "string",
@@ -131,7 +175,12 @@ export function cleanupUserDataDir(
 ): void {
 	if (createdTemp && !opts?.preserveUserDataDir && userDataDir) {
 		try {
-			fs.rmSync(userDataDir, { recursive: true, force: true })
+			fs.rmSync(userDataDir, {
+				recursive: true,
+				force: true,
+				maxRetries: 3,
+				retryDelay: 50,
+			})
 		} catch {}
 	}
 }

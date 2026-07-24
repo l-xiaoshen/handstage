@@ -4,6 +4,10 @@ import { buildA11yInvocation } from "../../a11yInvocation"
 import { executionContexts } from "../../executionContextRegistry"
 import type { Page } from "../../page"
 import {
+	releaseDiscardedEvaluationHandles,
+	releaseObjectIds,
+} from "../../runtimeObjectUtils"
+import {
 	absoluteXPathForBackendNode,
 	normalizeXPath,
 	prefixXPath,
@@ -22,7 +26,9 @@ export async function computeActiveElementXpath(
 	const parentByFrame = new Map<string, string | null>()
 	;(function index(n: Protocol.Page.FrameTree, parent: string | null) {
 		parentByFrame.set(n.frame.id, parent)
-		for (const c of n.childFrames ?? []) index(c, n.frame.id)
+		for (const c of n.childFrames ?? []) {
+			index(c, n.frame.id)
+		}
 	})(tree, null)
 
 	const frames = page.listAllFrameIds()
@@ -42,14 +48,17 @@ export async function computeActiveElementXpath(
 						returnByValue: true,
 					}
 				: { expression: hasFocusExpr, returnByValue: true }
-			const { result } = await sess.send("Runtime.evaluate", evalParams)
-			if (result?.value === true) {
+			const evaluation = await sess.send("Runtime.evaluate", evalParams)
+			await releaseDiscardedEvaluationHandles(sess, evaluation)
+			if (!evaluation.exceptionDetails && evaluation.result.value === true) {
 				focusedFrameId = fid
 				break
 			}
 		} catch {}
 	}
-	if (!focusedFrameId) focusedFrameId = page.mainFrameId()
+	if (!focusedFrameId) {
+		focusedFrameId = page.mainFrameId()
+	}
 	const focusedSession = page.getSessionForFrame(focusedFrameId)
 
 	let objectId: string | undefined
@@ -66,40 +75,50 @@ export async function computeActiveElementXpath(
 					returnByValue: false,
 				}
 			: { expression: activeExpr, returnByValue: false }
-		const { result } = await focusedSession.send("Runtime.evaluate", evalParams)
-		objectId = result?.objectId as string | undefined
+		const evaluation = await focusedSession.send("Runtime.evaluate", evalParams)
+		if (evaluation.exceptionDetails) {
+			await releaseDiscardedEvaluationHandles(focusedSession, evaluation)
+		} else {
+			objectId = evaluation.result.objectId
+		}
 	} catch {
 		objectId = undefined
 	}
-	if (!objectId) return null
+	if (!objectId) {
+		return null
+	}
 
 	const leafXPath = await (async () => {
 		try {
-			const { result } = await focusedSession.send("Runtime.callFunctionOn", {
+			const evaluation = await focusedSession.send("Runtime.callFunctionOn", {
 				objectId,
 				functionDeclaration: a11yScriptSources.nodeToAbsoluteXPath,
 				returnByValue: true,
 			})
-			try {
-				await focusedSession.send("Runtime.releaseObject", { objectId })
-			} catch {}
-			const xp = result?.value || ""
+			await releaseDiscardedEvaluationHandles(focusedSession, evaluation)
+			if (evaluation.exceptionDetails) {
+				return null
+			}
+			const xp = evaluation.result.value || ""
 			return typeof xp === "string" && xp ? xp : null
 		} catch {
-			try {
-				await focusedSession.send("Runtime.releaseObject", { objectId })
-			} catch {}
 			return null
+		} finally {
+			await releaseObjectIds(focusedSession, [objectId])
 		}
 	})()
 
-	if (!leafXPath) return null
+	if (!leafXPath) {
+		return null
+	}
 
 	let prefix = ""
 	let cur: string | null | undefined = focusedFrameId
 	while (cur) {
 		const parent: string | null = parentByFrame.get(cur) ?? null
-		if (!parent) break
+		if (!parent) {
+			break
+		}
 		const parentSess = page.getSessionForFrame(parent)
 		try {
 			const { backendNodeId } = await parentSess.send("DOM.getFrameOwner", {
@@ -107,7 +126,9 @@ export async function computeActiveElementXpath(
 			})
 			if (typeof backendNodeId === "number") {
 				const xp = await absoluteXPathForBackendNode(parentSess, backendNodeId)
-				if (xp) prefix = prefix ? prefixXPath(prefix, xp) : normalizeXPath(xp)
+				if (xp) {
+					prefix = prefix ? prefixXPath(prefix, xp) : normalizeXPath(xp)
+				}
 			}
 		} catch {}
 		cur = parent

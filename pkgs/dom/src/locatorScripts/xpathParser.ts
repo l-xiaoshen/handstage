@@ -59,7 +59,9 @@ export function parseXPathSteps(input: string): XPathStep[] {
 	const path = String(input || "")
 		.trim()
 		.replace(/^xpath=/i, "")
-	if (!path) return []
+	if (!path) {
+		return []
+	}
 
 	const steps: XPathStep[] = []
 	let i = 0
@@ -80,7 +82,9 @@ export function parseXPathSteps(input: string): XPathStep[] {
 		while (i < path.length) {
 			const ch = path[i]
 			if (quote) {
-				if (ch === quote) quote = null
+				if (ch === quote) {
+					quote = null
+				}
 			} else if (ch === "'" || ch === '"') {
 				quote = ch
 			} else if (ch === "[") {
@@ -93,7 +97,9 @@ export function parseXPathSteps(input: string): XPathStep[] {
 			i += 1
 		}
 		const rawStep = path.slice(start, i).trim()
-		if (!rawStep) continue
+		if (!rawStep) {
+			continue
+		}
 
 		const { tag, predicates } = parseStep(rawStep)
 		steps.push({ axis, tag, predicates })
@@ -120,7 +126,9 @@ function extractPredicates(str: string): string[] {
 		while (i < str.length) {
 			const ch = str[i]
 			if (quote) {
-				if (ch === quote) quote = null
+				if (ch === quote) {
+					quote = null
+				}
 			} else if (ch === "'" || ch === '"') {
 				quote = ch
 			} else if (ch === "]") {
@@ -152,7 +160,9 @@ function parseStep(raw: string): {
 
 	for (const inner of extractPredicates(predicateStr)) {
 		const parsed = parsePredicateExpression(inner)
-		if (parsed) predicates.push(parsed)
+		if (parsed) {
+			predicates.push(parsed)
+		}
 	}
 
 	return { tag, predicates }
@@ -160,14 +170,18 @@ function parseStep(raw: string): {
 
 function parsePredicateExpression(input: string): XPathPredicate | null {
 	const trimmed = input.trim()
-	if (!trimmed) return null
+	if (!trimmed) {
+		return null
+	}
 
 	const orParts = splitTopLevel(trimmed, "or")
 	if (orParts.length > 1) {
 		const preds = orParts
 			.map((part) => parsePredicateExpression(part))
 			.filter(Boolean) as XPathPredicate[]
-		if (preds.length !== orParts.length) return null
+		if (preds.length !== orParts.length) {
+			return null
+		}
 		return { type: "or", predicates: preds }
 	}
 
@@ -176,7 +190,9 @@ function parsePredicateExpression(input: string): XPathPredicate | null {
 		const preds = andParts
 			.map((part) => parsePredicateExpression(part))
 			.filter(Boolean) as XPathPredicate[]
-		if (preds.length !== andParts.length) return null
+		if (preds.length !== andParts.length) {
+			return null
+		}
 		return { type: "and", predicates: preds }
 	}
 
@@ -300,7 +316,9 @@ function splitTopLevel(input: string, keyword: string): string[] {
 	while (i < input.length) {
 		const ch = input[i]
 		if (quote) {
-			if (ch === quote) quote = null
+			if (ch === quote) {
+				quote = null
+			}
 			i += 1
 			continue
 		}
@@ -338,9 +356,13 @@ function splitTopLevel(input: string, keyword: string): string[] {
 }
 
 function isKeywordAt(input: string, index: number, keyword: string): boolean {
-	if (!input.startsWith(keyword, index)) return false
+	if (!input.startsWith(keyword, index)) {
+		return false
+	}
 	const before = index > 0 ? input[index - 1] : " "
-	if (before === "@") return false
+	if (before === "@") {
+		return false
+	}
 	const after =
 		index + keyword.length < input.length ? input[index + keyword.length] : " "
 	return isBoundary(before) && isBoundary(after)
@@ -352,7 +374,9 @@ function isBoundary(ch: string): boolean {
 
 function unwrapFunctionCall(input: string, name: string): string | null {
 	const prefix = `${name}(`
-	if (!input.startsWith(prefix) || !input.endsWith(")")) return null
+	if (!input.startsWith(prefix) || !input.endsWith(")")) {
+		return null
+	}
 	const inner = input.slice(prefix.length, -1)
 	return hasBalancedParens(inner) ? inner : null
 }
@@ -363,16 +387,23 @@ function hasBalancedParens(input: string): boolean {
 	for (let i = 0; i < input.length; i += 1) {
 		const ch = input[i]
 		if (quote) {
-			if (ch === quote) quote = null
+			if (ch === quote) {
+				quote = null
+			}
 			continue
 		}
 		if (ch === "'" || ch === '"') {
 			quote = ch
 			continue
 		}
-		if (ch === "(") depth += 1
-		else if (ch === ")") depth -= 1
-		if (depth < 0) return false
+		if (ch === "(") {
+			depth += 1
+		} else if (ch === ")") {
+			depth -= 1
+		}
+		if (depth < 0) {
+			return false
+		}
 	}
 	return depth === 0
 }
@@ -403,7 +434,9 @@ export function evaluatePredicate(
 			return element.getAttribute(predicate.name) !== null
 		case "attrEquals": {
 			const attr = element.getAttribute(predicate.name)
-			if (attr === null) return false
+			if (attr === null) {
+				return false
+			}
 			return (
 				normalizeMaybe(attr, predicate.normalize) ===
 				normalizeMaybe(predicate.value, predicate.normalize)
@@ -411,14 +444,18 @@ export function evaluatePredicate(
 		}
 		case "attrContains": {
 			const attr = element.getAttribute(predicate.name)
-			if (attr === null) return false
+			if (attr === null) {
+				return false
+			}
 			return normalizeMaybe(attr, predicate.normalize).includes(
 				normalizeMaybe(predicate.value, predicate.normalize),
 			)
 		}
 		case "attrStartsWith": {
 			const attr = element.getAttribute(predicate.name)
-			if (attr === null) return false
+			if (attr === null) {
+				return false
+			}
 			return normalizeMaybe(attr, predicate.normalize).startsWith(
 				normalizeMaybe(predicate.value, predicate.normalize),
 			)
@@ -446,13 +483,17 @@ export function applyPredicates(
 ): Element[] {
 	let current = elements
 	for (const predicate of predicates) {
-		if (!current.length) return []
+		if (!current.length) {
+			return []
+		}
 
 		if (predicate.type === "index") {
 			const idx = predicate.index - 1
 			if (idx >= 0 && idx < current.length) {
 				const indexed = current[idx]
-				if (!indexed) throw new Error("XPath predicate index resolved empty")
+				if (!indexed) {
+					throw new Error("XPath predicate index resolved empty")
+				}
 				current = [indexed]
 			} else {
 				current = []

@@ -5,11 +5,17 @@ import type {
 	AccessibilityTreeResult,
 } from "../../../types/private/snapshot"
 import type { CDPSessionLike } from "../../cdp"
+import { isFrameScopeError } from "../../protocolError"
+import { releaseObjectIds } from "../../runtimeObjectUtils"
 import {
 	resolveObjectIdForCss,
 	resolveObjectIdForXPath,
 } from "./focusSelectors"
 import { formatTreeLine, normaliseSpaces } from "./treeFormatUtils"
+
+function isA11yNode(node: A11yNode | null): node is A11yNode {
+	return node !== null
+}
 
 /**
  * Fetch and prune the accessibility tree for a frame, optionally scoping the
@@ -30,21 +36,22 @@ export async function a11yForFrame(
 			? await session.send("Accessibility.getFullAXTree", { frameId })
 			: await session.send("Accessibility.getFullAXTree"))
 	} catch (e) {
-		const msg = String((e as Error)?.message ?? e ?? "")
-		const isFrameScopeError =
-			msg.includes("Frame with the given") ||
-			msg.includes("does not belong to the target") ||
-			msg.includes("is not found")
-		if (!isFrameScopeError || !frameId) throw e
+		if (!isFrameScopeError(e) || !frameId) {
+			throw e
+		}
 		;({ nodes } = await session.send("Accessibility.getFullAXTree"))
 	}
 
 	const urlMap: Record<string, string> = {}
 	for (const n of nodes) {
 		const be = n.backendDOMNodeId
-		if (typeof be !== "number") continue
+		if (typeof be !== "number") {
+			continue
+		}
 		const url = extractUrlFromAXNode(n)
-		if (!url) continue
+		if (!url) {
+			continue
+		}
 		const enc = opts.encode(be)
 		urlMap[enc] = url
 	}
@@ -52,30 +59,44 @@ export async function a11yForFrame(
 	let scopeApplied = false
 	const nodesForOutline = await (async () => {
 		const sel = opts.focusSelector?.trim()
-		if (!sel) return nodes
+		if (!sel) {
+			return nodes
+		}
 		let objectId: string | null = null
 		try {
 			const looksLikeXPath = /^xpath=/i.test(sel) || sel.startsWith("/")
 			objectId = looksLikeXPath
 				? await resolveObjectIdForXPath(session, sel, frameId)
 				: await resolveObjectIdForCss(session, sel, frameId)
-			if (!objectId) return nodes
+			if (!objectId) {
+				return nodes
+			}
 			const desc = await session.send("DOM.describeNode", { objectId })
 			const be = desc.node?.backendNodeId
-			if (typeof be !== "number") return nodes
+			if (typeof be !== "number") {
+				return nodes
+			}
 			const target = nodes.find((n) => n.backendDOMNodeId === be)
-			if (!target) return nodes
+			if (!target) {
+				return nodes
+			}
 			scopeApplied = true
 			const keep = new Set<string>([target.nodeId])
 			const queue: Protocol.Accessibility.AXNode[] = [target]
 			while (queue.length) {
 				const cur = queue.shift()
-				if (!cur) throw new Error("AX traversal queue unexpectedly empty")
+				if (!cur) {
+					throw new Error("AX traversal queue unexpectedly empty")
+				}
 				for (const id of cur.childIds ?? []) {
-					if (keep.has(id)) continue
+					if (keep.has(id)) {
+						continue
+					}
 					keep.add(id)
 					const child = nodes.find((n) => n.nodeId === id)
-					if (child) queue.push(child)
+					if (child) {
+						queue.push(child)
+					}
 				}
 			}
 			return nodes
@@ -87,9 +108,7 @@ export async function a11yForFrame(
 			return nodes
 		} finally {
 			if (objectId) {
-				await session
-					.send("Runtime.releaseObject", { objectId })
-					.catch(() => {})
+				await releaseObjectIds(session, [objectId])
 			}
 		}
 	})()
@@ -153,12 +172,16 @@ export async function buildHierarchicalTree(
 	for (const n of nodes) {
 		const keep =
 			!!n.name?.trim() || !!n.childIds?.length || !isStructural(n.role)
-		if (!keep) continue
+		if (!keep) {
+			continue
+		}
 		nodeMap.set(n.nodeId, { ...n })
 	}
 
 	for (const n of nodes) {
-		if (!n.parentId) continue
+		if (!n.parentId) {
+			continue
+		}
 		const parent = nodeMap.get(n.parentId)
 		const cur = nodeMap.get(n.nodeId)
 		if (parent && cur) {
@@ -172,18 +195,22 @@ export async function buildHierarchicalTree(
 		.filter((n) => !n.parentId && nodeMap.has(n.nodeId))
 		.map((n) => {
 			const node = nodeMap.get(n.nodeId)
-			if (!node) throw new Error(`AX root node missing from map: ${n.nodeId}`)
+			if (!node) {
+				throw new Error(`AX root node missing from map: ${n.nodeId}`)
+			}
 			return node
 		})
 
 	const cleaned = (await Promise.all(roots.map(pruneStructuralSafe))).filter(
-		Boolean,
-	) as A11yNode[]
+		isA11yNode,
+	)
 
 	return { tree: cleaned }
 
 	async function pruneStructuralSafe(node: A11yNode): Promise<A11yNode | null> {
-		if (+node.nodeId < 0) return null
+		if (+node.nodeId < 0) {
+			return null
+		}
 
 		const children = node.children ?? []
 		if (!children.length) {
@@ -192,28 +219,36 @@ export async function buildHierarchicalTree(
 
 		const cleanedKids = (
 			await Promise.all(children.map(pruneStructuralSafe))
-		).filter(Boolean) as A11yNode[]
+		).filter(isA11yNode)
 
 		const prunedStatic = removeRedundantStaticTextChildren(node, cleanedKids)
 
 		if (isStructural(node.role)) {
 			if (prunedStatic.length === 1) {
 				const onlyChild = prunedStatic[0]
-				if (!onlyChild) throw new Error("pruned AX child is unexpectedly empty")
+				if (!onlyChild) {
+					throw new Error("pruned AX child is unexpectedly empty")
+				}
 				return onlyChild
 			}
-			if (prunedStatic.length === 0) return null
+			if (prunedStatic.length === 0) {
+				return null
+			}
 		}
 
 		let newRole = node.role
 		if ((newRole === "generic" || newRole === "none") && node.encodedId) {
 			const tagName = opts.tagNameMap[node.encodedId]
-			if (tagName) newRole = tagName
+			if (tagName) {
+				newRole = tagName
+			}
 		}
 
 		if (newRole === "combobox" && node.encodedId) {
 			const tagName = opts.tagNameMap[node.encodedId]
-			if (tagName === "select") newRole = "select"
+			if (tagName === "select") {
+				newRole = "select"
+			}
 		}
 
 		return { ...node, role: newRole, children: prunedStatic }
@@ -238,7 +273,9 @@ export function removeRedundantStaticTextChildren(
 	parent: A11yNode,
 	children: A11yNode[],
 ): A11yNode[] {
-	if (!parent.name) return children
+	if (!parent.name) {
+		return children
+	}
 	const parentNorm = normaliseSpaces(parent.name).trim()
 	let combined = ""
 	for (const c of children) {

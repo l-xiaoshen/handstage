@@ -31,7 +31,7 @@ export class LifecycleWatcher {
 	private readonly timeoutMs: number
 	private readonly startTime: number
 	private readonly navigationCommandId: number
-	private currentLoaderId: string | undefined
+	private readonly onLoaderIdChanged?: (loaderId: string) => void
 	private idleStartTime: number
 
 	private cleanupCallbacks: Array<() => void> = []
@@ -41,11 +41,18 @@ export class LifecycleWatcher {
 	private abortPromise: Promise<never>
 	private abortError: Error | null = null
 	private readonly abortController = new AbortController()
+	private readonly timeoutTimer: ReturnType<typeof setTimeout> | null
 	private disposed = false
 
 	private expectedLoaderId: string | undefined
 	private initialLoaderId: string | undefined
+	private readonly observedLoaderIds = new Set<string>()
+	private mainLoaderEventSequence = 0
 	private pendingFollowupNavigation = false
+	private navigationGateRequired = false
+	private navigationCommitted = false
+	private resolveNavigationCommit!: () => void
+	private readonly navigationCommitPromise: Promise<void>
 
 	/**
 	 * Create a watcher; callers should subsequently invoke {@link wait}.
@@ -57,40 +64,105 @@ export class LifecycleWatcher {
 		waitUntil: LoadState
 		timeoutMs: number
 		navigationCommandId: number
+		signal?: AbortSignal
+		onLoaderIdChanged?: (loaderId: string) => void
 	}) {
 		this.page = params.page
 		this.mainSession = params.mainSession
 		this.networkManager = params.networkManager
 		this.waitUntil = params.waitUntil
-		this.timeoutMs = params.timeoutMs
+		this.timeoutMs =
+			params.timeoutMs > 0 ? params.timeoutMs : Number.POSITIVE_INFINITY
 		this.startTime = Date.now()
 		this.navigationCommandId = params.navigationCommandId
+		this.onLoaderIdChanged = params.onLoaderIdChanged
 		this.idleStartTime = this.startTime
+		this.initialLoaderId = this.page.mainFrameLoaderId?.()
 
 		this.abortPromise = new Promise<never>((_, reject) => {
 			this.abortReject = reject
 		})
+		this.navigationCommitPromise = new Promise<void>((resolve) => {
+			this.resolveNavigationCommit = resolve
+		})
+		this.timeoutTimer = Number.isFinite(this.timeoutMs)
+			? setTimeout(
+					() =>
+						this.triggerAbort(
+							new TimeoutError("Lifecycle wait", this.timeoutMs),
+						),
+					Math.max(0, this.timeoutMs),
+				)
+			: null
 		// Listeners are live from construction, so an abort can fire before
 		// wait() races this promise; observe it to avoid an unhandledRejection.
 		void this.abortPromise.catch(() => {})
 
 		this.installSessionListeners()
+		if (params.signal) {
+			const onAbort = () => {
+				this.triggerAbort(
+					params.signal?.reason instanceof Error
+						? params.signal.reason
+						: new Error("Navigation aborted"),
+				)
+			}
+			params.signal.addEventListener("abort", onAbort, { once: true })
+			this.cleanupCallbacks.push(() =>
+				params.signal?.removeEventListener("abort", onAbort),
+			)
+			if (params.signal.aborted) {
+				onAbort()
+			}
+		}
 	}
 
 	/** Hint the watcher with the loader id returned by Page.navigate. */
 	public setExpectedLoaderId(loaderId: string | undefined): void {
-		if (!loaderId) return
+		if (!loaderId) {
+			return
+		}
+		this.navigationGateRequired = true
+		if (
+			this.expectedLoaderId &&
+			this.expectedLoaderId !== loaderId &&
+			this.observedLoaderIds.has(this.expectedLoaderId)
+		) {
+			this.markNavigationCommitted()
+			return
+		}
 		this.expectedLoaderId = loaderId
-		this.initialLoaderId = loaderId
-		this.currentLoaderId = loaderId
+		this.onLoaderIdChanged?.(loaderId)
 		this.idleStartTime = Date.now()
+		if (this.observedLoaderIds.has(loaderId)) {
+			this.markNavigationCommitted()
+		}
+	}
+
+	public expectNavigationWithoutKnownLoader(): void {
+		this.navigationGateRequired = true
+		if (
+			[...this.observedLoaderIds].some(
+				(loaderId) => loaderId !== this.initialLoaderId,
+			)
+		) {
+			this.markNavigationCommitted()
+		}
+	}
+
+	public allowCurrentDocument(): void {
+		this.markNavigationCommitted()
 	}
 
 	/** Wait for the requested lifecycle state or throw on timeout/abort. */
 	public async wait(): Promise<void> {
-		const deadline = Date.now() + this.timeoutMs
+		const deadline = this.startTime + this.timeoutMs
 
 		try {
+			if (this.navigationGateRequired && !this.navigationCommitted) {
+				await this.awaitWithAbort(this.navigationCommitPromise)
+			}
+			this.assertCurrentNavigation()
 			if (this.waitUntil === "domcontentloaded") {
 				await this.awaitWithAbort(
 					this.page.waitForMainLoadState(
@@ -99,6 +171,7 @@ export class LifecycleWatcher {
 						this.abortController.signal,
 					),
 				)
+				this.assertCurrentNavigation()
 				return
 			}
 
@@ -110,11 +183,15 @@ export class LifecycleWatcher {
 						this.abortController.signal,
 					),
 				)
+				this.assertCurrentNavigation()
 
-				if (this.waitUntil !== "networkidle") break
+				if (this.waitUntil !== "networkidle") {
+					break
+				}
 
 				try {
 					await this.awaitWithAbort(this.waitForNetworkIdle(deadline))
+					this.assertCurrentNavigation()
 					break
 				} catch (error) {
 					if (this.shouldRestartAfterFollowup(error)) {
@@ -127,13 +204,20 @@ export class LifecycleWatcher {
 			this.dispose()
 		}
 
-		if (this.abortError) throw this.abortError
+		if (this.abortError) {
+			throw this.abortError
+		}
 	}
 
 	/** Cancel any outstanding network-idle waits and remove event listeners. */
 	public dispose(): void {
-		if (this.disposed) return
+		if (this.disposed) {
+			return
+		}
 		this.disposed = true
+		if (this.timeoutTimer) {
+			clearTimeout(this.timeoutTimer)
+		}
 		if (!this.abortController.signal.aborted) {
 			this.abortController.abort(new Error("Lifecycle watcher disposed"))
 		}
@@ -156,45 +240,61 @@ export class LifecycleWatcher {
 	/** Subscribe to main-frame events to detect abort conditions. */
 	private installSessionListeners(): void {
 		const onFrameNavigated = (evt: Protocol.Page.FrameNavigatedEvent) => {
-			if (!evt?.frame?.id) return
-
-			const mainFrameId = this.page.mainFrameId()
-			if (evt.frame.id !== mainFrameId) return
-
-			const loaderId = evt.frame.loaderId
-			if (!loaderId) return
-
-			if (!this.initialLoaderId) {
-				this.initialLoaderId = loaderId
-				this.currentLoaderId = loaderId
-				this.idleStartTime = Date.now()
-			}
-
-			if (!this.expectedLoaderId) {
-				this.expectedLoaderId = loaderId
-				this.currentLoaderId = loaderId
-				this.idleStartTime = Date.now()
+			if (!evt?.frame?.id) {
 				return
 			}
 
-			if (loaderId !== this.expectedLoaderId) {
-				if (!this.page.isCurrentNavigationCommand(this.navigationCommandId)) {
-					this.triggerAbort(
-						new Error("Navigation was superseded by a new request"),
-					)
-					return
-				}
-
-				this.adoptNewMainLoader(loaderId)
+			const mainFrameId = this.page.mainFrameId()
+			if (evt.frame.id !== mainFrameId) {
+				return
 			}
+
+			const loaderId = evt.frame.loaderId
+			if (!loaderId) {
+				return
+			}
+			const eventSequence = ++this.mainLoaderEventSequence
+			const pendingSuperseded = this.page.pendingSupersededNavigation()
+			if (
+				pendingSuperseded &&
+				(!this.expectedLoaderId || loaderId !== this.expectedLoaderId)
+			) {
+				void pendingSuperseded.then(() => {
+					if (this.disposed) {
+						return
+					}
+					if (eventSequence !== this.mainLoaderEventSequence) {
+						return
+					}
+					this.processMainLoader(loaderId)
+				})
+				return
+			}
+			this.processMainLoader(loaderId)
 		}
 
 		const onFrameDetached = (evt: Protocol.Page.FrameDetachedEvent) => {
-			if (!evt?.frameId) return
+			if (!evt?.frameId) {
+				return
+			}
 			const mainFrameId = this.page.mainFrameId()
-			if (evt.frameId !== mainFrameId) return
-			if (evt.reason === "swap") return
+			if (evt.frameId !== mainFrameId) {
+				return
+			}
+			if (evt.reason === "swap") {
+				return
+			}
 			this.triggerAbort(new Error("Main frame was detached"))
+		}
+		const onNavigatedWithinDocument = (
+			evt: Protocol.Page.NavigatedWithinDocumentEvent,
+		) => {
+			if (evt.frameId !== this.page.mainFrameId()) {
+				return
+			}
+			if (this.navigationGateRequired && !this.expectedLoaderId) {
+				this.markNavigationCommitted()
+			}
 		}
 
 		this.mainSession.on("Page.frameNavigated", onFrameNavigated)
@@ -206,6 +306,62 @@ export class LifecycleWatcher {
 		this.cleanupCallbacks.push(() => {
 			this.mainSession.off("Page.frameDetached", onFrameDetached)
 		})
+		this.mainSession.on(
+			"Page.navigatedWithinDocument",
+			onNavigatedWithinDocument,
+		)
+		this.cleanupCallbacks.push(() => {
+			this.mainSession.off(
+				"Page.navigatedWithinDocument",
+				onNavigatedWithinDocument,
+			)
+		})
+	}
+
+	private processMainLoader(loaderId: string): void {
+		if (this.page.isSupersededNavigationLoader(loaderId)) {
+			return
+		}
+		this.observedLoaderIds.add(loaderId)
+		if (
+			this.initialLoaderId &&
+			loaderId === this.initialLoaderId &&
+			loaderId !== this.expectedLoaderId
+		) {
+			return
+		}
+
+		if (!this.initialLoaderId) {
+			this.initialLoaderId = loaderId
+			this.idleStartTime = Date.now()
+		}
+		if (
+			this.navigationGateRequired &&
+			(!this.expectedLoaderId || loaderId === this.expectedLoaderId)
+		) {
+			this.markNavigationCommitted()
+		}
+
+		if (!this.expectedLoaderId) {
+			this.expectedLoaderId = loaderId
+			this.onLoaderIdChanged?.(loaderId)
+			this.idleStartTime = Date.now()
+			if (this.navigationGateRequired) {
+				this.markNavigationCommitted()
+			}
+			return
+		}
+
+		if (loaderId !== this.expectedLoaderId) {
+			if (!this.page.isCurrentNavigationCommand(this.navigationCommandId)) {
+				this.triggerAbort(
+					new Error("Navigation was superseded by a new request"),
+				)
+				return
+			}
+
+			this.adoptNewMainLoader(loaderId)
+		}
 	}
 
 	/** Compute remaining time until the shared deadline elapses. */
@@ -222,14 +378,18 @@ export class LifecycleWatcher {
 		try {
 			return await Promise.race([operation, this.abortPromise])
 		} catch (error) {
-			if (this.abortError) throw this.abortError
+			if (this.abortError) {
+				throw this.abortError
+			}
 			throw error
 		}
 	}
 
 	/** Mark the watcher as aborted and reject any pending waiters. */
 	private triggerAbort(error: Error): void {
-		if (this.abortError) return
+		if (this.abortError) {
+			return
+		}
 		this.abortError = error
 		this.abortController.abort(error)
 		if (this.idleHandle) {
@@ -242,6 +402,23 @@ export class LifecycleWatcher {
 			this.abortReject(error)
 			this.abortReject = null
 		}
+	}
+
+	private markNavigationCommitted(): void {
+		if (this.navigationCommitted) {
+			return
+		}
+		this.navigationCommitted = true
+		this.resolveNavigationCommit()
+	}
+
+	private assertCurrentNavigation(): void {
+		if (this.page.isCurrentNavigationCommand(this.navigationCommandId)) {
+			return
+		}
+		const error = new Error("Navigation was superseded by a new request")
+		this.triggerAbort(error)
+		throw error
 	}
 	private waitForNetworkIdle(deadline: number): Promise<void> {
 		this.pendingFollowupNavigation = false
@@ -256,24 +433,35 @@ export class LifecycleWatcher {
 		})
 
 		return this.idleHandle.promise.catch((error) => {
-			if (this.abortError) throw this.abortError
+			if (this.abortError) {
+				throw this.abortError
+			}
 			throw error
 		})
 	}
 
 	private shouldRestartAfterFollowup(error: unknown): boolean {
-		if (!this.pendingFollowupNavigation) return false
-		if (!(error instanceof Error)) return false
-		if (error.message !== "waitForIdle disposed") return false
+		if (!this.pendingFollowupNavigation) {
+			return false
+		}
+		if (!(error instanceof Error)) {
+			return false
+		}
+		if (error.message !== "waitForIdle disposed") {
+			return false
+		}
 		this.pendingFollowupNavigation = false
 		return true
 	}
 
 	private adoptNewMainLoader(loaderId: string): void {
 		this.expectedLoaderId = loaderId
-		this.currentLoaderId = loaderId
+		this.onLoaderIdChanged?.(loaderId)
 		this.idleStartTime = Date.now()
-		if (this.waitUntil !== "networkidle") return
+		this.markNavigationCommitted()
+		if (this.waitUntil !== "networkidle") {
+			return
+		}
 
 		this.pendingFollowupNavigation = true
 
@@ -286,21 +474,11 @@ export class LifecycleWatcher {
 	}
 
 	private buildIdleFilter(): (info: NetworkRequestInfo) => boolean {
-		const loaderId = this.currentLoaderId
-		const mainFrameId = this.page.mainFrameId()
-
 		return (info: NetworkRequestInfo) => {
-			if (IGNORED_RESOURCE_TYPES.has(info.resourceType)) return false
-
-			if (loaderId && info.loaderId) {
-				return info.loaderId === loaderId
-			}
-
-			if (!info.loaderId && info.frameId) {
-				return info.frameId === mainFrameId
-			}
-
-			return true
+			return (
+				info.timestamp >= this.startTime &&
+				!IGNORED_RESOURCE_TYPES.has(info.resourceType)
+			)
 		}
 	}
 }

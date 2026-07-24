@@ -5,8 +5,16 @@ import {
 } from "@handstage/dom/build/locatorScripts.generated"
 import type { Protocol } from "devtools-protocol"
 import { LogLevel } from "../types/public/logs"
+import { sendCDPWithSignal, sendCDPWithSignalAndLateResult } from "./cdp"
 import { executionContexts } from "./executionContextRegistry"
 import type { Frame } from "./frame"
+import {
+	releaseDiscardedEvaluationHandles,
+	releaseObjectGroup,
+	releaseObjectIds,
+} from "./runtimeObjectUtils"
+
+let selectorObjectGroupSequence = 0
 
 export type SelectorQuery =
 	| { kind: "css"; value: string }
@@ -16,10 +24,13 @@ export type SelectorQuery =
 export interface ResolvedNode {
 	objectId: Protocol.Runtime.RemoteObjectId
 	nodeId: Protocol.DOM.NodeId | null
+	/** @internal Object group owned by the consumer while this handle is live. */
+	objectGroup?: string
 }
 
 export interface ResolveManyOptions {
 	limit?: number
+	signal?: AbortSignal
 }
 
 export class FrameSelectorResolver {
@@ -71,18 +82,53 @@ export class FrameSelectorResolver {
 
 	public async resolveAll(
 		query: SelectorQuery,
-		{ limit = Infinity }: ResolveManyOptions = {},
+		{ limit = Infinity, signal }: ResolveManyOptions = {},
 	): Promise<ResolvedNode[]> {
-		if (limit <= 0) return []
-		switch (query.kind) {
-			case "css":
-				return this.resolveCss(query.value, limit)
-			case "text":
-				return this.resolveText(query.value, limit)
-			case "xpath":
-				return this.resolveXPath(query.value, limit)
-			default:
-				return []
+		if (limit <= 0) {
+			return []
+		}
+		const objectGroup = signal
+			? `handstage-selector-${++selectorObjectGroupSequence}`
+			: undefined
+		try {
+			let resolved: ResolvedNode[]
+			switch (query.kind) {
+				case "css":
+					resolved = await this.resolveCss(
+						query.value,
+						limit,
+						signal,
+						objectGroup,
+					)
+					break
+				case "text":
+					resolved = await this.resolveText(
+						query.value,
+						limit,
+						signal,
+						objectGroup,
+					)
+					break
+				case "xpath":
+					resolved = await this.resolveXPath(
+						query.value,
+						limit,
+						signal,
+						objectGroup,
+					)
+					break
+				default:
+					resolved = []
+			}
+			if (objectGroup && resolved.length === 0) {
+				await releaseObjectGroup(this.frame.session, objectGroup)
+			}
+			return resolved
+		} catch (error) {
+			if (objectGroup) {
+				void releaseObjectGroup(this.frame.session, objectGroup)
+			}
+			throw error
 		}
 	}
 
@@ -102,19 +148,40 @@ export class FrameSelectorResolver {
 	public async resolveAtIndex(
 		query: SelectorQuery,
 		index: number,
+		signal?: AbortSignal,
 	): Promise<ResolvedNode | null> {
-		if (index < 0 || !Number.isFinite(index)) return null
-		const results = await this.resolveAll(query, { limit: index + 1 })
+		if (index < 0 || !Number.isFinite(index)) {
+			return null
+		}
+		const results = await this.resolveAll(query, { limit: index + 1, signal })
 		const selected = results[index] ?? null
-		await Promise.all(
-			results
-				.filter((result) => result !== selected)
-				.map((result) =>
-					this.frame.session
-						.send("Runtime.releaseObject", { objectId: result.objectId })
-						.catch(() => {}),
+		const objectGroups = [
+			...new Set(results.map((result) => result.objectGroup)),
+		].filter((group): group is string => Boolean(group))
+		try {
+			await releaseObjectIds(
+				this.frame.session,
+				results
+					.filter((result) => result !== selected)
+					.map((result) => result.objectId),
+				signal,
+			)
+			signal?.throwIfAborted()
+		} catch (error) {
+			await Promise.allSettled(
+				objectGroups.map((group) =>
+					releaseObjectGroup(this.frame.session, group),
 				),
-		)
+			)
+			throw error
+		}
+		if (!selected) {
+			await Promise.allSettled(
+				objectGroups.map((group) =>
+					releaseObjectGroup(this.frame.session, group),
+				),
+			)
+		}
 		return selected
 	}
 
@@ -129,22 +196,32 @@ export class FrameSelectorResolver {
 	private async resolveCss(
 		selector: string,
 		limit: number,
+		signal?: AbortSignal,
+		objectGroup?: string,
 	): Promise<ResolvedNode[]> {
-		if (limit <= 0) return []
+		if (limit <= 0) {
+			return []
+		}
 
 		const session = this.frame.session
-		const { executionContextId } = await session.send(
-			"Page.createIsolatedWorld",
-			{
-				frameId: this.frame.frameId,
-				worldName: "v3-world",
-			},
-		)
+		const isolatedWorldParams = {
+			frameId: this.frame.frameId,
+			worldName: "v3-world",
+		}
+		const { executionContextId } = signal
+			? await sendCDPWithSignal(
+					session,
+					"Page.createIsolatedWorld",
+					signal,
+					isolatedWorldParams,
+				)
+			: await session.send("Page.createIsolatedWorld", isolatedWorldParams)
 
 		const ctxId = await executionContexts.waitForMainWorld(
 			session,
 			this.frame.frameId,
 			1000,
+			signal,
 		)
 
 		const results: ResolvedNode[] = []
@@ -158,6 +235,8 @@ export class FrameSelectorResolver {
 			const primary = await this.evaluateElement(
 				primaryExpr,
 				executionContextId,
+				signal,
+				objectGroup,
 			)
 			if (primary) {
 				results.push(primary)
@@ -181,7 +260,12 @@ export class FrameSelectorResolver {
 				"resolveCssSelectorPierce",
 				[JSON.stringify(selector), String(index)],
 			)
-			const fallback = await this.evaluateElement(fallbackExpr, ctxId)
+			const fallback = await this.evaluateElement(
+				fallbackExpr,
+				ctxId,
+				signal,
+				objectGroup,
+			)
 			if (fallback) {
 				results.push(fallback)
 				continue
@@ -196,14 +280,19 @@ export class FrameSelectorResolver {
 	private async resolveText(
 		value: string,
 		limit: number,
+		signal?: AbortSignal,
+		objectGroup?: string,
 	): Promise<ResolvedNode[]> {
-		if (limit <= 0) return []
+		if (limit <= 0) {
+			return []
+		}
 
 		const session = this.frame.session
 		const ctxId = await executionContexts.waitForMainWorld(
 			session,
 			this.frame.frameId,
 			1000,
+			signal,
 		)
 
 		const results: ResolvedNode[] = []
@@ -212,8 +301,15 @@ export class FrameSelectorResolver {
 				JSON.stringify(value),
 				String(index),
 			])
-			const resolved = await this.evaluateElement(expr, ctxId)
-			if (!resolved) break
+			const resolved = await this.evaluateElement(
+				expr,
+				ctxId,
+				signal,
+				objectGroup,
+			)
+			if (!resolved) {
+				break
+			}
 			results.push(resolved)
 		}
 
@@ -223,14 +319,19 @@ export class FrameSelectorResolver {
 	private async resolveXPath(
 		value: string,
 		limit: number,
+		signal?: AbortSignal,
+		objectGroup?: string,
 	): Promise<ResolvedNode[]> {
-		if (limit <= 0) return []
+		if (limit <= 0) {
+			return []
+		}
 
 		const session = this.frame.session
 		const ctxId = await executionContexts.waitForMainWorld(
 			session,
 			this.frame.frameId,
 			1000,
+			signal,
 		)
 
 		const results: ResolvedNode[] = []
@@ -239,8 +340,15 @@ export class FrameSelectorResolver {
 				JSON.stringify(value),
 				String(index),
 			])
-			const resolved = await this.evaluateElement(expr, ctxId)
-			if (!resolved) break
+			const resolved = await this.evaluateElement(
+				expr,
+				ctxId,
+				signal,
+				objectGroup,
+			)
+			if (!resolved) {
+				break
+			}
 			results.push(resolved)
 		}
 
@@ -296,6 +404,7 @@ export class FrameSelectorResolver {
 				returnByValue: true,
 				awaitPromise: true,
 			})
+			await releaseDiscardedEvaluationHandles(session, evalRes)
 
 			if (evalRes.exceptionDetails) {
 				const details = evalRes.exceptionDetails
@@ -324,7 +433,9 @@ export class FrameSelectorResolver {
 
 			const num =
 				typeof data.count === "number" ? data.count : Number(data.count)
-			if (!Number.isFinite(num)) return 0
+			if (!Number.isFinite(num)) {
+				return 0
+			}
 			return Math.max(0, Math.floor(num))
 		} catch {
 			return 0
@@ -351,6 +462,7 @@ export class FrameSelectorResolver {
 				returnByValue: true,
 				awaitPromise: true,
 			})
+			await releaseDiscardedEvaluationHandles(session, evalRes)
 
 			if (evalRes.exceptionDetails) {
 				return 0
@@ -360,7 +472,9 @@ export class FrameSelectorResolver {
 				typeof evalRes.result.value === "number"
 					? evalRes.result.value
 					: Number(evalRes.result.value)
-			if (!Number.isFinite(num)) return 0
+			if (!Number.isFinite(num)) {
+				return 0
+			}
 			return Math.max(0, Math.floor(num))
 		} catch {
 			return 0
@@ -369,17 +483,26 @@ export class FrameSelectorResolver {
 
 	private async resolveFromObjectId(
 		objectId: Protocol.Runtime.RemoteObjectId,
+		signal?: AbortSignal,
+		objectGroup?: string,
 	): Promise<ResolvedNode | null> {
 		const session = this.frame.session
 		let nodeId: Protocol.DOM.NodeId | null
 		try {
-			const rn = await session.send("DOM.requestNode", { objectId })
+			const rn = signal
+				? await sendCDPWithSignal(session, "DOM.requestNode", signal, {
+						objectId,
+					})
+				: await session.send("DOM.requestNode", { objectId })
 			nodeId = rn.nodeId ?? null
-		} catch {
+		} catch (error) {
+			if (signal?.aborted) {
+				throw error
+			}
 			nodeId = null
 		}
 
-		return { objectId, nodeId }
+		return { objectId, nodeId, ...(objectGroup ? { objectGroup } : {}) }
 	}
 
 	private async evaluateCount(
@@ -395,6 +518,7 @@ export class FrameSelectorResolver {
 				returnByValue: true,
 				awaitPromise: true,
 			})
+			await releaseDiscardedEvaluationHandles(session, evalRes)
 
 			if (evalRes.exceptionDetails) {
 				return 0
@@ -402,7 +526,9 @@ export class FrameSelectorResolver {
 
 			const value = evalRes.result.value
 			const num = typeof value === "number" ? value : Number(value)
-			if (!Number.isFinite(num)) return 0
+			if (!Number.isFinite(num)) {
+				return 0
+			}
 			return Math.max(0, Math.floor(num))
 		} catch {
 			return 0
@@ -412,30 +538,58 @@ export class FrameSelectorResolver {
 	private async evaluateElement(
 		expression: string,
 		contextId: Protocol.Runtime.ExecutionContextId,
+		signal?: AbortSignal,
+		objectGroup?: string,
 	): Promise<ResolvedNode | null> {
 		const session = this.frame.session
+		let objectId: Protocol.Runtime.RemoteObjectId | undefined
 
 		try {
-			const evalRes = await session.send("Runtime.evaluate", {
+			const params = {
 				expression,
 				contextId,
 				returnByValue: false,
 				awaitPromise: true,
-			})
+				objectGroup,
+			}
+			const evalRes = signal
+				? await sendCDPWithSignalAndLateResult(
+						session,
+						"Runtime.evaluate",
+						signal,
+						() =>
+							objectGroup
+								? releaseObjectGroup(session, objectGroup)
+								: undefined,
+						params,
+					)
+				: await session.send("Runtime.evaluate", params)
 
 			if (evalRes.exceptionDetails || !evalRes.result.objectId) {
-				if (evalRes.result.objectId) {
-					await session
-						.send("Runtime.releaseObject", {
-							objectId: evalRes.result.objectId,
-						})
-						.catch(() => {})
-				}
+				await releaseDiscardedEvaluationHandles(session, evalRes)
 				return null
 			}
 
-			return this.resolveFromObjectId(evalRes.result.objectId)
-		} catch {
+			objectId = evalRes.result.objectId
+			const resolved = await this.resolveFromObjectId(
+				objectId,
+				signal,
+				objectGroup,
+			)
+			objectId = undefined
+			return resolved
+		} catch (error) {
+			if (objectId) {
+				const cleanup = releaseObjectIds(session, [objectId])
+				if (signal?.aborted) {
+					void cleanup
+				} else {
+					await cleanup
+				}
+			}
+			if (signal?.aborted) {
+				throw error
+			}
 			return null
 		}
 	}

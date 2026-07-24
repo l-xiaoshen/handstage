@@ -1,9 +1,24 @@
 import type { Protocol } from "devtools-protocol"
 import { defaultLogger, type LogSink } from "../logger"
 import { HandstageEvalError } from "../types/public/sdkErrors"
-import { type CDPSessionLike, sendCDPWithSignal } from "./cdp"
+import {
+	type CDPSessionLike,
+	sendCDPWithSignal,
+	sendCDPWithSignalAndLateResult,
+} from "./cdp"
 import { executionContexts } from "./executionContextRegistry"
 import { Locator } from "./locator"
+import {
+	isFrameScopeError,
+	isMissingExecutionContextError,
+} from "./protocolError"
+import {
+	raceCleanupAgainstAbort,
+	releaseDiscardedEvaluationHandles,
+	releaseObjectGroup,
+} from "./runtimeObjectUtils"
+
+let frameEvaluationObjectGroupSequence = 0
 
 interface FrameManager {
 	session: CDPSessionLike
@@ -101,18 +116,16 @@ export class Frame implements FrameManager {
 				frameId: this.frameId,
 			}))
 		} catch (e) {
-			const msg = String((e as Error)?.message ?? e ?? "")
-			const isFrameScopeError =
-				msg.includes("Frame with the given") ||
-				msg.includes("does not belong to the target") ||
-				msg.includes("is not found")
-			if (!isFrameScopeError)
+			if (!isFrameScopeError(e)) {
 				throw e
-				// Retry unscoped: on OOPIF sessions, returns the child doc's AX tree.
+			}
+			// On OOPIF sessions, the unscoped call returns the child document tree.
 			;({ nodes } = await this.session.send("Accessibility.getFullAXTree"))
 		}
 
-		if (!withFrames) return nodes
+		if (!withFrames) {
+			return nodes
+		}
 
 		const children = await this.childFrames()
 		for (const child of children) {
@@ -130,9 +143,56 @@ export class Frame implements FrameManager {
 	async evaluate<R = unknown, Arg = unknown>(
 		pageFunctionOrExpression: string | ((arg: Arg) => R | Promise<R>),
 		arg?: Arg,
+		signal?: AbortSignal,
 	): Promise<R> {
-		await this.session.send("Runtime.enable").catch(() => {})
-		const contextId = await this.getMainWorldExecutionContextId()
+		return this.evaluateInternal(pageFunctionOrExpression, arg, signal, true)
+	}
+
+	/** @internal Evaluate bounded cleanup work without inheriting page disposal. */
+	async evaluateForCleanup<R = unknown, Arg = unknown>(
+		pageFunctionOrExpression: string | ((arg: Arg) => R | Promise<R>),
+		arg?: Arg,
+		signal?: AbortSignal,
+	): Promise<R> {
+		const timeoutController = new AbortController()
+		const timer = setTimeout(
+			() =>
+				timeoutController.abort(
+					new Error("Frame cleanup evaluation timed out"),
+				),
+			1000,
+		)
+		const cleanupSignal = signal
+			? AbortSignal.any([signal, timeoutController.signal])
+			: timeoutController.signal
+		try {
+			return await this.evaluateInternal(
+				pageFunctionOrExpression,
+				arg,
+				cleanupSignal,
+				false,
+			)
+		} finally {
+			clearTimeout(timer)
+		}
+	}
+
+	private async evaluateInternal<R = unknown, Arg = unknown>(
+		pageFunctionOrExpression: string | ((arg: Arg) => R | Promise<R>),
+		arg: Arg | undefined,
+		signal: AbortSignal | undefined,
+		includeDisposalSignal: boolean,
+	): Promise<R> {
+		const operationSignal =
+			includeDisposalSignal && signal && this.disposalSignal
+				? AbortSignal.any([signal, this.disposalSignal])
+				: (signal ?? (includeDisposalSignal ? this.disposalSignal : undefined))
+		if (operationSignal) {
+			await sendCDPWithSignal(this.session, "Runtime.enable", operationSignal)
+		} else {
+			await this.session.send("Runtime.enable").catch(() => {})
+		}
+		const contextId = await this.getMainWorldExecutionContextId(operationSignal)
 
 		const isString = typeof pageFunctionOrExpression === "string"
 		let expression: string
@@ -154,33 +214,81 @@ export class Frame implements FrameManager {
       })()`
 		}
 
-		let res: Protocol.Runtime.EvaluateResponse
+		const objectGroup = operationSignal
+			? `handstage-frame-evaluate-${++frameEvaluationObjectGroupSequence}`
+			: undefined
 		try {
-			res = await this.session.send("Runtime.evaluate", {
-				expression,
-				contextId,
-				awaitPromise: true,
-				returnByValue: true,
-			})
-		} catch (error) {
-			// Execution contexts can be recreated between context lookup and
-			// Runtime.evaluate during popup/navigate churn. Retry once with a fresh id.
-			const msg = error instanceof Error ? error.message : String(error)
-			if (!msg.includes("Cannot find context with specified id")) throw error
-			const freshContextId = await this.getMainWorldExecutionContextId()
-			res = await this.session.send("Runtime.evaluate", {
-				expression,
-				contextId: freshContextId,
-				awaitPromise: true,
-				returnByValue: true,
-			})
+			let res: Protocol.Runtime.EvaluateResponse
+			try {
+				const params = {
+					expression,
+					contextId,
+					awaitPromise: true,
+					returnByValue: true,
+					objectGroup,
+				}
+				res = operationSignal
+					? await sendCDPWithSignalAndLateResult(
+							this.session,
+							"Runtime.evaluate",
+							operationSignal,
+							() =>
+								objectGroup
+									? releaseObjectGroup(this.session, objectGroup)
+									: undefined,
+							params,
+						)
+					: await this.session.send("Runtime.evaluate", params)
+			} catch (error) {
+				if (operationSignal?.aborted) {
+					throw error
+				}
+				// Execution contexts can be recreated between context lookup and
+				// Runtime.evaluate during popup/navigate churn. Retry once with a fresh id.
+				if (!isMissingExecutionContextError(error)) {
+					throw error
+				}
+				const freshContextId =
+					await this.getMainWorldExecutionContextId(operationSignal)
+				const params = {
+					expression,
+					contextId: freshContextId,
+					awaitPromise: true,
+					returnByValue: true,
+					objectGroup,
+				}
+				res = operationSignal
+					? await sendCDPWithSignalAndLateResult(
+							this.session,
+							"Runtime.evaluate",
+							operationSignal,
+							() =>
+								objectGroup
+									? releaseObjectGroup(this.session, objectGroup)
+									: undefined,
+							params,
+						)
+					: await this.session.send("Runtime.evaluate", params)
+			}
+			const exceptionMessage = res.exceptionDetails
+				? (res.exceptionDetails.text ?? "Evaluation failed")
+				: null
+			const value = res.result.value as R
+			await releaseDiscardedEvaluationHandles(this.session, res)
+			operationSignal?.throwIfAborted()
+			if (exceptionMessage !== null) {
+				throw new HandstageEvalError(exceptionMessage)
+			}
+			return value
+		} finally {
+			if (objectGroup) {
+				await raceCleanupAgainstAbort(
+					releaseObjectGroup(this.session, objectGroup),
+					operationSignal,
+				)
+			}
+			operationSignal?.throwIfAborted()
 		}
-		if (res.exceptionDetails) {
-			throw new HandstageEvalError(
-				res.exceptionDetails.text ?? "Evaluation failed",
-			)
-		}
-		return res.result.value as R
 	}
 
 	/** Page.captureScreenshot (frame-scoped session) */
@@ -192,7 +300,11 @@ export class Frame implements FrameManager {
 		scale?: number
 		signal?: AbortSignal
 	}): Promise<Uint8Array> {
-		await this.session.send("Page.enable")
+		if (options?.signal) {
+			await sendCDPWithSignal(this.session, "Page.enable", options.signal)
+		} else {
+			await this.session.send("Page.enable")
+		}
 		const format = options?.type ?? "png"
 		const params: Protocol.Page.CaptureScreenshotRequest & { scale?: number } =
 			{
@@ -273,61 +385,78 @@ export class Frame implements FrameManager {
 		state: "load" | "domcontentloaded" | "networkidle" = "load",
 		timeoutMs: number = 15_000,
 	): Promise<void> {
-		await this.session.send("Page.enable")
 		const targetState = state.toLowerCase()
 		const timeout = Math.max(0, timeoutMs)
-		if (this.disposalSignal?.aborted) {
-			throw this.disposalSignal.reason
+		const timeoutController = new AbortController()
+		const timer = Number.isFinite(timeout)
+			? setTimeout(
+					() =>
+						timeoutController.abort(
+							new Error(
+								`waitForLoadState(${state}) timed out after ${timeout}ms for frame ${this.frameId}`,
+							),
+						),
+					timeout,
+				)
+			: null
+		const signal = this.disposalSignal
+			? AbortSignal.any([this.disposalSignal, timeoutController.signal])
+			: timeoutController.signal
+		const abortError = () =>
+			signal.reason instanceof Error
+				? signal.reason
+				: new Error("Frame lifecycle wait aborted")
+		try {
+			if (signal.aborted) {
+				throw abortError()
+			}
+			await sendCDPWithSignal(this.session, "Page.enable", signal)
+			if (signal.aborted) {
+				throw abortError()
+			}
+			await new Promise<void>((resolve, reject) => {
+				let done = false
+				const cleanup = () => {
+					this.session.off("Page.lifecycleEvent", handler)
+					signal.removeEventListener("abort", onAbort)
+				}
+				const finish = () => {
+					if (done) {
+						return
+					}
+					done = true
+					cleanup()
+					resolve()
+				}
+				const fail = (error: Error) => {
+					if (done) {
+						return
+					}
+					done = true
+					cleanup()
+					reject(error)
+				}
+				const onAbort = () => fail(abortError())
+				const handler = (evt: Protocol.Page.LifecycleEventEvent) => {
+					const sameFrame = evt.frameId === this.frameId
+					// need to normalize here because CDP lifecycle names look like 'DOMContentLoaded'
+					// but we accept 'domcontentloaded'
+					const lifecycleName = String(evt.name ?? "").toLowerCase()
+					if (sameFrame && lifecycleName === targetState) {
+						finish()
+					}
+				}
+				this.session.on("Page.lifecycleEvent", handler)
+				signal.addEventListener("abort", onAbort, { once: true })
+				if (signal.aborted) {
+					onAbort()
+				}
+			})
+		} finally {
+			if (timer) {
+				clearTimeout(timer)
+			}
 		}
-		await new Promise<void>((resolve, reject) => {
-			let done = false
-			let timer: ReturnType<typeof setTimeout> | null = null
-			const cleanup = () => {
-				this.session.off("Page.lifecycleEvent", handler)
-				this.disposalSignal?.removeEventListener("abort", onAbort)
-				if (timer) {
-					clearTimeout(timer)
-					timer = null
-				}
-			}
-			const finish = () => {
-				if (done) return
-				done = true
-				cleanup()
-				resolve()
-			}
-			const fail = (error: Error) => {
-				if (done) return
-				done = true
-				cleanup()
-				reject(error)
-			}
-			const onAbort = () =>
-				fail(
-					this.disposalSignal?.reason instanceof Error
-						? this.disposalSignal.reason
-						: new Error("Frame disposed"),
-				)
-			const handler = (evt: Protocol.Page.LifecycleEventEvent) => {
-				const sameFrame = evt.frameId === this.frameId
-				// need to normalize here because CDP lifecycle names look like 'DOMContentLoaded'
-				// but we accept 'domcontentloaded'
-				const lifecycleName = String(evt.name ?? "").toLowerCase()
-				if (sameFrame && lifecycleName === targetState) {
-					finish()
-				}
-			}
-			this.session.on("Page.lifecycleEvent", handler)
-			this.disposalSignal?.addEventListener("abort", onAbort, { once: true })
-
-			timer = setTimeout(() => {
-				fail(
-					new Error(
-						`waitForLoadState(${state}) timed out after ${timeout}ms for frame ${this.frameId}`,
-					),
-				)
-			}, timeout)
-		})
 	}
 
 	/** Simple placeholder for your own locator abstraction */
@@ -338,8 +467,55 @@ export class Frame implements FrameManager {
 		return new Locator(this, selector, options)
 	}
 
+	/** @internal Include the owning Page's disposal in a bounded operation. */
+	combineWithDisposalSignal(signal: AbortSignal): AbortSignal {
+		return this.disposalSignal
+			? AbortSignal.any([this.disposalSignal, signal])
+			: signal
+	}
+
+	/** @internal Abort interaction delays when the owning Page is disposed. */
+	async waitForDelay(ms: number): Promise<void> {
+		const delay = Math.max(0, ms)
+		const signal = this.disposalSignal
+		if (signal?.aborted) {
+			throw signal.reason
+		}
+		if (delay === 0) {
+			return
+		}
+		await new Promise<void>((resolve, reject) => {
+			let timer: ReturnType<typeof setTimeout> | null = setTimeout(() => {
+				timer = null
+				signal?.removeEventListener("abort", onAbort)
+				resolve()
+			}, delay)
+			const onAbort = () => {
+				if (timer === null) {
+					return
+				}
+				clearTimeout(timer)
+				timer = null
+				signal?.removeEventListener("abort", onAbort)
+				reject(
+					signal?.reason instanceof Error
+						? signal.reason
+						: new Error("Frame disposed"),
+				)
+			}
+			signal?.addEventListener("abort", onAbort, { once: true })
+		})
+	}
+
 	/** Resolve the main-world execution context id for this frame. */
-	private async getMainWorldExecutionContextId(): Promise<number> {
-		return executionContexts.waitForMainWorld(this.session, this.frameId, 1000)
+	private async getMainWorldExecutionContextId(
+		signal?: AbortSignal,
+	): Promise<number> {
+		return executionContexts.waitForMainWorld(
+			this.session,
+			this.frameId,
+			1000,
+			signal,
+		)
 	}
 }
