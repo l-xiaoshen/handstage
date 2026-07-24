@@ -88,7 +88,9 @@ export class FrameRegistry {
 		}
 
 		this.ensureNode(frameId)
-		if (parentId) this.ensureNode(parentId)
+		if (parentId) {
+			this.ensureNode(parentId)
+		}
 
 		const info = this.requireNode(frameId)
 		info.parentId = parentId ?? null
@@ -105,18 +107,18 @@ export class FrameRegistry {
 	 * session id. Handles root swap if the navigated frame is the new main (no parentId).
 	 */
 	onFrameNavigated(frame: Protocol.Page.Frame, sessionId: SessionId): void {
+		if (
+			(!("parentId" in frame) || !frame.parentId) &&
+			frame.id !== this.rootFrameId
+		) {
+			this.renameNodeId(this.rootFrameId, frame.id)
+			this.rootFrameId = frame.id
+		}
 		this.ensureNode(frame.id)
 		const info = this.requireNode(frame.id)
 		info.lastSeen = frame
 
 		this.setOwnerSessionIdInternal(frame.id, sessionId)
-
-		if (!("parentId" in frame) || !frame.parentId) {
-			if (frame.id !== this.rootFrameId) {
-				this.renameNodeId(this.rootFrameId, frame.id)
-				this.rootFrameId = frame.id
-			}
-		}
 	}
 
 	onNavigatedWithinDocument(
@@ -142,19 +144,25 @@ export class FrameRegistry {
 		frameId: FrameId,
 		reason: "remove" | "swap" | string = "remove",
 	): FrameId[] {
-		if (reason === "swap") return []
+		if (reason === "swap") {
+			return []
+		}
 
 		const toRemove: FrameId[] = []
 		const collect = (fid: FrameId) => {
 			toRemove.push(fid)
 			const kids = this.frames.get(fid)?.children ?? new Set<FrameId>()
-			for (const k of kids) collect(k)
+			for (const k of kids) {
+				collect(k)
+			}
 		}
 		collect(frameId)
 
 		for (const fid of toRemove) {
 			const info = this.frames.get(fid)
-			if (!info) continue
+			if (!info) {
+				continue
+			}
 
 			if (info.parentId) {
 				const p = this.frames.get(info.parentId)
@@ -164,8 +172,9 @@ export class FrameRegistry {
 			if (info.ownerSessionId) {
 				const bag = this.framesBySession.get(info.ownerSessionId)
 				bag?.delete(fid)
-				if (bag && bag.size === 0)
+				if (bag && bag.size === 0) {
 					this.framesBySession.delete(info.ownerSessionId)
+				}
 			}
 
 			this.frames.delete(fid)
@@ -173,7 +182,9 @@ export class FrameRegistry {
 
 		if (!this.frames.has(this.rootFrameId)) {
 			const iter = this.frames.keys().next()
-			if (!iter.done) this.rootFrameId = iter.value
+			if (!iter.done) {
+				this.rootFrameId = iter.value
+			}
 		}
 
 		return toRemove
@@ -199,19 +210,37 @@ export class FrameRegistry {
 	seedFromFrameTree(
 		sessionId: SessionId,
 		frameTree: Protocol.Page.FrameTree,
+		options?: {
+			preserveRootParent?: boolean
+			replaceOwnerSessionId?: SessionId
+		},
 	): void {
+		const rootParent = options?.preserveRootParent
+			? (this.frames.get(frameTree.frame.id)?.parentId ?? null)
+			: null
 		const walk = (tree: Protocol.Page.FrameTree, parent: FrameId | null) => {
 			this.ensureNode(tree.frame.id)
 			const info = this.requireNode(tree.frame.id)
+			if (info.parentId && info.parentId !== parent) {
+				this.frames.get(info.parentId)?.children.delete(tree.frame.id)
+			}
 			info.parentId = parent
-			if (parent) this.requireNode(parent).children.add(tree.frame.id)
+			if (parent) {
+				this.requireNode(parent).children.add(tree.frame.id)
+			}
 			info.lastSeen = tree.frame
-			if (!info.ownerSessionId) {
+			if (
+				!info.ownerSessionId ||
+				info.ownerSessionId === sessionId ||
+				info.ownerSessionId === options?.replaceOwnerSessionId
+			) {
 				this.setOwnerSessionIdInternal(tree.frame.id, sessionId)
 			}
-			for (const c of tree.childFrames ?? []) walk(c, tree.frame.id)
+			for (const c of tree.childFrames ?? []) {
+				walk(c, tree.frame.id)
+			}
 		}
-		walk(frameTree, null)
+		walk(frameTree, rootParent)
 	}
 
 	/**
@@ -257,9 +286,13 @@ export class FrameRegistry {
 		const dfs = (fid: FrameId) => {
 			out.push(fid)
 			const kids = this.frames.get(fid)?.children ?? new Set<FrameId>()
-			for (const k of kids) dfs(k)
+			for (const k of kids) {
+				dfs(k)
+			}
 		}
-		if (this.frames.has(this.rootFrameId)) dfs(this.rootFrameId)
+		if (this.frames.has(this.rootFrameId)) {
+			dfs(this.rootFrameId)
+		}
 		return out
 	}
 
@@ -302,7 +335,9 @@ export class FrameRegistry {
 	}
 
 	private ensureNode(fid: FrameId): void {
-		if (this.frames.has(fid)) return
+		if (this.frames.has(fid)) {
+			return
+		}
 		this.frames.set(fid, {
 			parentId: null,
 			children: new Set<FrameId>(),
@@ -314,37 +349,89 @@ export class FrameRegistry {
 
 	private requireNode(fid: FrameId): FrameInfo {
 		const info = this.frames.get(fid)
-		if (!info) throw new Error(`FrameRegistry missing frame node ${fid}`)
+		if (!info) {
+			throw new Error(`FrameRegistry missing frame node ${fid}`)
+		}
 		return info
 	}
 
 	private renameNodeId(oldId: FrameId, newId: FrameId): void {
-		if (oldId === newId) return
+		if (oldId === newId) {
+			return
+		}
 		this.ensureNode(oldId)
 
-		const info = this.requireNode(oldId)
+		const oldInfo = this.requireNode(oldId)
+		const existing = this.frames.get(newId)
+		if (existing) {
+			if (existing.parentId) {
+				this.frames.get(existing.parentId)?.children.delete(newId)
+			}
+			if (oldInfo.parentId) {
+				const parent = this.frames.get(oldInfo.parentId)
+				parent?.children.delete(oldId)
+				parent?.children.add(newId)
+			}
 
-		this.frames.delete(oldId)
-		this.frames.set(newId, { ...info })
-
-		if (info.parentId) {
-			const p = this.frames.get(info.parentId)
-			if (p) {
-				p.children.delete(oldId)
-				p.children.add(newId)
+			existing.parentId = oldInfo.parentId
+			existing.children.delete(oldId)
+			existing.children.delete(newId)
+			for (const childId of oldInfo.children) {
+				if (childId === newId || childId === oldId) {
+					continue
+				}
+				existing.children.add(childId)
+				const child = this.frames.get(childId)
+				if (child) {
+					child.parentId = newId
+				}
+			}
+			if (!existing.ownerSessionId && oldInfo.ownerSessionId) {
+				existing.ownerSessionId = oldInfo.ownerSessionId
+				let bag = this.framesBySession.get(oldInfo.ownerSessionId)
+				if (!bag) {
+					bag = new Set()
+					this.framesBySession.set(oldInfo.ownerSessionId, bag)
+				}
+				bag.add(newId)
+			}
+			if (
+				existing.ownerBackendNodeId === undefined &&
+				oldInfo.ownerBackendNodeId !== undefined
+			) {
+				existing.ownerBackendNodeId = oldInfo.ownerBackendNodeId
+			}
+			this.frames.delete(oldId)
+		} else {
+			this.frames.delete(oldId)
+			this.frames.set(newId, {
+				...oldInfo,
+				children: new Set(oldInfo.children),
+				lastSeen: oldInfo.lastSeen
+					? { ...oldInfo.lastSeen, id: newId }
+					: shellFrame(newId),
+			})
+			if (oldInfo.parentId) {
+				const parent = this.frames.get(oldInfo.parentId)
+				parent?.children.delete(oldId)
+				parent?.children.add(newId)
+			}
+			for (const childId of oldInfo.children) {
+				const child = this.frames.get(childId)
+				if (child) {
+					child.parentId = newId
+				}
 			}
 		}
 
-		for (const c of info.children) {
-			const ci = this.frames.get(c)
-			if (ci) ci.parentId = newId
-		}
-
-		if (info.ownerSessionId) {
-			const bag = this.framesBySession.get(info.ownerSessionId)
-			if (bag) {
-				bag.delete(oldId)
-				bag.add(newId)
+		if (oldInfo.ownerSessionId) {
+			const bag = this.framesBySession.get(oldInfo.ownerSessionId)
+			bag?.delete(oldId)
+			if (this.frames.get(newId)?.ownerSessionId === oldInfo.ownerSessionId) {
+				bag?.add(newId)
+			}
+			if (bag?.size === 0) {
+				this.framesBySession.delete(oldInfo.ownerSessionId)
 			}
 		}
 	}
@@ -356,13 +443,16 @@ export class FrameRegistry {
 		this.ensureNode(frameId)
 		const info = this.requireNode(frameId)
 
-		if (info.ownerSessionId === sessionId) return
+		if (info.ownerSessionId === sessionId) {
+			return
+		}
 
 		if (info.ownerSessionId) {
 			const prev = this.framesBySession.get(info.ownerSessionId)
 			prev?.delete(frameId)
-			if (prev && prev.size === 0)
+			if (prev && prev.size === 0) {
 				this.framesBySession.delete(info.ownerSessionId)
+			}
 		}
 
 		info.ownerSessionId = sessionId

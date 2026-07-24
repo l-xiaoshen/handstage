@@ -30,9 +30,13 @@ function parseXPath(path: string): Step[] {
 		}
 
 		const start = i
-		while (i < s.length && s[i] !== "/") i++
+		while (i < s.length && s[i] !== "/") {
+			i++
+		}
 		const raw = s.slice(start, i).trim()
-		if (!raw) continue
+		if (!raw) {
+			continue
+		}
 
 		const name = raw.replace(/\[\d+\]\s*$/u, "").toLowerCase()
 		steps.push({ axis, raw, name })
@@ -208,7 +212,9 @@ export class DeepLocatorDelegate {
 		}
 
 		const nextIndex = Math.floor(value)
-		if (nextIndex === this.nthIndex) return this
+		if (nextIndex === this.nthIndex) {
+			return this
+		}
 
 		return new DeepLocatorDelegate(
 			this.page,
@@ -234,15 +240,21 @@ async function resolveDeepXPathTarget(
 	xpathOrSelector: string,
 ): Promise<ResolvedLocatorTarget> {
 	let path = xpathOrSelector.trim()
-	if (path.startsWith("xpath=")) path = path.slice("xpath=".length).trim()
-	if (!path.startsWith("/")) path = `/${path}`
+	if (path.startsWith("xpath=")) {
+		path = path.slice("xpath=".length).trim()
+	}
+	if (!path.startsWith("/")) {
+		path = `/${path}`
+	}
 
 	const steps = parseXPath(path)
 	let fl: FrameLocator | undefined
 	let buf: Step[] = []
 
 	const flushIntoFrameLocator = () => {
-		if (!buf.length) return
+		if (!buf.length) {
+			return
+		}
 		const selectorForIframe = `xpath=${buildXPathFromSteps(buf)}`
 		fl = fl
 			? fl.frameLocator(selectorForIframe)
@@ -252,7 +264,9 @@ async function resolveDeepXPathTarget(
 
 	for (const st of steps) {
 		buf.push(st)
-		if (IFRAME_STEP_RE.test(st.name)) flushIntoFrameLocator()
+		if (IFRAME_STEP_RE.test(st.name)) {
+			flushIntoFrameLocator()
+		}
 	}
 
 	const finalSelector = `xpath=${buildXPathFromSteps(buf)}`

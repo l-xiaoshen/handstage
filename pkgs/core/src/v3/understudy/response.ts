@@ -68,13 +68,19 @@ function splitHeaderValues(value: string): string[] {
 function parseHeadersText(
 	headersText: string | undefined,
 ): Array<{ name: string; value: string }> {
-	if (!headersText) return []
+	if (!headersText) {
+		return []
+	}
 	const lines = headersText.split(/\r?\n/)
 	const entries: Array<{ name: string; value: string }> = []
 	for (const line of lines) {
-		if (!line || line.startsWith("HTTP/")) continue
+		if (!line || line.startsWith("HTTP/")) {
+			continue
+		}
 		const index = line.indexOf(":")
-		if (index === -1) continue
+		if (index === -1) {
+			continue
+		}
 		const name = line.slice(0, index).trim()
 		const value = line.slice(index + 1).trim()
 		entries.push({ name, value })
@@ -151,7 +157,9 @@ export class Response {
 		this.headersObject = {}
 		for (const [name, value] of Object.entries(this.response.headers ?? {})) {
 			const lower = normaliseHeaderName(name)
-			if (value === undefined) continue
+			if (value === undefined) {
+				continue
+			}
 			const values = splitHeaderValues(String(value))
 			this.headerValuesMap.set(lower, values)
 			this.headersObject[lower] = values.join(", ")
@@ -160,39 +168,95 @@ export class Response {
 	}
 
 	private installFinishListeners(): void {
+		const pageSignal = this.page.disposalSignal?.()
 		const onFinished = (event: Protocol.Network.LoadingFinishedEvent) => {
-			if (event.requestId === this.requestId) this.markFinished(null)
+			if (event.requestId === this.requestId) {
+				this.markFinished(null)
+			}
 		}
 		const onFailed = (event: Protocol.Network.LoadingFailedEvent) => {
-			if (event.requestId !== this.requestId) return
+			if (event.requestId !== this.requestId) {
+				return
+			}
 			this.markFinished(
 				new Error(event.errorText || "Navigation request failed"),
 			)
 		}
 		const onDetached = (event: Protocol.Target.DetachedFromTargetEvent) => {
-			if (!this.session.id || event.sessionId !== this.session.id) return
+			if (!this.session.id || event.sessionId !== this.session.id) {
+				return
+			}
 			this.markFinished(new Error("Navigation session detached"))
 		}
 		const onDestroyed = (event: Protocol.Target.TargetDestroyedEvent) => {
-			if (event.targetId !== this.page.targetId()) return
+			if (event.targetId !== this.page.targetId()) {
+				return
+			}
 			this.markFinished(new Error("Navigation target destroyed"))
 		}
 		const onConnectionClosed = (why: string) => {
 			this.markFinished(new CDPConnectionClosedError(why))
 		}
+		const onPageDisposed = () => {
+			this.markFinished(
+				pageSignal?.reason instanceof Error
+					? pageSignal.reason
+					: new CDPConnectionClosedError("page is disposed"),
+			)
+		}
 
-		this.session.on("Network.loadingFinished", onFinished)
-		this.session.on("Network.loadingFailed", onFailed)
-		this.connection?.on("Target.detachedFromTarget", onDetached)
-		this.connection?.on("Target.targetDestroyed", onDestroyed)
-		this.connection?.onTransportClosed(onConnectionClosed)
+		const cleanups: Array<() => void> = []
 		this.finishCleanup = () => {
-			this.session.off("Network.loadingFinished", onFinished)
-			this.session.off("Network.loadingFailed", onFailed)
-			this.connection?.off("Target.detachedFromTarget", onDetached)
-			this.connection?.off("Target.targetDestroyed", onDestroyed)
-			this.connection?.offTransportClosed(onConnectionClosed)
+			if (!this.finishCleanup) {
+				return
+			}
 			this.finishCleanup = null
+			for (const cleanup of cleanups.splice(0)) {
+				try {
+					cleanup()
+				} catch {}
+			}
+		}
+
+		try {
+			cleanups.push(() =>
+				this.session.off("Network.loadingFinished", onFinished),
+			)
+			this.session.on("Network.loadingFinished", onFinished)
+			cleanups.push(() => this.session.off("Network.loadingFailed", onFailed))
+			this.session.on("Network.loadingFailed", onFailed)
+
+			if (this.connection) {
+				cleanups.push(() =>
+					this.connection?.off("Target.detachedFromTarget", onDetached),
+				)
+				this.connection.on("Target.detachedFromTarget", onDetached)
+				cleanups.push(() =>
+					this.connection?.off("Target.targetDestroyed", onDestroyed),
+				)
+				this.connection.on("Target.targetDestroyed", onDestroyed)
+			}
+
+			if (pageSignal) {
+				cleanups.push(() =>
+					pageSignal.removeEventListener("abort", onPageDisposed),
+				)
+				pageSignal.addEventListener("abort", onPageDisposed, { once: true })
+				if (pageSignal.aborted) {
+					onPageDisposed()
+				}
+			}
+
+			if (!this.finishedSettled && this.connection) {
+				cleanups.push(() =>
+					this.connection?.offTransportClosed(onConnectionClosed),
+				)
+				this.connection.onTransportClosed(onConnectionClosed)
+			}
+		} catch (error) {
+			this.markFinished(
+				error instanceof Error ? error : new Error(String(error)),
+			)
 		}
 	}
 
@@ -219,7 +283,9 @@ export class Response {
 
 	/** Returns the Handstage frame object that initiated the navigation. */
 	frame(): Frame | null {
-		if (!this.frameId) return null
+		if (!this.frameId) {
+			return null
+		}
 		try {
 			return this.page.frameForId(this.frameId)
 		} catch {
@@ -259,7 +325,9 @@ export class Response {
 	 * browser sends them (no further splitting or concatenation).
 	 */
 	async allHeaders(): Promise<Record<string, string>> {
-		if (this.allHeadersCache) return { ...this.allHeadersCache }
+		if (this.allHeadersCache) {
+			return { ...this.allHeadersCache }
+		}
 		const source = this.extraInfoHeaders ?? this.response.headers ?? {}
 		const map: Record<string, string> = {}
 		for (const [name, value] of Object.entries(source)) {
@@ -272,7 +340,9 @@ export class Response {
 	/** Returns a concatenated header string for the supplied header name. */
 	async headerValue(name: string): Promise<string | null> {
 		const values = await this.headerValues(name)
-		if (!values.length) return null
+		if (!values.length) {
+			return null
+		}
 		return values.join(", ")
 	}
 
@@ -294,7 +364,9 @@ export class Response {
 	 * Falls back to the CDP object when the raw header text is unavailable.
 	 */
 	async headersArray(): Promise<Array<{ name: string; value: string }>> {
-		if (this.headersArrayCache) return [...this.headersArrayCache]
+		if (this.headersArrayCache) {
+			return [...this.headersArrayCache]
+		}
 
 		const entriesFromText = parseHeadersText(this.extraInfoHeadersText)
 		if (entriesFromText.length > 0) {
@@ -424,13 +496,18 @@ export class Response {
 
 	/** Marks the response as finished and resolves the `finished()` promise. */
 	public markFinished(error: Error | null): void {
-		if (this.finishedSettled) return
+		if (this.finishedSettled) {
+			return
+		}
 		this.finishedSettled = true
-		this.finishCleanup?.()
-		if (error) {
-			this.finishedDeferred.resolve(error)
-		} else {
-			this.finishedDeferred.resolve(null)
+		try {
+			this.finishCleanup?.()
+		} finally {
+			if (error) {
+				this.finishedDeferred.resolve(error)
+			} else {
+				this.finishedDeferred.resolve(null)
+			}
 		}
 	}
 }

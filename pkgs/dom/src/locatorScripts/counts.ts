@@ -15,12 +15,16 @@ export interface TextMatchResult {
 
 export function countCssMatchesPrimary(selectorRaw: string): number {
 	const selector = String(selectorRaw ?? "").trim()
-	if (!selector) return 0
+	if (!selector) {
+		return 0
+	}
 
 	const seen = new WeakSet<Node>()
 
 	const visit = (root: Node | null | undefined): number => {
-		if (!root || seen.has(root)) return 0
+		if (!root || seen.has(root)) {
+			return 0
+		}
 		seen.add(root)
 
 		let total = 0
@@ -62,7 +66,9 @@ export function countCssMatchesPrimary(selectorRaw: string): number {
 
 export function countCssMatchesPierce(selectorRaw: string): number {
 	const selector = String(selectorRaw ?? "").trim()
-	if (!selector) return 0
+	if (!selector) {
+		return 0
+	}
 
 	const backdoor = window.__handstageV3__
 	if (!backdoor || typeof backdoor.getClosedRoot !== "function") {
@@ -77,7 +83,9 @@ export function countCssMatchesPierce(selectorRaw: string): number {
 	const queue: Node[] = []
 
 	const enqueue = (node: Node | null | undefined) => {
-		if (!node || seen.has(node)) return
+		if (!node || seen.has(node)) {
+			return
+		}
 		seen.add(node)
 		queue.push(node)
 	}
@@ -87,16 +95,22 @@ export function countCssMatchesPierce(selectorRaw: string): number {
 
 	const visitElement = (element: Element) => {
 		const open = element.shadowRoot
-		if (open) enqueue(open)
+		if (open) {
+			enqueue(open)
+		}
 		try {
 			const closed = backdoor.getClosedRoot(element)
-			if (closed) enqueue(closed)
+			if (closed) {
+				enqueue(closed)
+			}
 		} catch {}
 	}
 
 	while (queue.length) {
 		const root = queue.shift()
-		if (!root) continue
+		if (!root) {
+			continue
+		}
 
 		try {
 			const queryable = root as unknown as ParentNode & {
@@ -147,20 +161,28 @@ export function countTextMatches(rawNeedle: string): TextMatchResult {
 	])
 
 	const shouldSkip = (node: Element | null | undefined): boolean => {
-		if (!node) return false
+		if (!node) {
+			return false
+		}
 		const tag = node.tagName?.toUpperCase() ?? ""
 		return skipTags.has(tag)
 	}
 
 	const extractText = (element: Element): string => {
 		try {
-			if (shouldSkip(element)) return ""
+			if (shouldSkip(element)) {
+				return ""
+			}
 			const inner = (element as HTMLElement).innerText
-			if (typeof inner === "string" && inner.trim()) return inner.trim()
+			if (typeof inner === "string" && inner.trim()) {
+				return inner.trim()
+			}
 		} catch {}
 		try {
 			const text = element.textContent
-			if (typeof text === "string") return text.trim()
+			if (typeof text === "string") {
+				return text.trim()
+			}
 		} catch {}
 		return ""
 	}
@@ -189,7 +211,9 @@ export function countTextMatches(rawNeedle: string): TextMatchResult {
 	const queue: Node[] = []
 
 	const enqueue = (node: Node | null | undefined) => {
-		if (!node || seen.has(node)) return
+		if (!node || seen.has(node)) {
+			return
+		}
 		seen.add(node)
 		queue.push(node)
 	}
@@ -218,7 +242,9 @@ export function countTextMatches(rawNeedle: string): TextMatchResult {
 
 	while (queue.length) {
 		const root = queue.shift()
-		if (!root) continue
+		if (!root) {
+			continue
+		}
 
 		if (root instanceof Element && matches(root)) {
 			matchesList.push({
@@ -231,10 +257,14 @@ export function countTextMatches(rawNeedle: string): TextMatchResult {
 		}
 
 		const walker = walkerFor(root)
-		if (!walker) continue
+		if (!walker) {
+			continue
+		}
 
 		for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-			if (!(node instanceof Element)) continue
+			if (!(node instanceof Element)) {
+				continue
+			}
 
 			if (matches(node)) {
 				matchesList.push({
@@ -247,10 +277,14 @@ export function countTextMatches(rawNeedle: string): TextMatchResult {
 			}
 
 			const open = node.shadowRoot
-			if (open) enqueue(open)
+			if (open) {
+				enqueue(open)
+			}
 
 			const closed = getClosedRoot(node)
-			if (closed) enqueue(closed)
+			if (closed) {
+				enqueue(closed)
+			}
 		}
 	}
 
@@ -259,7 +293,9 @@ export function countTextMatches(rawNeedle: string): TextMatchResult {
 		const el = item.element
 		let skip = false
 		for (const other of matchesList) {
-			if (item === other) continue
+			if (item === other) {
+				continue
+			}
 			try {
 				if (el.contains(other.element)) {
 					skip = true
@@ -267,7 +303,9 @@ export function countTextMatches(rawNeedle: string): TextMatchResult {
 				}
 			} catch {}
 		}
-		if (!skip) innermost.push(item)
+		if (!skip) {
+			innermost.push(item)
+		}
 	}
 
 	const count = innermost.length

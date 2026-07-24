@@ -29,6 +29,7 @@ const HANDSTAGE_CONSTRUCTOR_TOKEN: unique symbol = Symbol(
 export class Handstage {
 	private _isClosing = false
 	private _closePromise: Promise<void> | null = null
+	private _forceCloseRequested = false
 
 	private _onCDPClosed = (why: string) => {
 		this._immediateShutdown(`CDP transport closed: ${why}`).catch(() => {})
@@ -38,9 +39,11 @@ export class Handstage {
 	private readonly logSink: LogSink
 	public verbose: LogLevel
 	private connection: CDPConnectionLike | null
-	private readonly cleanup?: () => Promise<void>
+	private cleanup?: () => Promise<void>
 	private readonly _contexts = new Set<Context>()
-	private readonly defaultContext: Context
+	private readonly pendingContextCreations = new Set<Promise<Context>>()
+	private readonly contextCreationController = new AbortController()
+	private defaultContext: Context | null
 
 	/** @internal Use connection subpath factories instead. */
 	constructor(
@@ -95,12 +98,15 @@ export class Handstage {
 				message: `closing resources → ${reason}`,
 				level: LogLevel.Error,
 			})
-			await this.close()
+			await this.close({ force: true })
 		} catch {}
 	}
 
 	/** Expose the root default browser context. */
 	public defaultBrowserContext(): Context {
+		if (!this.defaultContext) {
+			throw new CDPConnectionClosedError("Handstage instance is closed")
+		}
 		return this.defaultContext
 	}
 
@@ -128,18 +134,36 @@ export class Handstage {
 			)
 		}
 		const connection = this.connection
-		const ctx = await Context.createIsolatedFromConnection(connection, {
-			createOptions: options,
-			logger: this.logSink,
-		})
-		if (this._isClosing || this.connection !== connection) {
-			await ctx.close().catch(() => {})
-			throw new CDPConnectionClosedError(
-				"Cannot create browser context: Handstage instance is closed",
-			)
+		const operation = (async () => {
+			const ctx = await Context.createIsolatedFromConnection(connection, {
+				createOptions: options,
+				logger: this.logSink,
+				signal: this.contextCreationController.signal,
+			})
+			this._trackContext(ctx)
+			if (this._isClosing || this.connection !== connection) {
+				const closedError = new CDPConnectionClosedError(
+					"Cannot create browser context: Handstage instance is closed",
+				)
+				try {
+					await ctx.close()
+				} catch (cleanupError) {
+					throw new AggregateError(
+						[closedError, cleanupError],
+						"Handstage closed while creating a browser context",
+						{ cause: closedError },
+					)
+				}
+				throw closedError
+			}
+			return ctx
+		})()
+		this.pendingContextCreations.add(operation)
+		try {
+			return await operation
+		} finally {
+			this.pendingContextCreations.delete(operation)
 		}
-		this._trackContext(ctx)
-		return ctx
 	}
 
 	/**
@@ -173,33 +197,102 @@ export class Handstage {
 	}
 
 	/** Best-effort cleanup of context and launched resources. */
-	async close(_opts?: { force?: boolean }): Promise<void> {
-		if (this._closePromise) return this._closePromise
+	async close(opts?: { force?: boolean }): Promise<void> {
+		if (opts?.force) {
+			this._forceCloseRequested = true
+		}
+		if (this._closePromise) {
+			return this._closePromise
+		}
 		this._isClosing = true
+		if (!this.contextCreationController.signal.aborted) {
+			this.contextCreationController.abort(
+				new CDPConnectionClosedError("Handstage instance is closing"),
+			)
+		}
 
-		this._closePromise = (async () => {
+		const operation = (async () => {
+			const cleanup = this.cleanup
+			const closeErrors: unknown[] = []
+			const failedContexts: Context[] = []
+			let cleanupCompleted = false
+			await Promise.allSettled([...this.pendingContextCreations])
+			const contexts = [...this._contexts]
+			const results = await Promise.allSettled(
+				contexts.map((ctx) => ctx.close()),
+			)
+			for (const [index, result] of results.entries()) {
+				if (result.status !== "rejected") {
+					continue
+				}
+				closeErrors.push(result.reason)
+				const context = contexts[index]
+				if (context) {
+					failedContexts.push(context)
+				}
+			}
+			if (closeErrors.length > 0 && !this._forceCloseRequested) {
+				if (closeErrors.length === 1) {
+					throw closeErrors[0]
+				}
+				throw new AggregateError(
+					closeErrors,
+					"Failed to close Handstage contexts",
+				)
+			}
 			try {
 				if (this.connection && this._onCDPClosed) {
 					this.connection.offTransportClosed?.(this._onCDPClosed)
 				}
 			} catch {}
-
-			try {
+			if (cleanup) {
 				try {
-					const closes = []
-					for (const ctx of this._contexts) {
-						closes.push(ctx.close())
-					}
-					await Promise.allSettled(closes)
-				} catch {}
-
-				await this.cleanup?.()
-			} finally {
-				this._contexts.clear()
-				this.connection = null
+					await cleanup()
+					cleanupCompleted = true
+				} catch (error) {
+					closeErrors.push(error)
+				}
 			}
+
+			if (closeErrors.length === 0) {
+				this._contexts.clear()
+				this.pendingContextCreations.clear()
+				this.connection = null
+				this.defaultContext = null
+				this.cleanup = undefined
+				return
+			}
+
+			if (cleanupCompleted || (this._forceCloseRequested && !cleanup)) {
+				for (const context of failedContexts) {
+					context.forceLocalFinalize()
+				}
+				this._contexts.clear()
+				this.pendingContextCreations.clear()
+				this.connection = null
+				this.defaultContext = null
+				this.cleanup = undefined
+			} else {
+				this._contexts.clear()
+				for (const context of failedContexts) {
+					this._contexts.add(context)
+				}
+			}
+			if (closeErrors.length === 1) {
+				throw closeErrors[0]
+			}
+			throw new AggregateError(
+				closeErrors,
+				"Failed to close Handstage resources",
+			)
 		})()
-		return this._closePromise
+		this._closePromise = operation
+		try {
+			await operation
+		} catch (error) {
+			this._closePromise = null
+			throw error
+		}
 	}
 
 	public get logger(): (logLine: LogLine) => void {

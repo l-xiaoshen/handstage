@@ -13,9 +13,9 @@
  * The whole suite is defined across both launchers and twice per launcher —
  * once with `headless: true` and once with `headless: false` — so the exact
  * same behaviour is verified against both a headless browser and a headful
- * (windowed) browser. Headful Chrome needs a display; the headful pass
- * self-skips when no `DISPLAY` is available so the file stays green in
- * headless-only environments.
+ * (windowed) browser. Headful Chrome needs both a display and the explicit
+ * `HANDSTAGE_TEST_HEADFUL=1` opt-in so the default aggregate suite does not
+ * contend for a shared CI display.
  *
  * Chrome is resolved through `chrome-launcher` (honouring `CHROME_PATH` /
  * the `executablePath` option). If no Chrome binary can be found the whole
@@ -28,6 +28,7 @@ import { launchChromeBun } from "../src/launch/bun"
 import { launchChromeNode } from "../src/launch/node"
 import type { Context, Handstage } from "../src/v3"
 import { connectLocal } from "../src/v3/connect/local"
+import { withTimeout } from "../src/v3/timeoutConfig"
 
 function chromeIsAvailable(): boolean {
 	try {
@@ -38,9 +39,10 @@ function chromeIsAvailable(): boolean {
 }
 
 const HAS_CHROME = chromeIsAvailable()
-// A headful browser requires a windowing system; without a display the
-// headful pass is skipped instead of failing.
+// A headful browser requires a windowing system and is intentionally opt-in;
+// shared virtual displays are unreliable when Bun runs aggregate test files.
 const HAS_DISPLAY = Boolean(process.env.DISPLAY)
+const RUN_HEADFUL = process.env.HANDSTAGE_TEST_HEADFUL === "1"
 
 const LAUNCH_TIMEOUT_MS = 30_000
 const TEST_TIMEOUT_MS = 30_000
@@ -64,13 +66,30 @@ interface ChromeLauncher {
 
 const LAUNCH_MODES: LaunchMode[] = [
 	{ label: "headless", headless: true, enabled: HAS_CHROME },
-	{ label: "headful", headless: false, enabled: HAS_CHROME && HAS_DISPLAY },
+	{
+		label: "headful",
+		headless: false,
+		enabled: HAS_CHROME && HAS_DISPLAY && RUN_HEADFUL,
+	},
 ]
 
 const CHROME_LAUNCHERS: ChromeLauncher[] = [
 	{ label: "node", launch: launchChromeNode },
 	{ label: "bun", launch: launchChromeBun },
 ]
+
+let matrixLock = Promise.resolve()
+
+async function acquireMatrixLock(): Promise<() => void> {
+	const previous = matrixLock
+	let release!: () => void
+	const current = new Promise<void>((resolve) => {
+		release = resolve
+	})
+	matrixLock = previous.then(() => current)
+	await previous
+	return release
+}
 
 /**
  * Define the entire real-Chrome suite for a single launch mode. Called once
@@ -90,14 +109,42 @@ function defineRealChromeSuite(
 
 	realChrome(`real Chrome [${launcher.label}/${mode.label}]`, () => {
 		let handstage: Handstage
+		let releaseMatrixLock: (() => void) | null = null
 
 		beforeAll(async () => {
-			handstage = await launchHandstage()
+			releaseMatrixLock = await acquireMatrixLock()
+			try {
+				handstage = await launchHandstage()
+			} catch (error) {
+				releaseMatrixLock()
+				releaseMatrixLock = null
+				throw error
+			}
 		}, LAUNCH_TIMEOUT_MS)
 
 		afterAll(async () => {
-			await handstage?.close()
+			try {
+				await handstage?.close()
+			} finally {
+				releaseMatrixLock?.()
+				releaseMatrixLock = null
+			}
 		})
+
+		if (launcher.label === "bun" && mode.headless) {
+			test.serial(
+				"closes immediately before a stdin write",
+				async () => {
+					const chrome = await launcher.launch({ headless: true })
+					await withTimeout(
+						Promise.all([chrome.close(), chrome.close()]),
+						5_000,
+						"immediate Bun Chrome close",
+					)
+				},
+				TEST_TIMEOUT_MS,
+			)
+		}
 
 		describe("page basics", () => {
 			let context: Context
@@ -439,8 +486,10 @@ function defineRealChromeSuite(
 }
 
 // Run the entire suite once per launcher and launch mode.
-for (const launcher of CHROME_LAUNCHERS) {
-	for (const mode of LAUNCH_MODES) {
-		defineRealChromeSuite(launcher, mode)
+describe.serial("real Chrome matrix", () => {
+	for (const launcher of CHROME_LAUNCHERS) {
+		for (const mode of LAUNCH_MODES) {
+			defineRealChromeSuite(launcher, mode)
+		}
 	}
-}
+})

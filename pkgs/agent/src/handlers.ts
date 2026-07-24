@@ -53,7 +53,9 @@ export class HandstageContextAgentToolHandlers
 
 	async closePage(input: ClosePageInput): Promise<ClosePageOutput> {
 		const page = this.ctx.resolvePageByTargetId(input.pageId)
-		if (!page) return errResult(`Unknown pageId: ${input.pageId}`)
+		if (!page) {
+			return errResult(`Unknown pageId: ${input.pageId}`)
+		}
 		return tryAgentResult(async () => {
 			await page.close()
 			return {}

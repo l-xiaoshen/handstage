@@ -5,6 +5,10 @@ import { buildA11yInvocation } from "../../a11yInvocation"
 import type { CDPSessionLike } from "../../cdp"
 import { executionContexts } from "../../executionContextRegistry"
 import type { Page } from "../../page"
+import {
+	releaseDiscardedEvaluationHandles,
+	releaseObjectIds,
+} from "../../runtimeObjectUtils"
 import { listChildrenOf } from "./focusSelectors"
 import { buildAbsoluteXPathFromChain } from "./xpathUtils"
 
@@ -21,7 +25,9 @@ export async function resolveXpathForLocation(
 	const parentByFrame = new Map<string, string | null>()
 	;(function index(n: Protocol.Page.FrameTree, parent: string | null) {
 		parentByFrame.set(n.frame.id, parent)
-		for (const c of n.childFrames ?? []) index(c, n.frame.id)
+		for (const c of n.childFrames ?? []) {
+			index(c, n.frame.id)
+		}
 	})(tree, null)
 
 	const iframeChain: Array<{
@@ -53,9 +59,12 @@ export async function resolveXpathForLocation(
 							returnByValue: true,
 						}
 					: { expression: scrollExpr, returnByValue: true }
-				const { result } = await curSession.send("Runtime.evaluate", evalParams)
-				sx = Number(result?.value?.sx ?? 0)
-				sy = Number(result?.value?.sy ?? 0)
+				const evaluation = await curSession.send("Runtime.evaluate", evalParams)
+				await releaseDiscardedEvaluationHandles(curSession, evaluation)
+				if (!evaluation.exceptionDetails) {
+					sx = Number(evaluation.result.value?.sx ?? 0)
+					sy = Number(evaluation.result.value?.sy ?? 0)
+				}
 			} catch {}
 			const xi = Math.max(0, Math.floor(curX + sx))
 			const yi = Math.max(0, Math.floor(curY + sy))
@@ -89,7 +98,9 @@ export async function resolveXpathForLocation(
 					: null
 			}
 
-			if (typeof be !== "number") return null
+			if (typeof be !== "number") {
+				return null
+			}
 
 			let matchedChild: string | undefined
 			for (const fid of listChildrenOf(parentByFrame, curFrameId)) {
@@ -122,24 +133,28 @@ export async function resolveXpathForLocation(
 
 			let left = 0
 			let top = 0
+			let objectId: string | undefined
 			try {
 				const { object } = await curSession.send("DOM.resolveNode", {
 					backendNodeId: be,
 				})
-				const objectId = object?.objectId
+				objectId = object?.objectId
 				if (objectId) {
-					const { result } = await curSession.send("Runtime.callFunctionOn", {
+					const evaluation = await curSession.send("Runtime.callFunctionOn", {
 						objectId,
 						functionDeclaration: a11yScriptSources.getBoundingRectLite,
 						returnByValue: true,
 					})
-					left = Number(result?.value?.left ?? 0)
-					top = Number(result?.value?.top ?? 0)
-					await curSession
-						.send("Runtime.releaseObject", { objectId })
-						.catch(() => {})
+					await releaseDiscardedEvaluationHandles(curSession, evaluation)
+					if (!evaluation.exceptionDetails) {
+						left = Number(evaluation.result.value?.left ?? 0)
+						top = Number(evaluation.result.value?.top ?? 0)
+					}
 				}
-			} catch {}
+			} catch {
+			} finally {
+				await releaseObjectIds(curSession, [objectId])
+			}
 			curX = Math.max(0, curX - left)
 			curY = Math.max(0, curY - top)
 			curFrameId = matchedChild

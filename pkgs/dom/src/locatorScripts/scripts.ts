@@ -16,7 +16,9 @@ export interface ClickEventOptions {
 export function ensureFileInputElement(this: Element): boolean {
 	try {
 		const tag = (this as HTMLElement).tagName?.toLowerCase() ?? ""
-		if (tag !== "input") return false
+		if (tag !== "input") {
+			return false
+		}
 		const type = String((this as HTMLInputElement).type ?? "").toLowerCase()
 		return type === "file"
 	} catch {
@@ -38,8 +40,12 @@ export function assignFilePayloadsToInputElement(
 ): boolean {
 	try {
 		const input = this as HTMLInputElement
-		if (input?.tagName?.toLowerCase() !== "input") return false
-		if ((input.type ?? "").toLowerCase() !== "file") return false
+		if (input?.tagName?.toLowerCase() !== "input") {
+			return false
+		}
+		if ((input.type ?? "").toLowerCase() !== "file") {
+			return false
+		}
 
 		const transfer: DataTransfer | null = (() => {
 			try {
@@ -48,11 +54,15 @@ export function assignFilePayloadsToInputElement(
 				return null
 			}
 		})()
-		if (!transfer) return false
+		if (!transfer) {
+			return false
+		}
 
 		const entries = Array.isArray(payloads) ? payloads : []
 		for (const payload of entries) {
-			if (!payload) continue
+			if (!payload) {
+				continue
+			}
 			const name = payload.name || "upload.bin"
 			const mimeType = payload.mimeType || "application/octet-stream"
 			const lastModified =
@@ -106,11 +116,17 @@ export function scrollElementToPercent(
 	percent: number | string,
 ): boolean {
 	const normalize = (value: unknown): number => {
-		if (typeof value === "number" && Number.isFinite(value)) return value
+		if (typeof value === "number" && Number.isFinite(value)) {
+			return value
+		}
 		const str = String(value ?? "").trim()
-		if (!str) return 0
+		if (!str) {
+			return 0
+		}
 		const numeric = parseFloat(str.replace("%", ""))
-		if (Number.isNaN(numeric) || !Number.isFinite(numeric)) return 0
+		if (Number.isNaN(numeric) || !Number.isFinite(numeric)) {
+			return 0
+		}
 		return numeric
 	}
 
@@ -186,7 +202,9 @@ export type FillElementResult =
 export function prepareElementForTyping(this: Element): boolean {
 	try {
 		const element = this as HTMLElement
-		if (!element.isConnected) return false
+		if (!element.isConnected) {
+			return false
+		}
 
 		const doc = element.ownerDocument || document
 		const win = doc.defaultView || window
@@ -374,7 +392,9 @@ export function selectElementOptions(
 	rawValues: string | string[],
 ): string[] {
 	try {
-		if (!(this instanceof HTMLSelectElement)) return []
+		if (!(this instanceof HTMLSelectElement)) {
+			return []
+		}
 
 		const desired = Array.isArray(rawValues) ? rawValues : [rawValues]
 		const wanted = new Set(desired.map((v) => String(v ?? "").trim()))
@@ -416,21 +436,35 @@ export function selectElementOptions(
 export function isElementVisible(this: Element): boolean {
 	try {
 		const element = this as HTMLElement
-		if (!element.isConnected) return false
+		if (!element.isConnected) {
+			return false
+		}
 
 		const style =
 			element.ownerDocument?.defaultView?.getComputedStyle(element) ??
 			window.getComputedStyle(element)
-		if (!style) return false
-		if (style.display === "none" || style.visibility === "hidden") return false
+		if (!style) {
+			return false
+		}
+		if (style.display === "none" || style.visibility === "hidden") {
+			return false
+		}
 		const opacity = parseFloat(style.opacity ?? "1")
-		if (!Number.isFinite(opacity) || opacity === 0) return false
+		if (!Number.isFinite(opacity) || opacity === 0) {
+			return false
+		}
 
 		const rect = element.getBoundingClientRect()
-		if (!rect) return false
-		if (Math.max(rect.width, rect.height) === 0) return false
+		if (!rect) {
+			return false
+		}
+		if (Math.max(rect.width, rect.height) === 0) {
+			return false
+		}
 
-		if (element.getClientRects().length === 0) return false
+		if (element.getClientRects().length === 0) {
+			return false
+		}
 		return true
 	} catch {
 		return false
@@ -448,7 +482,9 @@ export function isElementChecked(this: Element): boolean {
 			}
 		}
 		const aria = element.getAttribute?.("aria-checked")
-		if (aria != null) return aria === "true"
+		if (aria != null) {
+			return aria === "true"
+		}
 		return false
 	} catch {
 		return false

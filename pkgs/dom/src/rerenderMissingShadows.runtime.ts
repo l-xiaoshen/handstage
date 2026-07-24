@@ -1,19 +1,29 @@
 export function rerenderMissingShadowHosts(): void {
 	try {
 		const piercer = window.__handstageV3__
-		if (!piercer || typeof piercer.getClosedRoot !== "function") return
+		if (!piercer || typeof piercer.getClosedRoot !== "function") {
+			return
+		}
 
 		const needsReset: Element[] = []
 		const walker = document.createTreeWalker(document, NodeFilter.SHOW_ELEMENT)
 		while (walker.nextNode()) {
 			const el = walker.currentNode as Element
 			const tag = el.tagName?.toLowerCase() ?? ""
-			if (!tag.includes("-")) continue
-			if (typeof customElements?.get !== "function") continue
-			if (!customElements.get(tag)) continue
+			if (!tag.includes("-")) {
+				continue
+			}
+			if (typeof customElements?.get !== "function") {
+				continue
+			}
+			if (!customElements.get(tag)) {
+				continue
+			}
 			const hasOpen = !!el.shadowRoot
 			const hasClosed = !!piercer.getClosedRoot(el)
-			if (hasOpen || hasClosed) continue
+			if (hasOpen || hasClosed) {
+				continue
+			}
 			needsReset.push(el)
 		}
 

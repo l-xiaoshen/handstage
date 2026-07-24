@@ -22,6 +22,8 @@ export async function withTimeout<T>(
 	try {
 		return await Promise.race([promise, timeoutPromise])
 	} finally {
-		if (timeoutId) clearTimeout(timeoutId)
+		if (timeoutId) {
+			clearTimeout(timeoutId)
+		}
 	}
 }

@@ -7,7 +7,7 @@ import {
 	type WaitForIdleHandle,
 	type WaitForIdleOptions,
 } from "../types/private/network"
-import type { CDPSessionLike } from "./cdp"
+import type { CDPEvent, CDPEventParams, CDPSessionLike } from "./cdp"
 
 /**
  * Cross-session network tracker.
@@ -49,12 +49,23 @@ export class NetworkManager {
 	 * Safe to call multiple times; duplicate registrations are ignored.
 	 */
 	public trackSession(session: CDPSessionLike): void {
-		if (this.disposed) return
+		if (this.disposed) {
+			return
+		}
 		const sid = this.sessionKey(session)
-		if (this.sessions.has(sid)) return
+		if (this.sessions.has(sid)) {
+			return
+		}
+		const isCurrent = () =>
+			!this.disposed && this.sessions.get(sid)?.session === session
 
 		const onRequest = (evt: Protocol.Network.RequestWillBeSentEvent) => {
-			if (!evt?.requestId) return
+			if (!isCurrent()) {
+				return
+			}
+			if (!evt?.requestId) {
+				return
+			}
 
 			const info: NetworkRequestInfo = {
 				sessionId: sid,
@@ -77,9 +88,16 @@ export class NetworkManager {
 		}
 
 		const finish = (reqId: string) => {
+			if (!isCurrent()) {
+				return
+			}
 			const key = this.requestKey(sid, reqId)
 			const stored = this.requests.get(key)
-			if (stored?.frameId) {
+			if (
+				stored?.documentRequest &&
+				stored.frameId &&
+				this.documentRequestsByFrame.get(stored.frameId) === key
+			) {
 				this.documentRequestsByFrame.delete(stored.frameId)
 			}
 			const info: NetworkRequestInfo = stored ?? {
@@ -94,9 +112,16 @@ export class NetworkManager {
 		}
 
 		const fail = (reqId: string) => {
+			if (!isCurrent()) {
+				return
+			}
 			const key = this.requestKey(sid, reqId)
 			const stored = this.requests.get(key)
-			if (stored?.frameId) {
+			if (
+				stored?.documentRequest &&
+				stored.frameId &&
+				this.documentRequestsByFrame.get(stored.frameId) === key
+			) {
 				this.documentRequestsByFrame.delete(stored.frameId)
 			}
 			const info: NetworkRequestInfo = stored ?? {
@@ -111,28 +136,45 @@ export class NetworkManager {
 		}
 
 		const onFinished = (evt: { requestId: string }) => {
-			if (!evt?.requestId) return
+			if (!evt?.requestId) {
+				return
+			}
 			finish(evt.requestId)
 		}
 
 		const onFailed = (evt: Protocol.Network.LoadingFailedEvent) => {
-			if (!evt?.requestId) return
+			if (!evt?.requestId) {
+				return
+			}
 			fail(evt.requestId)
 		}
 
 		const onResponse = (evt: Protocol.Network.ResponseReceivedEvent) => {
-			if (!evt?.requestId) return
+			if (!evt?.requestId) {
+				return
+			}
 			const url = evt.response?.url ?? ""
-			if (url.startsWith("data:")) finish(evt.requestId)
+			if (url.startsWith("data:")) {
+				finish(evt.requestId)
+			}
 		}
 
 		const onFrameStopped = (evt: Protocol.Page.FrameStoppedLoadingEvent) => {
-			if (!evt?.frameId) return
+			if (!isCurrent()) {
+				return
+			}
+			if (!evt?.frameId) {
+				return
+			}
 			const key = this.documentRequestsByFrame.get(evt.frameId)
-			if (!key) return
+			if (!key) {
+				return
+			}
 			const stored = this.requests.get(key)
-			if (!stored) {
-				this.documentRequestsByFrame.delete(evt.frameId)
+			if (!stored || stored.sessionId !== sid) {
+				if (!stored) {
+					this.documentRequestsByFrame.delete(evt.frameId)
+				}
 				return
 			}
 			this.requests.delete(key)
@@ -140,27 +182,46 @@ export class NetworkManager {
 			this.emitFinish({ ...stored, timestamp: Date.now() })
 		}
 
-		session.on("Network.requestWillBeSent", onRequest)
-		session.on("Network.loadingFinished", onFinished)
-		session.on("Network.loadingFailed", onFailed)
-		session.on("Network.requestServedFromCache", onFinished)
-		session.on("Network.responseReceived", onResponse)
-		session.on("Page.frameStoppedLoading", onFrameStopped)
-
-		void session.send("Network.enable").catch(() => {})
-		void session.send("Page.enable").catch(() => {})
-
+		const removers: Array<() => void> = []
+		const listen = <E extends CDPEvent>(
+			event: E,
+			handler: (params: CDPEventParams<E>) => void,
+		) => {
+			session.on(event, handler)
+			removers.push(() => session.off(event, handler))
+		}
+		try {
+			listen("Network.requestWillBeSent", onRequest)
+			listen("Network.loadingFinished", onFinished)
+			listen("Network.loadingFailed", onFailed)
+			listen("Network.requestServedFromCache", onFinished)
+			listen("Network.responseReceived", onResponse)
+			listen("Page.frameStoppedLoading", onFrameStopped)
+		} catch (error) {
+			for (const remove of removers) {
+				try {
+					remove()
+				} catch {}
+			}
+			throw error
+		}
 		this.sessions.set(sid, {
 			session,
 			detach: () => {
-				session.off("Network.requestWillBeSent", onRequest)
-				session.off("Network.loadingFinished", onFinished)
-				session.off("Network.loadingFailed", onFailed)
-				session.off("Network.requestServedFromCache", onFinished)
-				session.off("Network.responseReceived", onResponse)
-				session.off("Page.frameStoppedLoading", onFrameStopped)
+				for (const remove of removers) {
+					try {
+						remove()
+					} catch {}
+				}
 			},
 		})
+
+		try {
+			void session.send("Network.enable").catch(() => {})
+		} catch {}
+		try {
+			void session.send("Page.enable").catch(() => {})
+		} catch {}
 	}
 
 	/**
@@ -169,12 +230,19 @@ export class NetworkManager {
 	public untrackSession(rawSessionId: string | undefined): void {
 		const sid = rawSessionId ?? "__main__"
 		const entry = this.sessions.get(sid)
-		if (!entry) return
-		entry.detach()
-		this.sessions.delete(sid)
+		if (!entry) {
+			return
+		}
+		try {
+			entry.detach()
+		} finally {
+			this.sessions.delete(sid)
+		}
 
 		for (const [key, info] of [...this.requests.entries()]) {
-			if (info.sessionId !== sid) continue
+			if (info.sessionId !== sid) {
+				continue
+			}
 			this.requests.delete(key)
 			this.emitFailure(info)
 		}
@@ -191,7 +259,9 @@ export class NetworkManager {
 	 * Returns a disposer that removes the observer.
 	 */
 	public addObserver(observer: NetworkObserver): () => void {
-		if (this.disposed) return () => {}
+		if (this.disposed) {
+			return () => {}
+		}
 		this.observers.add(observer)
 		return () => {
 			this.observers.delete(observer)
@@ -212,9 +282,11 @@ export class NetworkManager {
 		const idleTimeMs = options.idleTimeMs ?? DEFAULT_IDLE_WAIT
 		const timeoutMs = options.timeoutMs
 		const remainingBudgetMs = Number.isFinite(timeoutMs) ? timeoutMs : undefined
-		const originalBudgetMs = Number.isFinite(options.totalBudgetMs ?? NaN)
-			? (options.totalBudgetMs as number)
-			: remainingBudgetMs
+		const totalBudgetMs = options.totalBudgetMs
+		const originalBudgetMs =
+			typeof totalBudgetMs === "number" && Number.isFinite(totalBudgetMs)
+				? totalBudgetMs
+				: remainingBudgetMs
 
 		const filter =
 			options.filter ??
@@ -231,10 +303,16 @@ export class NetworkManager {
 		let rejectFn: ((error: Error) => void) | null = null
 
 		const cleanup = (error?: Error) => {
-			if (settled) return
+			if (settled) {
+				return
+			}
 			settled = true
-			if (idleTimer) clearTimeout(idleTimer)
-			if (timeoutTimer) clearTimeout(timeoutTimer)
+			if (idleTimer) {
+				clearTimeout(idleTimer)
+			}
+			if (timeoutTimer) {
+				clearTimeout(timeoutTimer)
+			}
 			removeObserver()
 			this.activeIdleCleanups.delete(cleanup)
 			tracked.clear()
@@ -247,7 +325,9 @@ export class NetworkManager {
 		this.activeIdleCleanups.add(cleanup)
 
 		const maybeIdle = () => {
-			if (settled) return
+			if (settled) {
+				return
+			}
 			if (tracked.size === 0) {
 				if (!idleTimer) {
 					idleTimer = setTimeout(() => {
@@ -262,9 +342,15 @@ export class NetworkManager {
 
 		const observer: NetworkObserver = {
 			onRequestStarted: (info) => {
-				if (settled) return
-				if (info.timestamp < startTime) return
-				if (!filter(info)) return
+				if (settled) {
+					return
+				}
+				if (info.timestamp < startTime) {
+					return
+				}
+				if (!filter(info)) {
+					return
+				}
 				tracked.add(info.requestKey)
 				if (idleTimer) {
 					clearTimeout(idleTimer)
@@ -272,13 +358,21 @@ export class NetworkManager {
 				}
 			},
 			onRequestFinished: (info) => {
-				if (settled) return
-				if (!tracked.delete(info.requestKey)) return
+				if (settled) {
+					return
+				}
+				if (!tracked.delete(info.requestKey)) {
+					return
+				}
 				maybeIdle()
 			},
 			onRequestFailed: (info) => {
-				if (settled) return
-				if (!tracked.delete(info.requestKey)) return
+				if (settled) {
+					return
+				}
+				if (!tracked.delete(info.requestKey)) {
+					return
+				}
 				maybeIdle()
 			},
 		}
@@ -291,6 +385,14 @@ export class NetworkManager {
 		})
 		// The waiter can be rejected externally before the caller awaits it.
 		void promise.catch(() => {})
+
+		// Requests already in flight when the waiter is created are still part of
+		// the page's idle state, regardless of when they originally started.
+		for (const info of this.requests.values()) {
+			if (filter(info)) {
+				tracked.add(info.requestKey)
+			}
+		}
 
 		// Trigger initial idle check so that we still respect the quiet window
 		maybeIdle()
@@ -319,13 +421,17 @@ export class NetworkManager {
 	 * Tear down all session listeners and clear observers/bookkeeping.
 	 */
 	public dispose(): void {
-		if (this.disposed) return
+		if (this.disposed) {
+			return
+		}
 		this.disposed = true
 		for (const cleanup of Array.from(this.activeIdleCleanups)) {
 			cleanup(new Error("NetworkManager disposed"))
 		}
 		for (const { detach } of this.sessions.values()) {
-			detach()
+			try {
+				detach()
+			} catch {}
 		}
 		this.sessions.clear()
 		this.observers.clear()
@@ -336,21 +442,27 @@ export class NetworkManager {
 	/** Fan-out helper when a tracked request starts. */
 	private emitStart(info: NetworkRequestInfo): void {
 		for (const obs of this.observers) {
-			obs.onRequestStarted(info)
+			try {
+				obs.onRequestStarted(info)
+			} catch {}
 		}
 	}
 
 	/** Fan-out helper when a tracked request completes successfully. */
 	private emitFinish(info: NetworkRequestInfo): void {
 		for (const obs of this.observers) {
-			obs.onRequestFinished(info)
+			try {
+				obs.onRequestFinished(info)
+			} catch {}
 		}
 	}
 
 	/** Fan-out helper when a tracked request fails mid-flight. */
 	private emitFailure(info: NetworkRequestInfo): void {
 		for (const obs of this.observers) {
-			obs.onRequestFailed(info)
+			try {
+				obs.onRequestFailed(info)
+			} catch {}
 		}
 	}
 

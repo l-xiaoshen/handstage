@@ -13,7 +13,9 @@ type ShadowContext = {
 
 const normalizeXPath = (selector: string): string => {
 	const raw = String(selector ?? "").trim()
-	if (!raw) return ""
+	if (!raw) {
+		return ""
+	}
 	return raw.replace(/^xpath=/i, "").trim()
 }
 
@@ -29,9 +31,13 @@ export function resolveXPathAtIndex(
 	index: number,
 	options?: XPathResolveOptions,
 ): Element | null {
-	if (!Number.isFinite(index) || index < 0) return null
+	if (!Number.isFinite(index) || index < 0) {
+		return null
+	}
 	const xp = normalizeXPath(rawXp)
-	if (!xp) return null
+	if (!xp) {
+		return null
+	}
 
 	const targetIndex = Math.floor(index)
 	const pierceShadow = options?.pierceShadow !== false
@@ -43,7 +49,9 @@ export function resolveXPathAtIndex(
 
 	if (!shadowCtx?.hasShadow) {
 		const native = resolveNativeAtIndexWithError(xp, targetIndex)
-		if (!native.error) return native.value
+		if (!native.error) {
+			return native.value
+		}
 		const composed = resolveXPathComposedMatches(xp, shadowCtx?.getClosedRoot)
 		return composed[targetIndex] ?? null
 	}
@@ -57,7 +65,9 @@ export function countXPathMatches(
 	options?: XPathResolveOptions,
 ): number {
 	const xp = normalizeXPath(rawXp)
-	if (!xp) return 0
+	if (!xp) {
+		return 0
+	}
 
 	const pierceShadow = options?.pierceShadow !== false
 	const shadowCtx = pierceShadow ? getShadowContext() : null
@@ -68,7 +78,9 @@ export function countXPathMatches(
 
 	if (!shadowCtx?.hasShadow) {
 		const count = resolveNativeCountWithError(xp)
-		if (!count.error) return count.count
+		if (!count.error) {
+			return count.count
+		}
 		return resolveXPathComposedMatches(xp, shadowCtx?.getClosedRoot).length
 	}
 
@@ -80,10 +92,14 @@ export function resolveXPathComposedMatches(
 	getClosedRoot?: ClosedRootGetter | null,
 ): Element[] {
 	const xp = normalizeXPath(rawXp)
-	if (!xp) return []
+	if (!xp) {
+		return []
+	}
 
 	const steps = parseXPathSteps(xp)
-	if (!steps.length) return []
+	if (!steps.length) {
+		return []
+	}
 
 	const closedRoot = getClosedRoot ?? null
 
@@ -96,12 +112,16 @@ export function resolveXPathComposedMatches(
 		const seen = new Set<Element>()
 
 		for (const root of current) {
-			if (!root) continue
+			if (!root) {
+				continue
+			}
 			const pool =
 				step.axis === "child"
 					? composedChildren(root, closedRoot)
 					: composedDescendants(root, closedRoot)
-			if (!pool.length) continue
+			if (!pool.length) {
+				continue
+			}
 
 			const tagMatches = pool.filter((candidate) => matchesTag(candidate, step))
 			const matches = applyPredicates(tagMatches, step.predicates)
@@ -114,7 +134,9 @@ export function resolveXPathComposedMatches(
 			}
 		}
 
-		if (!next.length) return []
+		if (!next.length) {
+			return []
+		}
 		current = next
 	}
 
@@ -122,7 +144,9 @@ export function resolveXPathComposedMatches(
 }
 
 function matchesTag(element: Element, step: XPathStep): boolean {
-	if (step.tag === "*") return true
+	if (step.tag === "*") {
+		return true
+	}
 	return element.localName === step.tag
 }
 
@@ -171,10 +195,14 @@ function composedChildren(
 	getClosedRoot: ClosedRootGetter | null,
 ): Element[] {
 	const out: Element[] = []
-	if (!node) return out
+	if (!node) {
+		return out
+	}
 
 	if (node instanceof Document) {
-		if (node.documentElement) out.push(node.documentElement)
+		if (node.documentElement) {
+			out.push(node.documentElement)
+		}
 		return out
 	}
 
@@ -186,10 +214,14 @@ function composedChildren(
 	if (node instanceof Element) {
 		out.push(...Array.from(node.children ?? []))
 		const open = node.shadowRoot
-		if (open) out.push(...Array.from(open.children ?? []))
+		if (open) {
+			out.push(...Array.from(open.children ?? []))
+		}
 		if (getClosedRoot) {
 			const closed = getClosedRoot(node)
-			if (closed) out.push(...Array.from(closed.children ?? []))
+			if (closed) {
+				out.push(...Array.from(closed.children ?? []))
+			}
 		}
 		return out
 	}
@@ -207,15 +239,18 @@ function composedDescendants(
 
 	while (stack.length) {
 		const next = stack.pop()
-		if (!next || seen.has(next)) continue
+		if (!next || seen.has(next)) {
+			continue
+		}
 		seen.add(next)
 		out.push(next)
 
 		const children = composedChildren(next, getClosedRoot)
 		for (let i = children.length - 1; i >= 0; i -= 1) {
 			const child = children[i]
-			if (!child)
+			if (!child) {
 				throw new Error("XPath composed child missing during traversal")
+			}
 			stack.push(child)
 		}
 	}

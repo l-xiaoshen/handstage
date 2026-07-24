@@ -76,8 +76,11 @@ export function installV3ShadowPiercer(opts: V3ShadowPatchOptions = {}): void {
 		const root = original.call(this, init)
 		try {
 			state.hostToRoot.set(this, root)
-			if (mode === "closed") state.closedCount++
-			else state.openCount++
+			if (mode === "closed") {
+				state.closedCount++
+			} else {
+				state.openCount++
+			}
 			if (state.debug) {
 				console.info("[v3-piercer] attachShadow", {
 					tag: (this as Element).tagName?.toLowerCase() ?? "",

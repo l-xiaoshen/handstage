@@ -6,12 +6,18 @@ type RemoteObject = Protocol.Runtime.RemoteObject
 export type ConsoleListener = (message: ConsoleMessage) => void
 
 function formatRemoteObject(obj: RemoteObject | undefined): string {
-	if (!obj) return ""
+	if (!obj) {
+		return ""
+	}
 
 	if ("value" in obj) {
 		const value = obj.value
-		if (value === undefined) return ""
-		if (typeof value === "string") return value
+		if (value === undefined) {
+			return ""
+		}
+		if (typeof value === "string") {
+			return value
+		}
 		try {
 			return JSON.stringify(value)
 		} catch {
@@ -19,8 +25,12 @@ function formatRemoteObject(obj: RemoteObject | undefined): string {
 		}
 	}
 
-	if (obj.unserializableValue) return obj.unserializableValue
-	if (obj.description) return obj.description
+	if (obj.unserializableValue) {
+		return obj.unserializableValue
+	}
+	if (obj.description) {
+		return obj.description
+	}
 
 	return obj.type ?? ""
 }
@@ -43,7 +53,9 @@ export class ConsoleMessage {
 
 	text(): string {
 		const args = this.args()
-		if (!args.length) return ""
+		if (!args.length) {
+			return ""
+		}
 		return args
 			.map((arg) => formatRemoteObject(arg))
 			.filter((chunk) => chunk.length > 0)

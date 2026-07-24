@@ -35,7 +35,9 @@ const getClosedRoot = (element: Element): ShadowRoot | null => {
  * Get shadow root (open or closed via piercer).
  */
 const getShadowRoot = (element: Element): ShadowRoot | null => {
-	if (element.shadowRoot) return element.shadowRoot
+	if (element.shadowRoot) {
+		return element.shadowRoot
+	}
 	return getClosedRoot(element)
 }
 
@@ -49,22 +51,30 @@ const deepQuerySelector = (
 ): Element | null => {
 	try {
 		const el = root.querySelector(selector)
-		if (el) return el
+		if (el) {
+			return el
+		}
 	} catch {}
 
-	if (!pierceShadow) return null
+	if (!pierceShadow) {
+		return null
+	}
 
 	const seenRoots = new WeakSet<Node>()
 	const queue: Array<Document | ShadowRoot> = [root]
 
 	while (queue.length > 0) {
 		const currentRoot = queue.shift()
-		if (!currentRoot || seenRoots.has(currentRoot)) continue
+		if (!currentRoot || seenRoots.has(currentRoot)) {
+			continue
+		}
 		seenRoots.add(currentRoot)
 
 		try {
 			const found = currentRoot.querySelector(selector)
-			if (found) return found
+			if (found) {
+				return found
+			}
 		} catch {}
 
 		try {
@@ -77,7 +87,9 @@ const deepQuerySelector = (
 				NodeFilter.SHOW_ELEMENT,
 			)
 			for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-				if (!(node instanceof Element)) continue
+				if (!(node instanceof Element)) {
+					continue
+				}
 				const shadowRoot = getShadowRoot(node)
 				if (shadowRoot && !seenRoots.has(shadowRoot)) {
 					queue.push(shadowRoot)
@@ -119,9 +131,15 @@ const checkState = (
 	el: Element | null,
 	state: WaitForSelectorState,
 ): boolean => {
-	if (state === "detached") return el === null
-	if (state === "attached") return el !== null
-	if (el === null) return false
+	if (state === "detached") {
+		return el === null
+	}
+	if (state === "attached") {
+		return el !== null
+	}
+	if (el === null) {
+		return false
+	}
 
 	if (state === "hidden") {
 		try {
@@ -246,7 +264,9 @@ export function waitForSelector(
 		}
 
 		const check = (): void => {
-			if (settled) return
+			if (settled) {
+				return
+			}
 			const el = findElement(selector, pierceShadow)
 			if (checkState(el, state)) {
 				settled = true
@@ -269,7 +289,9 @@ export function waitForSelector(
 			}
 			document.addEventListener("DOMContentLoaded", domReadyHandler)
 			timeoutId = setTimeout(() => {
-				if (settled) return
+				if (settled) {
+					return
+				}
 				settled = true
 				clearTimer()
 				cleanup()
@@ -284,7 +306,9 @@ export function waitForSelector(
 
 		const setupObservers = (): void => {
 			const root = document.body || document.documentElement
-			if (!root) return
+			if (!root) {
+				return
+			}
 
 			const mainObserver = new MutationObserver(check)
 			mainObserver.observe(root, {
@@ -303,7 +327,9 @@ export function waitForSelector(
 		setupObservers()
 
 		timeoutId = setTimeout(() => {
-			if (settled) return
+			if (settled) {
+				return
+			}
 			settled = true
 			clearTimer()
 			cleanup()

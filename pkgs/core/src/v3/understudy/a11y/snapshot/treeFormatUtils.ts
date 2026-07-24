@@ -38,7 +38,9 @@ export function injectSubtrees(
 
 	while (stack.length) {
 		const top = stack[stack.length - 1]
-		if (!top) throw new Error("injectSubtrees stack unexpectedly empty")
+		if (!top) {
+			throw new Error("injectSubtrees stack unexpectedly empty")
+		}
 		if (top.i >= top.lines.length) {
 			stack.pop()
 			continue
@@ -55,14 +57,18 @@ export function injectSubtrees(
 		const content = raw.slice(indent.length)
 
 		const m = content.match(/^\[([^\]]+)]/)
-		if (!m) continue
+		if (!m) {
+			continue
+		}
 
 		const encId = m[1]
 		if (!encId) {
 			throw new Error("tree outline id match did not include an encoded id")
 		}
 		const childOutline = idToTree.get(encId)
-		if (!childOutline || visited.has(encId)) continue
+		if (!childOutline || visited.has(encId)) {
+			continue
+		}
 
 		visited.add(encId)
 
@@ -74,7 +80,9 @@ export function injectSubtrees(
 }
 
 export function indentBlock(block: string, indent: string): string {
-	if (!block) return ""
+	if (!block) {
+		return ""
+	}
 	return block
 		.split("\n")
 		.map((line) => (line.length ? indent + line : indent + line))
@@ -98,24 +106,36 @@ export function diffCombinedTrees(prevTree: string, nextTree: string): string {
 	const added: string[] = []
 	for (const line of nextLines) {
 		const core = line.trim()
-		if (!core) continue
-		if (!prevSet.has(core)) added.push(line)
+		if (!core) {
+			continue
+		}
+		if (!prevSet.has(core)) {
+			added.push(line)
+		}
 	}
 
-	if (added.length === 0) return ""
+	if (added.length === 0) {
+		return ""
+	}
 
 	let minIndent = Infinity
 	for (const l of added) {
-		if (!l.trim()) continue
+		if (!l.trim()) {
+			continue
+		}
 		const m = l.match(/^\s*/)
 		const indent = m?.[0]
 		if (indent === undefined) {
 			throw new Error("whitespace match did not include an indent segment")
 		}
 		const indentLen = indent.length
-		if (indentLen < minIndent) minIndent = indentLen
+		if (indentLen < minIndent) {
+			minIndent = indentLen
+		}
 	}
-	if (!Number.isFinite(minIndent)) minIndent = 0
+	if (!Number.isFinite(minIndent)) {
+		minIndent = 0
+	}
 
 	const out = added.map((l) => (l.length >= minIndent ? l.slice(minIndent) : l))
 	return out.join("\n")
@@ -133,7 +153,9 @@ export function cleanText(input: string): string {
 	let prevSpace = false
 	for (let i = 0; i < input.length; i++) {
 		const code = input.charCodeAt(i)
-		if (code >= PUA_START && code <= PUA_END) continue
+		if (code >= PUA_START && code <= PUA_END) {
+			continue
+		}
 		if (NBSP.has(code)) {
 			if (!prevSpace) {
 				out += " "

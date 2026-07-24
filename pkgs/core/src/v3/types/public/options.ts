@@ -1,5 +1,5 @@
 import type { z } from "zod"
-import { LocalBrowserLaunchOptionsSchema } from "./api"
+import type { LocalBrowserLaunchOptionsSchema } from "./api"
 import type { LogLevel, LogLine } from "./logs"
 
 export type LocalBrowserLaunchOptions = z.infer<

@@ -7,6 +7,7 @@ import { executionContexts } from "./executionContextRegistry"
 import type { Frame } from "./frame"
 import type { Locator } from "./locator"
 import type { Page } from "./page"
+import { releaseObjectIds } from "./runtimeObjectUtils"
 
 /**
  * FrameLocator: resolves iframe elements to their child Frames and allows
@@ -69,9 +70,7 @@ export class FrameLocator {
 			}
 			throw new ContentFrameNotFoundError(this.selector)
 		} finally {
-			await parentSession
-				.send("Runtime.releaseObject", { objectId })
-				.catch(() => {})
+			await releaseObjectIds(parentSession, [objectId])
 		}
 	}
 
@@ -92,7 +91,9 @@ class LocatorDelegate {
 	private async real(): Promise<Locator> {
 		const frame = await this.fl.resolveFrame()
 		const locator = frame.locator(this.sel)
-		if (this.nthIndex < 0) return locator
+		if (this.nthIndex < 0) {
+			return locator
+		}
 		return locator.nth(this.nthIndex)
 	}
 
@@ -150,7 +151,9 @@ class LocatorDelegate {
 		}
 
 		const nextIndex = Math.floor(value)
-		if (nextIndex === this.nthIndex) return this
+		if (nextIndex === this.nthIndex) {
+			return this
+		}
 
 		return new LocatorDelegate(this.fl, this.sel, nextIndex)
 	}
@@ -175,8 +178,10 @@ async function listDirectChildFrameIdsFromRegistry(
 		try {
 			const tree = page.getFullFrameTree()
 			const node = findFrameNode(tree, parentFrameId)
-			const ids = node?.childFrames?.map((c) => c.frame.id as string) ?? []
-			if (ids.length > 0 || Date.now() >= deadline) return ids
+			const ids = node?.childFrames?.map((child) => child.frame.id) ?? []
+			if (ids.length > 0 || Date.now() >= deadline) {
+				return ids
+			}
 		} catch {}
 		await new Promise((r) => setTimeout(r, 50))
 	}
@@ -186,10 +191,14 @@ function findFrameNode(
 	tree: Protocol.Page.FrameTree,
 	targetId: string,
 ): Protocol.Page.FrameTree | undefined {
-	if (tree.frame.id === targetId) return tree
+	if (tree.frame.id === targetId) {
+		return tree
+	}
 	for (const c of tree.childFrames ?? []) {
 		const hit = findFrameNode(c, targetId)
-		if (hit) return hit
+		if (hit) {
+			return hit
+		}
 	}
 	return undefined
 }
@@ -226,7 +235,9 @@ async function ensureChildFrameReady(
 		}
 	}
 
-	if (hasMainWorldOnParent()) return
+	if (hasMainWorldOnParent()) {
+		return
+	}
 
 	await parentSession
 		.send("Page.setLifecycleEventsEnabled", { enabled: true })
@@ -237,14 +248,20 @@ async function ensureChildFrameReady(
 		let done = false
 		let pollTimer: ReturnType<typeof setTimeout> | null = null
 		const finish = () => {
-			if (done) return
+			if (done) {
+				return
+			}
 			done = true
-			if (pollTimer) clearTimeout(pollTimer)
+			if (pollTimer) {
+				clearTimeout(pollTimer)
+			}
 			parentSession.off("Page.lifecycleEvent", onLifecycle)
 			resolve()
 		}
 		const onLifecycle = (evt: Protocol.Page.LifecycleEventEvent) => {
-			if (page.isDisposed()) return finish()
+			if (page.isDisposed()) {
+				return finish()
+			}
 			if (
 				evt.frameId !== childFrameId ||
 				(evt.name !== "DOMContentLoaded" &&
@@ -254,7 +271,9 @@ async function ensureChildFrameReady(
 			) {
 				return
 			}
-			if (hasMainWorldOnParent()) return finish()
+			if (hasMainWorldOnParent()) {
+				return finish()
+			}
 			try {
 				const nowOwner = page.getSessionForFrame(childFrameId)
 				if (nowOwner && nowOwner !== parentSession) {
@@ -268,9 +287,15 @@ async function ensureChildFrameReady(
 		parentSession.on("Page.lifecycleEvent", onLifecycle)
 
 		const tick = () => {
-			if (done) return
-			if (page.isDisposed()) return finish()
-			if (hasMainWorldOnParent()) return finish()
+			if (done) {
+				return
+			}
+			if (page.isDisposed()) {
+				return finish()
+			}
+			if (hasMainWorldOnParent()) {
+				return finish()
+			}
 			try {
 				const nowOwner = page.getSessionForFrame(childFrameId)
 				if (nowOwner && nowOwner !== parentSession) {
@@ -281,7 +306,9 @@ async function ensureChildFrameReady(
 					return
 				}
 			} catch {}
-			if (Date.now() >= deadline) return finish()
+			if (Date.now() >= deadline) {
+				return finish()
+			}
 			pollTimer = setTimeout(tick, 50)
 		}
 		tick()

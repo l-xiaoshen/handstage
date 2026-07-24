@@ -1,7 +1,6 @@
 import { promises as fs } from "node:fs"
 import type { Protocol } from "devtools-protocol"
 import { defaultLogger, type LogSink } from "../logger"
-import { withTimeout } from "../timeoutConfig"
 import type { InitScriptSource } from "../types/private/index"
 import {
 	HandstageSetExtraHTTPHeadersError,
@@ -22,14 +21,10 @@ import type {
 } from "../types/public/screenshotTypes"
 import {
 	CDPConnectionClosedError,
-	HandstageEvalError,
 	HandstageInvalidArgumentError,
 	TimeoutError,
 } from "../types/public/sdkErrors"
-import {
-	captureHybridSnapshot,
-	resolveXpathForLocation,
-} from "./a11y/snapshot/index"
+import { captureHybridSnapshot } from "./a11y/snapshot/index"
 import {
 	type CDPCommand,
 	type CDPCommandParams,
@@ -37,6 +32,7 @@ import {
 	type CDPConnectionLike,
 	type CDPSessionLike,
 	sendCDPWithSignal,
+	sendCDPWithSignalAndLateResult,
 } from "./cdp"
 import { type ConsoleListener, ConsoleMessage } from "./consoleMessage"
 import { deepLocatorFromPage, resolveLocatorTarget } from "./deepLocator"
@@ -45,12 +41,22 @@ import { Frame } from "./frame"
 import { FrameLocator } from "./frameLocator"
 import { FrameRegistry } from "./frameRegistry"
 import { normalizeInitScriptSource } from "./initScripts"
+import { Keyboard } from "./keyboard"
 import { LifecycleWatcher } from "./lifecycleWatcher"
 import type { Locator } from "./locator"
 import { buildLocatorInvocation } from "./locatorInvocation"
+import { Mouse } from "./mouse"
 import { NavigationResponseTracker } from "./navigationResponseTracker"
 import { NetworkManager } from "./networkManager"
+import { errorMessage } from "./protocolError"
 import type { Response } from "./response"
+import {
+	raceCleanupAgainstAbort,
+	releaseDiscardedEvaluationHandles,
+	releaseObjectGroup,
+	releaseObjectIds,
+} from "./runtimeObjectUtils"
+import { ScreenshotCleanupScope } from "./screenshotCleanup"
 import {
 	applyMaskOverlays,
 	applyStyleToFrames,
@@ -59,10 +65,9 @@ import {
 	disableAnimations,
 	hideCaret,
 	normalizeScreenshotClip,
-	runScreenshotCleanups,
-	type ScreenshotCleanup,
 	setTransparentBackground,
 } from "./screenshotUtils"
+import { closeTargetAndConfirm } from "./targetLifecycle"
 
 /**
  * Page
@@ -82,6 +87,44 @@ const LIFECYCLE_NAME: Record<LoadState, string> = {
 	load: "load",
 	domcontentloaded: "DOMContentLoaded",
 	networkidle: "networkIdle",
+}
+
+let pageRuntimeProbeObjectGroupSequence = 0
+
+function createDeadlineSignal(
+	parent: AbortSignal,
+	operation: string,
+	timeoutMs: number,
+): { signal: AbortSignal; dispose: () => void } {
+	const controller = new AbortController()
+	const timeout = Math.max(0, timeoutMs)
+	const timer =
+		Number.isFinite(timeout) && timeout > 0
+			? setTimeout(
+					() => controller.abort(new TimeoutError(operation, timeout)),
+					timeout,
+				)
+			: null
+	return {
+		signal: AbortSignal.any([parent, controller.signal]),
+		dispose: () => {
+			if (timer) {
+				clearTimeout(timer)
+			}
+		},
+	}
+}
+
+type InitialNavigationState = {
+	settled: Promise<void>
+	resolveSettled: () => void
+	superseded: boolean
+	finished: boolean
+}
+
+type NavigationReservation = {
+	id: number
+	signal: AbortSignal
 }
 
 export class Page {
@@ -108,8 +151,20 @@ export class Page {
 
 	private navigationCommandSeq = 0
 	private latestNavigationCommandId = 0
+	private pendingNavigationReservation: {
+		id: number
+		controller: AbortController
+	} | null = null
+	private activeNavigationController: AbortController | null = null
+	private readonly activeNavigationLoaderIds = new Set<string>()
+	private readonly supersededNavigationLoaderIds = new Set<string>()
+	private pendingInitialNavigation: InitialNavigationState | null = null
+	private initialNavigationLoaderId: string | null = null
+	private mainFrameNavigationVersion = 0
 
 	private readonly networkManager: NetworkManager
+	private readonly keyboard: Keyboard
+	private readonly mouse: Mouse
 	private readonly consoleListeners = new Set<ConsoleListener>()
 	private readonly consoleHandlers = new Map<
 		string,
@@ -119,6 +174,7 @@ export class Page {
 	private readonly initScripts: string[] = []
 	private extraHTTPHeaders: Record<string, string> = {}
 	private disposed = false
+	private closing = false
 	private closePromise: Promise<void> | null = null
 	private readonly disposeController = new AbortController()
 	private readonly activeLifecycleWaitCleanups = new Set<
@@ -127,9 +183,43 @@ export class Page {
 	private readonly closeCallbacks = new Set<() => void>()
 
 	private assertOpen(): void {
-		if (this.disposed) {
-			throw new CDPConnectionClosedError("page is disposed")
+		if (this.disposed || this.closing) {
+			throw new CDPConnectionClosedError(
+				this.disposed ? "page is disposed" : "page is closing",
+			)
 		}
+	}
+
+	private async delay(ms: number): Promise<void> {
+		const timeout = Math.max(0, Number(ms) || 0)
+		const signal = this.disposeController.signal
+		if (signal.aborted) {
+			throw signal.reason
+		}
+		if (timeout === 0) {
+			return
+		}
+		await new Promise<void>((resolve, reject) => {
+			let timer: ReturnType<typeof setTimeout> | null = setTimeout(() => {
+				timer = null
+				signal.removeEventListener("abort", onAbort)
+				resolve()
+			}, timeout)
+			const onAbort = () => {
+				if (timer === null) {
+					return
+				}
+				clearTimeout(timer)
+				timer = null
+				signal.removeEventListener("abort", onAbort)
+				reject(
+					signal.reason instanceof Error
+						? signal.reason
+						: new CDPConnectionClosedError("page is disposed"),
+				)
+			}
+			signal.addEventListener("abort", onAbort, { once: true })
+		})
 	}
 
 	/** Per-instance debug log sink — fans out to sub-managers (NetworkManager, etc.). */
@@ -146,7 +236,9 @@ export class Page {
 		this.logger = logger ?? defaultLogger()
 
 		// own the main session
-		if (mainSession.id) this.sessions.set(mainSession.id, mainSession)
+		if (mainSession.id) {
+			this.sessions.set(mainSession.id, mainSession)
+		}
 
 		// initialize registry with root/main frame id
 		this.registry = new FrameRegistry(_targetId, mainFrameId)
@@ -162,7 +254,19 @@ export class Page {
 		)
 
 		this.networkManager = new NetworkManager()
-		this.networkManager.trackSession(this.mainSession)
+		this.keyboard = new Keyboard(this.mainSession, (delayMs) =>
+			this.delay(delayMs),
+		)
+		this.mouse = new Mouse(this, this.mainSession, this.logger, (delayMs) =>
+			this.delay(delayMs),
+		)
+		try {
+			this.networkManager.trackSession(this.mainSession)
+			this.installConsoleTap(this.mainSession)
+		} catch (error) {
+			this.networkManager.dispose()
+			throw error
+		}
 	}
 
 	// Send a single init script to a specific CDP session.
@@ -187,13 +291,17 @@ export class Page {
 	// Register a new init script and fan it out to all active sessions for this page.
 	public async registerInitScript(source: string): Promise<void> {
 		this.assertOpen()
-		if (this.initScripts.includes(source)) return
+		if (this.initScripts.includes(source)) {
+			return
+		}
 		this.initScripts.push(source)
 
 		const installs: Array<Promise<void>> = []
 		installs.push(this.installInitScriptOnSession(this.mainSession, source))
 		for (const session of this.sessions.values()) {
-			if (session === this.mainSession) continue
+			if (session === this.mainSession) {
+				continue
+			}
 			installs.push(this.installInitScriptOnSession(session, source))
 		}
 		await Promise.all(installs)
@@ -201,103 +309,15 @@ export class Page {
 
 	// Seed an init script without re-installing it on the current sessions.
 	public seedInitScript(source: string): void {
-		if (this.initScripts.includes(source)) return
+		if (this.initScripts.includes(source)) {
+			return
+		}
 		this.initScripts.push(source)
-	}
-
-	// --- Optional visual cursor overlay management ---
-	private cursorEnabled = false
-	private async ensureCursorScript(): Promise<void> {
-		const script = `(() => {
-      const ID = '__v3_cursor_overlay__';
-      const state = { el: null, last: null };
-      // Expose API early so move() calls before install are buffered
-      try {
-        if (!window.__v3Cursor || !window.__v3Cursor.__installed) {
-          const api = {
-            __installed: false,
-            move(x, y) {
-              if (state.el) {
-                state.el.style.left = Math.max(0, x) + 'px';
-                state.el.style.top = Math.max(0, y) + 'px';
-              } else {
-                state.last = [x, y];
-              }
-            },
-            show() { if (state.el) state.el.style.display = 'block'; },
-            hide() { if (state.el) state.el.style.display = 'none'; },
-          };
-          window.__v3Cursor = api;
-        }
-      } catch {}
-
-      function install() {
-        try {
-          if (state.el) return; // already installed
-          let el = document.getElementById(ID);
-          if (!el) {
-            const root = document.documentElement || document.body || document.head;
-            if (!root) { setTimeout(install, 50); return; }
-            el = document.createElement('div');
-            el.id = ID;
-            el.style.position = 'fixed';
-            el.style.left = '0px';
-            el.style.top = '0px';
-            el.style.width = '16px';
-            el.style.height = '24px';
-            el.style.zIndex = '2147483647';
-            el.style.pointerEvents = 'none';
-            el.style.userSelect = 'none';
-            el.style.mixBlendMode = 'normal';
-            el.style.contain = 'layout style paint';
-            el.style.willChange = 'transform,left,top';
-            el.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="24" viewBox="0 0 16 24"><path d="M1 0 L1 22 L6 14 L15 14 Z" fill="black" stroke="white" stroke-width="0.7"/></svg>';
-            root.appendChild(el);
-          }
-          state.el = el;
-          try { window.__v3Cursor.__installed = true; } catch {}
-          if (state.last) {
-            window.__v3Cursor.move(state.last[0], state.last[1]);
-            state.last = null;
-          }
-        } catch {}
-      }
-
-      if (document.readyState === 'complete' || document.readyState === 'interactive') {
-        install();
-      } else {
-        document.addEventListener('DOMContentLoaded', install, { once: true });
-        setTimeout(install, 100);
-      }
-    })();`
-
-		// Ensure future documents get the cursor at doc-start
-		await this.mainSession
-			.send("Page.addScriptToEvaluateOnNewDocument", { source: script })
-			.catch(() => {})
-		// Inject into current document now
-		await this.mainSession
-			.send("Runtime.evaluate", {
-				expression: script,
-				includeCommandLineAPI: false,
-			})
-			.catch(() => {})
 	}
 
 	public async enableCursorOverlay(): Promise<void> {
 		this.assertOpen()
-		if (this.cursorEnabled) return
-		await this.ensureCursorScript()
-		this.cursorEnabled = true
-	}
-
-	private async updateCursor(x: number, y: number): Promise<void> {
-		if (!this.cursorEnabled) return
-		try {
-			await this.mainSession.send("Runtime.evaluate", {
-				expression: `typeof window.__v3Cursor!=="undefined"&&window.__v3Cursor.move(${Math.round(x)}, ${Math.round(y)})`,
-			})
-		} catch {}
+		await this.mouse.enableCursorOverlay()
 	}
 
 	public async addInitScript<Arg>(
@@ -322,32 +342,44 @@ export class Page {
 		targetId: string,
 		localBrowserLaunchOptions?: LocalBrowserLaunchOptions | null,
 		logger?: LogSink,
+		signal?: AbortSignal,
 	): Promise<Page> {
 		// Context already issues Page.enable + lifecycle enable before resume.
 		// Re-issue here only as best-effort and do not block page registration on
 		// their acknowledgements; some remote CDP backends can delay these replies
 		// long after the target is otherwise ready.
-		void session.send("Page.enable").catch(() => {})
-		void session
-			.send("Page.setLifecycleEventsEnabled", { enabled: true })
-			.catch(() => {})
-		const { frameTree } = await session.send("Page.getFrameTree")
+		const send = <M extends CDPCommand>(
+			method: M,
+			...params: CDPCommandParams<M>
+		) =>
+			signal
+				? sendCDPWithSignal(session, method, signal, ...params)
+				: session.send(method, ...params)
+		void send("Page.enable").catch(() => {})
+		void send("Page.setLifecycleEventsEnabled", { enabled: true }).catch(
+			() => {},
+		)
+		const { frameTree } = await send("Page.getFrameTree")
 		const mainFrameId = frameTree.frame.id
 
 		const page = new Page(conn, session, targetId, mainFrameId, logger)
 		// Seed current URL from initial frame tree
-		try {
-			page._currentUrl = String(frameTree?.frame?.url ?? page._currentUrl)
-			if (localBrowserLaunchOptions?.viewport) {
+		page._currentUrl = String(frameTree?.frame?.url ?? page._currentUrl)
+		if (localBrowserLaunchOptions?.viewport) {
+			try {
 				await page.setViewportSize(
 					localBrowserLaunchOptions.viewport.width,
 					localBrowserLaunchOptions.viewport.height,
 					{
 						deviceScaleFactor: localBrowserLaunchOptions.deviceScaleFactor ?? 1,
+						signal,
 					},
 				)
+			} catch (error) {
+				page.disposeResources()
+				throw error
 			}
-		} catch {}
+		}
 
 		// Seed topology + ownership for nodes known at creation time.
 		page.registry.seedFromFrameTree(session.id ?? "root", frameTree)
@@ -374,6 +406,14 @@ export class Page {
 		if (newRoot !== prevRoot) {
 			this.frameOrdinals.delete(prevRoot)
 			this.frameCache.delete(prevRoot)
+			this.mainFrameWrapper = new Frame(
+				this.mainSession,
+				newRoot,
+				this.pageId,
+				false,
+				this.logger,
+				this.disposeController.signal,
+			)
 		}
 		// Cache is keyed by frameId → invalidate to ensure future frameForId resolves with latest owner
 		this.frameCache.delete(frameId)
@@ -385,7 +425,7 @@ export class Page {
 	public onFrameDetached(
 		frameId: string,
 		reason: "remove" | "swap" | string = "remove",
-	): void {
+	): string[] {
 		// The registry prunes the whole subtree; mirror that in the Page caches.
 		const removed = this.registry.onFrameDetached(frameId, reason)
 		this.frameCache.delete(frameId)
@@ -393,6 +433,7 @@ export class Page {
 			this.frameCache.delete(fid)
 			this.frameOrdinals.delete(fid)
 		}
+		return removed
 	}
 
 	/**
@@ -425,6 +466,7 @@ export class Page {
 
 		// Update cached URL if this navigation pertains to the current main frame
 		if (frame.id === this.mainFrameId()) {
+			this.mainFrameNavigationVersion += 1
 			try {
 				this._currentUrl = String(
 					(frame as { url?: string })?.url ?? this._currentUrl,
@@ -442,7 +484,9 @@ export class Page {
 		session: CDPSessionLike,
 	): void {
 		const normalized = String(url ?? "").trim()
-		if (!normalized) return
+		if (!normalized) {
+			return
+		}
 
 		this.registry.onNavigatedWithinDocument(
 			frameId,
@@ -451,6 +495,7 @@ export class Page {
 		)
 
 		if (frameId === this.mainFrameId()) {
+			this.mainFrameNavigationVersion += 1
 			this._currentUrl = normalized
 		}
 	}
@@ -463,27 +508,38 @@ export class Page {
 		childSession: CDPSessionLike,
 		childMainFrameId: string,
 	): void {
-		if (this.disposed) return
-		if (childSession.id) this.sessions.set(childSession.id, childSession)
+		if (this.disposed) {
+			return
+		}
+		const previousOwnerSessionId =
+			this.registry.getOwnerSessionId(childMainFrameId)
+		const childSessionId = childSession.id ?? "child"
+		if (childSession.id) {
+			this.sessions.set(childSession.id, childSession)
+		}
 
-		this.networkManager.trackSession(childSession)
-		if (this.extraHTTPHeaders)
+		try {
+			this.networkManager.trackSession(childSession)
+			this.installConsoleTap(childSession)
+		} catch (error) {
+			this.teardownConsoleTap(childSessionId)
+			this.networkManager.untrackSession(childSession.id ?? undefined)
+			if (childSession.id) {
+				this.sessions.delete(childSession.id)
+			}
+			throw error
+		}
+		if (this.extraHTTPHeaders) {
 			void this.applyExtraHTTPHeadersToSession(
 				childSession,
 				this.extraHTTPHeaders,
 			).catch(() => {})
+		}
 
 		void this.applyInitScriptsToSession(childSession).catch(() => {})
 
-		if (this.consoleListeners.size > 0) {
-			this.installConsoleTap(childSession)
-		}
-
 		// session will start emitting its own page events; mark ownership seed now
-		this.registry.adoptChildSession(
-			childSession.id ?? "child",
-			childMainFrameId,
-		)
+		this.registry.adoptChildSession(childSessionId, childMainFrameId)
 		this.frameCache.delete(childMainFrameId)
 
 		// One-shot seed the child's subtree ownership from its current tree
@@ -500,8 +556,24 @@ export class Page {
 					}
 				}
 
-				if (this.disposed) return
-				this.registry.seedFromFrameTree(childSession.id ?? "child", frameTree)
+				if (this.disposed) {
+					return
+				}
+				if (
+					childSession.id &&
+					this.sessions.get(childSession.id) !== childSession
+				) {
+					return
+				}
+				if (
+					this.registry.getOwnerSessionId(childMainFrameId) !== childSessionId
+				) {
+					return
+				}
+				this.registry.seedFromFrameTree(childSessionId, frameTree, {
+					preserveRootParent: true,
+					replaceOwnerSessionId: previousOwnerSessionId,
+				})
 			} catch {
 				// If snapshot races, live events will still converge the registry.
 			}
@@ -509,12 +581,14 @@ export class Page {
 	}
 
 	/** Detach an adopted child session and prune its subtree */
-	public detachOopifSession(sessionId: string): void {
+	public detachOopifSession(sessionId: string): string[] {
+		const removedFrameIds = new Set<string>()
 		// Find which frames were owned by this session and prune by tree starting from each root.
 		for (const fid of this.registry.framesForSession(sessionId)) {
 			const removed = this.registry.onFrameDetached(fid, "remove")
 			this.frameCache.delete(fid)
 			for (const removedId of removed) {
+				removedFrameIds.add(removedId)
 				this.frameCache.delete(removedId)
 				this.frameOrdinals.delete(removedId)
 			}
@@ -522,6 +596,7 @@ export class Page {
 		this.teardownConsoleTap(sessionId)
 		this.sessions.delete(sessionId)
 		this.networkManager.untrackSession(sessionId)
+		return [...removedFrameIds]
 	}
 
 	// ---------------- Ownership helpers / lookups ----------------
@@ -529,14 +604,18 @@ export class Page {
 	/** Return the owning CDP session for a frameId (falls back to main session) */
 	public getSessionForFrame(frameId: string): CDPSessionLike {
 		const sid = this.registry.getOwnerSessionId(frameId)
-		if (!sid) return this.mainSession
+		if (!sid) {
+			return this.mainSession
+		}
 		return this.sessions.get(sid) ?? this.mainSession
 	}
 
 	/** Always returns a Frame bound to the owning session */
 	public frameForId(frameId: string): Frame {
 		const hit = this.frameCache.get(frameId)
-		if (hit) return hit
+		if (hit) {
+			return hit
+		}
 
 		const sess = this.getSessionForFrame(frameId)
 		const f = new Frame(
@@ -570,12 +649,8 @@ export class Page {
 			throw new HandstageInvalidArgumentError(`Unsupported event: ${event}`)
 		}
 
-		const firstListener = this.consoleListeners.size === 0
 		this.consoleListeners.add(listener)
-
-		if (firstListener) {
-			this.ensureConsoleTaps()
-		}
+		this.ensureConsoleTaps()
 
 		return this
 	}
@@ -600,10 +675,6 @@ export class Page {
 
 		this.consoleListeners.delete(listener)
 
-		if (this.consoleListeners.size === 0) {
-			this.removeAllConsoleTaps()
-		}
-
 		return this
 	}
 
@@ -616,6 +687,11 @@ export class Page {
 	/** @internal */
 	public isDisposed(): boolean {
 		return this.disposed
+	}
+
+	/** @internal */
+	public disposalSignal(): AbortSignal {
+		return this.disposeController.signal
 	}
 
 	/** @internal */
@@ -664,16 +740,77 @@ export class Page {
 
 	/** Seed the cached URL before navigation events converge. */
 	public seedCurrentUrl(url: string | undefined | null): void {
-		if (!url) return
+		if (!url) {
+			return
+		}
 		try {
 			const normalized = String(url).trim()
-			if (!normalized) return
+			if (!normalized) {
+				return
+			}
 			this._currentUrl = normalized
 		} catch {}
 	}
 
+	/** @internal Start Context.newPage(url)'s non-blocking first navigation. */
+	public startInitialNavigation(url: string): void {
+		this.assertOpen()
+		if (this.pendingInitialNavigation) {
+			this.finishInitialNavigation(this.pendingInitialNavigation)
+		}
+		let resolveSettled = () => {}
+		const settled = new Promise<void>((resolve) => {
+			resolveSettled = resolve
+		})
+		const state: InitialNavigationState = {
+			settled,
+			resolveSettled,
+			superseded: false,
+			finished: false,
+		}
+		this.pendingInitialNavigation = state
+
+		let command: Promise<CDPCommandResult<"Page.navigate">>
+		try {
+			command = this.mainSession.send("Page.navigate", { url })
+		} catch {
+			this.finishInitialNavigation(state)
+			return
+		}
+		void command.then(
+			(response) => {
+				if (state.finished) {
+					return
+				}
+				if (response.loaderId) {
+					if (state.superseded) {
+						this.rememberSupersededNavigationLoader(response.loaderId)
+					} else {
+						this.initialNavigationLoaderId = response.loaderId
+					}
+				}
+				this.finishInitialNavigation(state)
+			},
+			() => {
+				if (!state.finished) {
+					this.finishInitialNavigation(state)
+				}
+			},
+		)
+	}
+
 	public mainFrameId(): string {
 		return this.registry.mainFrameId()
+	}
+
+	/** @internal Current loader recorded for the main frame, when known. */
+	public mainFrameLoaderId(): string | undefined {
+		try {
+			return this.registry.asProtocolFrameTree(this.mainFrameId()).frame
+				.loaderId
+		} catch {
+			return undefined
+		}
 	}
 
 	public mainFrame(): Frame {
@@ -682,68 +819,81 @@ export class Page {
 
 	/** Close this top-level page and confirm that its target is gone. */
 	public async close(): Promise<void> {
-		if (this.closePromise) return this.closePromise
-		this.closePromise = (async () => {
-			const timeoutMs = 2000
-			const abortController = new AbortController()
-			let targetClosed = false
-			const timer = setTimeout(() => {
-				abortController.abort(new TimeoutError("page.close", timeoutMs))
-			}, timeoutMs)
+		if (this.disposed) {
+			return
+		}
+		if (this.closePromise) {
+			return this.closePromise
+		}
+		this.closing = true
+		const operation = (async () => {
 			try {
-				const result = await sendCDPWithSignal(
-					this.conn,
-					"Target.closeTarget",
-					abortController.signal,
-					{ targetId: this._targetId },
-				)
-				if (result.success === false) {
-					throw new Error(`Browser refused to close target ${this._targetId}`)
-				}
-				while (true) {
-					const { targetInfos } = await sendCDPWithSignal(
-						this.conn,
-						"Target.getTargets",
-						abortController.signal,
-					)
-					if (
-						!targetInfos.some((target) => target.targetId === this._targetId)
-					) {
-						targetClosed = true
-						return
-					}
-					await new Promise((resolve) => setTimeout(resolve, 25))
-				}
+				await closeTargetAndConfirm(this.conn, this._targetId, {
+					operation: "page.close",
+				})
 			} catch (error) {
-				if (error instanceof CDPConnectionClosedError) targetClosed = true
-				else throw error
-			} finally {
-				clearTimeout(timer)
-				if (targetClosed) {
-					for (const callback of this.closeCallbacks) {
-						try {
-							callback()
-						} catch {}
-					}
-					this.closeCallbacks.clear()
+				if (!this.disposed) {
+					throw error
 				}
-				this.disposeResources()
 			}
+			if (this.disposed) {
+				return
+			}
+			const callbacks = [...this.closeCallbacks]
+			this.closeCallbacks.clear()
+			for (const callback of callbacks) {
+				try {
+					callback()
+				} catch {}
+			}
+			this.disposeResources()
 		})()
-		return this.closePromise
+		this.closePromise = operation
+		try {
+			await operation
+		} catch (error) {
+			if (!this.disposed) {
+				this.closing = false
+				this.closePromise = null
+			}
+			throw error
+		}
 	}
 
 	public disposeResources(): void {
-		if (this.disposed) return
+		if (this.disposed) {
+			return
+		}
 		this.disposed = true
+		if (this.pendingInitialNavigation) {
+			this.finishInitialNavigation(this.pendingInitialNavigation)
+		}
+		this.closing = false
 		this.disposeController.abort(
 			new CDPConnectionClosedError("page is disposed"),
 		)
+		this.activeNavigationController?.abort(
+			new CDPConnectionClosedError("page is disposed"),
+		)
+		this.activeNavigationController = null
+		this.pendingNavigationReservation?.controller.abort(
+			new CDPConnectionClosedError("page is disposed"),
+		)
+		this.pendingNavigationReservation = null
+		this.initialNavigationLoaderId = null
+		this.activeNavigationLoaderIds.clear()
+		this.supersededNavigationLoaderIds.clear()
 		for (const cleanup of [...this.activeLifecycleWaitCleanups]) {
-			cleanup(new CDPConnectionClosedError("page is disposed"))
+			try {
+				cleanup(new CDPConnectionClosedError("page is disposed"))
+			} catch {}
 		}
-		this.networkManager.dispose()
-		this.removeAllConsoleTaps()
+		try {
+			this.networkManager.dispose()
+		} catch {}
+		try {
+			this.removeAllConsoleTaps()
+		} catch {}
 		this.consoleListeners.clear()
 		this.sessions.clear()
 		this.consoleHandlers.clear()
@@ -751,8 +901,8 @@ export class Page {
 		this.frameOrdinals.clear()
 		this.initScripts.length = 0
 		this.extraHTTPHeaders = {}
-		this._pressedModifiers.clear()
-		this.cursorEnabled = false
+		this.keyboard.reset()
+		this.mouse.reset()
 		this.closeCallbacks.clear()
 		this.registry.clear()
 	}
@@ -777,7 +927,9 @@ export class Page {
 
 	private ensureOrdinal(frameId: string): number {
 		const hit = this.frameOrdinals.get(frameId)
-		if (hit !== undefined) return hit
+		if (hit !== undefined) {
+			return hit
+		}
 		const ord = this.nextOrdinal++
 		this.frameOrdinals.set(frameId, ord)
 		return ord
@@ -793,8 +945,6 @@ export class Page {
 	}
 
 	private ensureConsoleTaps(): void {
-		if (this.consoleListeners.size === 0) return
-
 		this.installConsoleTap(this.mainSession)
 		for (const session of this.sessions.values()) {
 			this.installConsoleTap(session)
@@ -803,9 +953,13 @@ export class Page {
 
 	private installConsoleTap(session: CDPSessionLike): void {
 		const key = this.sessionKey(session)
-		if (this.consoleHandlers.has(key)) return
+		if (this.consoleHandlers.has(key)) {
+			return
+		}
 
-		void session.send("Runtime.enable").catch(() => {})
+		try {
+			void session.send("Runtime.enable").catch(() => {})
+		} catch {}
 
 		const handler = (evt: Protocol.Runtime.ConsoleAPICalledEvent) => {
 			this.emitConsole(evt, session)
@@ -822,7 +976,9 @@ export class Page {
 
 	private resolveSessionByKey(key: string): CDPSessionLike | undefined {
 		if (this.mainSession.id) {
-			if (this.mainSession.id === key) return this.mainSession
+			if (this.mainSession.id === key) {
+				return this.mainSession
+			}
 		} else if (key === "__root__") {
 			return this.mainSession
 		}
@@ -832,11 +988,17 @@ export class Page {
 
 	private teardownConsoleTap(key: string): void {
 		const handler = this.consoleHandlers.get(key)
-		if (!handler) return
+		if (!handler) {
+			return
+		}
 
 		const session = this.resolveSessionByKey(key)
-		session?.off("Runtime.consoleAPICalled", handler)
-		this.consoleHandlers.delete(key)
+		try {
+			session?.off("Runtime.consoleAPICalled", handler)
+		} catch {
+		} finally {
+			this.consoleHandlers.delete(key)
+		}
 	}
 
 	private removeAllConsoleTaps(): void {
@@ -852,26 +1014,26 @@ export class Page {
 		const message = new ConsoleMessage(evt, this)
 		const listeners = [...this.consoleListeners]
 
-		for (const listener of listeners) {
-			try {
-				listener(message)
-			} catch (error) {
-				this.logger({
-					category: "page",
-					message: "Console listener threw",
-					level: LogLevel.Debug,
-					attributes: {
-						error: String(error),
-						type: evt.type,
-					},
-				})
+		try {
+			for (const listener of listeners) {
+				try {
+					listener(message)
+				} catch (error) {
+					try {
+						this.logger({
+							category: "page",
+							message: "Console listener threw",
+							level: LogLevel.Debug,
+							attributes: {
+								error: String(error),
+								type: evt.type,
+							},
+						})
+					} catch {}
+				}
 			}
-		}
-		for (const arg of evt.args ?? []) {
-			if (!arg.objectId) continue
-			void session
-				.send("Runtime.releaseObject", { objectId: arg.objectId })
-				.catch(() => {})
+		} finally {
+			void releaseObjectIds(session, evt.args?.map((arg) => arg.objectId) ?? [])
 		}
 	}
 
@@ -888,13 +1050,19 @@ export class Page {
 		this.assertOpen()
 		const waitUntil: LoadState = options?.waitUntil ?? "domcontentloaded"
 		const timeout = options?.timeoutMs ?? 15000
+		const navigationVersion = this.mainFrameNavigationVersion
+		const navigation = this.beginNavigationCommand()
+		const deadline = createDeadlineSignal(
+			AbortSignal.any([this.disposeController.signal, navigation.signal]),
+			"goto",
+			timeout,
+		)
 
-		const navigationCommandId = this.beginNavigationCommand()
 		const tracker = new NavigationResponseTracker({
 			page: this,
 			session: this.mainSession,
 			connection: this.conn,
-			navigationCommandId,
+			navigationCommandId: navigation.id,
 		})
 
 		const watcher = new LifecycleWatcher({
@@ -903,21 +1071,39 @@ export class Page {
 			networkManager: this.networkManager,
 			waitUntil,
 			timeoutMs: timeout,
-			navigationCommandId,
+			navigationCommandId: navigation.id,
+			signal: deadline.signal,
+			onLoaderIdChanged: (loaderId) => {
+				this.observeNavigationLoader(navigation.id, loaderId)
+				tracker.setExpectedLoaderId(loaderId)
+			},
 		})
 
 		try {
-			const response = await this.mainSession.send("Page.navigate", { url })
-			this._currentUrl = url
+			const response = await sendCDPWithSignal(
+				this.mainSession,
+				"Page.navigate",
+				deadline.signal,
+				{ url },
+			)
+			deadline.signal.throwIfAborted()
+			if (response.errorText) {
+				throw new Error(`Navigation failed: ${response.errorText}`)
+			}
+			if (this.mainFrameNavigationVersion === navigationVersion) {
+				this._currentUrl = url
+			}
 			if (response?.loaderId) {
 				watcher.setExpectedLoaderId(response.loaderId)
-				tracker.setExpectedLoaderId(response.loaderId)
+			} else {
+				watcher.allowCurrentDocument()
 			}
 			await watcher.wait()
 			return await tracker.navigationCompleted()
 		} finally {
 			watcher.dispose()
 			tracker.dispose()
+			deadline.dispose()
 		}
 	}
 
@@ -932,14 +1118,18 @@ export class Page {
 		this.assertOpen()
 		const waitUntil = options?.waitUntil
 		const timeout = options?.timeoutMs ?? 15000
-
-		const navigationCommandId = this.beginNavigationCommand()
+		const navigation = this.beginNavigationCommand()
+		const deadline = createDeadlineSignal(
+			AbortSignal.any([this.disposeController.signal, navigation.signal]),
+			"reload",
+			timeout,
+		)
 
 		const tracker = new NavigationResponseTracker({
 			page: this,
 			session: this.mainSession,
 			connection: this.conn,
-			navigationCommandId,
+			navigationCommandId: navigation.id,
 		})
 		tracker.expectNavigationWithoutKnownLoader()
 
@@ -950,14 +1140,24 @@ export class Page {
 					networkManager: this.networkManager,
 					waitUntil,
 					timeoutMs: timeout,
-					navigationCommandId,
+					navigationCommandId: navigation.id,
+					signal: deadline.signal,
+					onLoaderIdChanged: (loaderId) => {
+						this.observeNavigationLoader(navigation.id, loaderId)
+						tracker.setExpectedLoaderId(loaderId)
+					},
 				})
 			: null
+		watcher?.expectNavigationWithoutKnownLoader()
 
 		try {
-			await this.mainSession.send("Page.reload", {
-				ignoreCache: options?.ignoreCache ?? false,
-			})
+			await sendCDPWithSignal(
+				this.mainSession,
+				"Page.reload",
+				deadline.signal,
+				{ ignoreCache: options?.ignoreCache ?? false },
+			)
+			deadline.signal.throwIfAborted()
 
 			if (watcher) {
 				await watcher.wait()
@@ -966,6 +1166,7 @@ export class Page {
 		} finally {
 			watcher?.dispose()
 			tracker.dispose()
+			deadline.dispose()
 		}
 	}
 
@@ -976,50 +1177,7 @@ export class Page {
 		waitUntil?: LoadState
 		timeoutMs?: number
 	}): Promise<Response | null> {
-		this.assertOpen()
-		const { entries, currentIndex } = await this.mainSession.send(
-			"Page.getNavigationHistory",
-		)
-		const prev = entries[currentIndex - 1]
-		if (!prev) return null // nothing to do
-		const waitUntil = options?.waitUntil
-		const timeout = options?.timeoutMs ?? 15000
-
-		const navigationCommandId = this.beginNavigationCommand()
-
-		const tracker = new NavigationResponseTracker({
-			page: this,
-			session: this.mainSession,
-			connection: this.conn,
-			navigationCommandId,
-		})
-		tracker.expectNavigationWithoutKnownLoader()
-
-		const watcher = waitUntil
-			? new LifecycleWatcher({
-					page: this,
-					mainSession: this.mainSession,
-					networkManager: this.networkManager,
-					waitUntil,
-					timeoutMs: timeout,
-					navigationCommandId,
-				})
-			: null
-
-		try {
-			await this.mainSession.send("Page.navigateToHistoryEntry", {
-				entryId: prev.id,
-			})
-			this._currentUrl = prev.url ?? this._currentUrl
-
-			if (watcher) {
-				await watcher.wait()
-			}
-			return await tracker.navigationCompleted()
-		} finally {
-			watcher?.dispose()
-			tracker.dispose()
-		}
+		return this.navigateHistory(-1, "goBack", options)
 	}
 
 	/**
@@ -1029,49 +1187,86 @@ export class Page {
 		waitUntil?: LoadState
 		timeoutMs?: number
 	}): Promise<Response | null> {
+		return this.navigateHistory(1, "goForward", options)
+	}
+
+	private async navigateHistory(
+		delta: -1 | 1,
+		operation: "goBack" | "goForward",
+		options?: { waitUntil?: LoadState; timeoutMs?: number },
+	): Promise<Response | null> {
 		this.assertOpen()
-		const { entries, currentIndex } = await this.mainSession.send(
-			"Page.getNavigationHistory",
-		)
-		const next = entries[currentIndex + 1]
-		if (!next) return null // nothing to do
-		const waitUntil = options?.waitUntil
 		const timeout = options?.timeoutMs ?? 15000
-
-		const navigationCommandId = this.beginNavigationCommand()
-
-		const tracker = new NavigationResponseTracker({
-			page: this,
-			session: this.mainSession,
-			connection: this.conn,
-			navigationCommandId,
-		})
-		tracker.expectNavigationWithoutKnownLoader()
-
-		const watcher = waitUntil
-			? new LifecycleWatcher({
-					page: this,
-					mainSession: this.mainSession,
-					networkManager: this.networkManager,
-					waitUntil,
-					timeoutMs: timeout,
-					navigationCommandId,
-				})
-			: null
-
+		const reservation = this.reserveNavigationCommand()
+		const deadline = createDeadlineSignal(
+			AbortSignal.any([this.disposeController.signal, reservation.signal]),
+			operation,
+			timeout,
+		)
+		let activated = false
 		try {
-			await this.mainSession.send("Page.navigateToHistoryEntry", {
-				entryId: next.id,
-			})
-			this._currentUrl = next.url ?? this._currentUrl
-
-			if (watcher) {
-				await watcher.wait()
+			const { entries, currentIndex } = await sendCDPWithSignal(
+				this.mainSession,
+				"Page.getNavigationHistory",
+				deadline.signal,
+			)
+			deadline.signal.throwIfAborted()
+			const entry = entries[currentIndex + delta]
+			if (!entry) {
+				return null
 			}
-			return await tracker.navigationCompleted()
+			const navigation = this.activateNavigationCommand(reservation)
+			activated = true
+			const navigationSignal = AbortSignal.any([
+				deadline.signal,
+				navigation.signal,
+			])
+			const tracker = new NavigationResponseTracker({
+				page: this,
+				session: this.mainSession,
+				connection: this.conn,
+				navigationCommandId: navigation.id,
+			})
+			tracker.expectNavigationWithoutKnownLoader()
+			const waitUntil = options?.waitUntil
+			const watcher = waitUntil
+				? new LifecycleWatcher({
+						page: this,
+						mainSession: this.mainSession,
+						networkManager: this.networkManager,
+						waitUntil,
+						timeoutMs: timeout,
+						navigationCommandId: navigation.id,
+						signal: navigationSignal,
+						onLoaderIdChanged: (loaderId) => {
+							this.observeNavigationLoader(navigation.id, loaderId)
+							tracker.setExpectedLoaderId(loaderId)
+						},
+					})
+				: null
+			watcher?.expectNavigationWithoutKnownLoader()
+			try {
+				await sendCDPWithSignal(
+					this.mainSession,
+					"Page.navigateToHistoryEntry",
+					navigationSignal,
+					{ entryId: entry.id },
+				)
+				navigationSignal.throwIfAborted()
+				this._currentUrl = entry.url ?? this._currentUrl
+				if (watcher) {
+					await watcher.wait()
+				}
+				return await tracker.navigationCompleted()
+			} finally {
+				watcher?.dispose()
+				tracker.dispose()
+			}
 		} finally {
-			watcher?.dispose()
-			tracker.dispose()
+			if (!activated) {
+				this.releaseNavigationReservation(reservation)
+			}
+			deadline.dispose()
 		}
 	}
 
@@ -1082,15 +1277,102 @@ export class Page {
 		return this._currentUrl
 	}
 
-	private beginNavigationCommand(): number {
+	private reserveNavigationCommand(): NavigationReservation {
 		this.assertOpen()
 		const id = ++this.navigationCommandSeq
-		this.latestNavigationCommandId = id
-		return id
+		const previous = this.pendingNavigationReservation
+		const controller = new AbortController()
+		this.pendingNavigationReservation = { id, controller }
+		previous?.controller.abort(
+			new Error("Navigation was superseded by a new request"),
+		)
+		return { id, signal: controller.signal }
+	}
+
+	private releaseNavigationReservation(
+		reservation: NavigationReservation,
+	): void {
+		if (this.pendingNavigationReservation?.id === reservation.id) {
+			this.pendingNavigationReservation = null
+		}
+	}
+
+	private activateNavigationCommand(
+		reservation: NavigationReservation,
+	): NavigationReservation {
+		if (
+			reservation.signal.aborted ||
+			this.pendingNavigationReservation?.id !== reservation.id
+		) {
+			throw reservation.signal.reason instanceof Error
+				? reservation.signal.reason
+				: new Error("Navigation was superseded by a new request")
+		}
+		this.pendingNavigationReservation = null
+		if (this.pendingInitialNavigation) {
+			this.pendingInitialNavigation.superseded = true
+		}
+		if (this.initialNavigationLoaderId) {
+			this.rememberSupersededNavigationLoader(this.initialNavigationLoaderId)
+			this.initialNavigationLoaderId = null
+		}
+		for (const loaderId of this.activeNavigationLoaderIds) {
+			this.rememberSupersededNavigationLoader(loaderId)
+		}
+		this.activeNavigationLoaderIds.clear()
+		this.latestNavigationCommandId = reservation.id
+		const previous = this.activeNavigationController
+		const controller = new AbortController()
+		this.activeNavigationController = controller
+		previous?.abort(new Error("Navigation was superseded by a new request"))
+		return { id: reservation.id, signal: controller.signal }
+	}
+
+	private beginNavigationCommand(): NavigationReservation {
+		return this.activateNavigationCommand(this.reserveNavigationCommand())
 	}
 
 	public isCurrentNavigationCommand(id: number): boolean {
 		return this.latestNavigationCommandId === id
+	}
+
+	public isSupersededNavigationLoader(loaderId: string): boolean {
+		return this.supersededNavigationLoaderIds.has(loaderId)
+	}
+
+	public pendingSupersededNavigation(): Promise<void> | null {
+		const state = this.pendingInitialNavigation
+		return state?.superseded ? state.settled : null
+	}
+
+	private observeNavigationLoader(commandId: number, loaderId: string): void {
+		if (!loaderId || !this.isCurrentNavigationCommand(commandId)) {
+			return
+		}
+		this.activeNavigationLoaderIds.add(loaderId)
+	}
+
+	private rememberSupersededNavigationLoader(loaderId: string): void {
+		this.supersededNavigationLoaderIds.delete(loaderId)
+		this.supersededNavigationLoaderIds.add(loaderId)
+		while (this.supersededNavigationLoaderIds.size > 128) {
+			const oldest = this.supersededNavigationLoaderIds.values().next()
+			if (oldest.done) {
+				break
+			}
+			this.supersededNavigationLoaderIds.delete(oldest.value)
+		}
+	}
+
+	private finishInitialNavigation(state: InitialNavigationState): void {
+		if (state.finished) {
+			return
+		}
+		state.finished = true
+		if (this.pendingInitialNavigation === state) {
+			this.pendingInitialNavigation = null
+		}
+		state.resolveSettled()
 	}
 
 	/**
@@ -1099,23 +1381,37 @@ export class Page {
 	 * Falls back to navigation history title if evaluation is unavailable.
 	 */
 	async title(): Promise<string> {
+		this.assertOpen()
+		const signal = this.disposeController.signal
 		try {
-			await this.mainSession.send("Runtime.enable").catch(() => {})
-			const ctxId = await this.mainWorldExecutionContextId()
-			const { result } = await this.mainSession.send("Runtime.evaluate", {
-				expression: "document.title",
-				contextId: ctxId,
-				returnByValue: true,
-			})
-			return String(result?.value ?? "")
-		} catch {
+			await sendCDPWithSignal(this.mainSession, "Runtime.enable", signal)
+			const response = await this.evaluateMainWorldProbe(
+				"document.title",
+				signal,
+			)
+			const value = response.exceptionDetails
+				? null
+				: String(response.result.value ?? "")
+			if (value === null) {
+				throw new Error("Unable to evaluate document.title")
+			}
+			return value
+		} catch (error) {
+			if (signal.aborted) {
+				throw error
+			}
 			// Fallback: use navigation history entry title
 			try {
-				const { entries, currentIndex } = await this.mainSession.send(
+				const { entries, currentIndex } = await sendCDPWithSignal(
+					this.mainSession,
 					"Page.getNavigationHistory",
+					signal,
 				)
 				return entries[currentIndex]?.title ?? ""
-			} catch {
+			} catch (fallbackError) {
+				if (signal.aborted) {
+					throw fallbackError
+				}
 				return ""
 			}
 		}
@@ -1178,80 +1474,79 @@ export class Page {
 		const animationsMode: ScreenshotAnimationsOption =
 			opts.animations ?? "allow"
 		const scaleMode: ScreenshotScaleOption = opts.scale ?? "device"
-		const frames = collectFramesForScreenshot(this)
-		const clip = opts.clip ? normalizeScreenshotClip(opts.clip) : undefined
-		const captureScale = await computeScreenshotScale(this, scaleMode)
-		const maskLocators = (opts.mask ?? []).filter(
-			(locator): locator is Locator => Boolean(locator),
+		const cleanupScope = new ScreenshotCleanupScope(
+			this.disposeController.signal,
+			opts.timeout,
 		)
-
-		const cleanupTasks: ScreenshotCleanup[] = []
-		const abortController = new AbortController()
-		const drainCleanups = async () => {
-			const pending = cleanupTasks.splice(0)
-			await runScreenshotCleanups(pending)
-		}
-		const installCleanup = async (
-			pending: Promise<ScreenshotCleanup>,
-		): Promise<void> => {
-			const cleanup = await pending
-			if (abortController.signal.aborted) {
-				await runScreenshotCleanups([cleanup])
-				abortController.signal.throwIfAborted()
-			}
-			cleanupTasks.push(cleanup)
-		}
-
-		const exec = async (): Promise<Uint8Array> => {
-			try {
-				if (opts.omitBackground) {
-					await installCleanup(setTransparentBackground(this.mainSession))
-				}
-
-				if (animationsMode === "disabled") {
-					await installCleanup(disableAnimations(frames))
-				}
-
-				if (caretMode === "hide") {
-					await installCleanup(hideCaret(frames))
-				}
-
-				if (opts.style?.trim()) {
-					await installCleanup(applyStyleToFrames(frames, opts.style, "custom"))
-				}
-
-				if (maskLocators.length > 0) {
-					await installCleanup(
-						applyMaskOverlays(maskLocators, opts.maskColor ?? "#FF00FF"),
-					)
-				}
-
-				abortController.signal.throwIfAborted()
-				const buffer = await this.mainFrameWrapper.screenshot({
-					fullPage: opts.fullPage,
-					clip,
-					type,
-					quality: type === "jpeg" ? opts.quality : undefined,
-					scale: captureScale,
-					signal: abortController.signal,
-				})
-
-				if (opts.path) {
-					await fs.writeFile(opts.path, buffer)
-				}
-
-				return buffer
-			} finally {
-				await drainCleanups()
-			}
-		}
+		const operationSignal = cleanupScope.signal
 
 		try {
-			return await withTimeout(exec(), opts.timeout, "screenshot")
-		} catch (error) {
-			abortController.abort(error)
-			await drainCleanups()
-			throw error
+			operationSignal.throwIfAborted()
+			const frames = collectFramesForScreenshot(this)
+			const clip = opts.clip ? normalizeScreenshotClip(opts.clip) : undefined
+			const captureScale = await computeScreenshotScale(
+				this,
+				scaleMode,
+				operationSignal,
+			)
+			const maskLocators = (opts.mask ?? []).filter(
+				(locator): locator is Locator => Boolean(locator),
+			)
+			if (opts.omitBackground) {
+				await cleanupScope.install(
+					setTransparentBackground(this.mainSession, operationSignal),
+				)
+			}
+
+			if (animationsMode === "disabled") {
+				await cleanupScope.install(disableAnimations(frames, operationSignal))
+			}
+
+			if (caretMode === "hide") {
+				await cleanupScope.install(hideCaret(frames, operationSignal))
+			}
+
+			if (opts.style?.trim()) {
+				await cleanupScope.install(
+					applyStyleToFrames(frames, opts.style, "custom", operationSignal),
+				)
+			}
+
+			if (maskLocators.length > 0) {
+				await cleanupScope.install(
+					applyMaskOverlays(
+						maskLocators,
+						opts.maskColor ?? "#FF00FF",
+						operationSignal,
+					),
+				)
+			}
+
+			operationSignal.throwIfAborted()
+			const buffer = await this.mainFrameWrapper.screenshot({
+				fullPage: opts.fullPage,
+				clip,
+				type,
+				quality: type === "jpeg" ? opts.quality : undefined,
+				scale: captureScale,
+				signal: operationSignal,
+			})
+
+			if (opts.path) {
+				operationSignal.throwIfAborted()
+				await fs.writeFile(opts.path, buffer, {
+					signal: operationSignal,
+				})
+				operationSignal.throwIfAborted()
+			}
+
+			return buffer
+		} finally {
+			try {
+				await cleanupScope.close()
+			} finally {
+				cleanupScope.dispose()
+			}
 		}
 	}
 
@@ -1273,7 +1568,9 @@ export class Page {
 		// get the session(s) for this page:
 		const sessions: CDPSessionLike[] = [this.mainSession]
 		for (const session of this.sessions.values()) {
-			if (session === this.mainSession) continue
+			if (session === this.mainSession) {
+				continue
+			}
 			sessions.push(session)
 		}
 
@@ -1305,7 +1602,7 @@ export class Page {
 		const errors = filtered.map((pair) => {
 			const reason = pair.result.reason
 			const sessId = pair.id ?? "root"
-			const message = reason?.message ?? String(reason)
+			const message = errorMessage(reason)
 			return `session=${sessId} error=${message}`
 		})
 
@@ -1364,7 +1661,8 @@ export class Page {
 	 * @param ms The number of milliseconds to wait.
 	 */
 	async waitForTimeout(ms: number): Promise<void> {
-		return new Promise((resolve) => setTimeout(resolve, ms))
+		this.assertOpen()
+		await this.delay(ms)
 	}
 
 	/**
@@ -1419,48 +1717,12 @@ export class Page {
 		pageFunctionOrExpression: string | ((arg: Arg) => R | Promise<R>),
 		arg?: Arg,
 	): Promise<R> {
-		await this.mainSession.send("Runtime.enable").catch(() => {})
-		const ctxId = await this.mainWorldExecutionContextId()
-
-		const isString = typeof pageFunctionOrExpression === "string"
-		let expression: string
-
-		if (isString) {
-			expression = String(pageFunctionOrExpression)
-		} else {
-			const fnSrc = pageFunctionOrExpression.toString()
-			const argJson = JSON.stringify(arg)
-			expression = `(() => {
-          const __fn = ${fnSrc};
-          const __arg = ${argJson};
-          try {
-            const __res = __fn(__arg);
-            return Promise.resolve(__res).then(v => {
-              try { return JSON.parse(JSON.stringify(v)); } catch { return v; }
-            });
-          } catch (e) { throw e; }
-        })()`
-		}
-
-		const { result, exceptionDetails } = await this.mainSession.send(
-			"Runtime.evaluate",
-			{
-				expression,
-				contextId: ctxId,
-				returnByValue: true,
-				awaitPromise: true,
-			},
+		this.assertOpen()
+		return this.mainFrameWrapper.evaluate(
+			pageFunctionOrExpression,
+			arg,
+			this.disposeController.signal,
 		)
-
-		if (exceptionDetails) {
-			const msg =
-				exceptionDetails.text ||
-				exceptionDetails.exception?.description ||
-				"Evaluation failed"
-			throw new HandstageEvalError(msg)
-		}
-
-		return result?.value as R
 	}
 
 	/**
@@ -1470,27 +1732,43 @@ export class Page {
 	async setViewportSize(
 		width: number,
 		height: number,
-		options?: { deviceScaleFactor?: number },
+		options?: { deviceScaleFactor?: number; signal?: AbortSignal },
 	): Promise<void> {
+		this.assertOpen()
 		const dsf = Math.max(0.01, options?.deviceScaleFactor ?? 1)
-		await this.mainSession
-			.send("Emulation.setDeviceMetricsOverride", {
-				width,
-				height,
-				deviceScaleFactor: dsf,
-				mobile: false,
-				screenWidth: width,
-				screenHeight: height,
-				positionX: 0,
-				positionY: 0,
-				scale: 1,
-			})
-			.catch(() => {})
+		const operationSignal = options?.signal
+			? AbortSignal.any([this.disposeController.signal, options.signal])
+			: this.disposeController.signal
+		const send = <M extends CDPCommand>(
+			method: M,
+			...params: CDPCommandParams<M>
+		) => sendCDPWithSignal(this.mainSession, method, operationSignal, ...params)
+		const sendBestEffort = async <M extends CDPCommand>(
+			method: M,
+			...params: CDPCommandParams<M>
+		): Promise<void> => {
+			try {
+				await send(method, ...params)
+			} catch (error) {
+				if (operationSignal.aborted) {
+					throw error
+				}
+			}
+		}
+		await sendBestEffort("Emulation.setDeviceMetricsOverride", {
+			width,
+			height,
+			deviceScaleFactor: dsf,
+			mobile: false,
+			screenWidth: width,
+			screenHeight: height,
+			positionX: 0,
+			positionY: 0,
+			scale: 1,
+		})
 
 		// Best-effort ensure visible size in headless
-		await this.mainSession
-			.send("Emulation.setVisibleSize", { width, height })
-			.catch(() => {})
+		await sendBestEffort("Emulation.setVisibleSize", { width, height })
 	}
 
 	/**
@@ -1508,73 +1786,8 @@ export class Page {
 			returnXpath?: boolean
 		},
 	): Promise<string> {
-		const button = options?.button ?? "left"
-		const clickCount = options?.clickCount ?? 1
-
-		let xpathResult: string | undefined
-		if (options?.returnXpath) {
-			// Resolve the deepest node at the given coordinates and compute absolute XPath efficiently
-			try {
-				const hit = await resolveXpathForLocation(this, x, y)
-				if (hit) {
-					this.logger({
-						category: "page",
-						message: "click resolved hit",
-						level: LogLevel.Debug,
-						attributes: {
-							frameId: hit.frameId,
-							backendNodeId: hit.backendNodeId,
-							x,
-							y,
-						},
-					})
-					xpathResult = hit.absoluteXPath
-					this.logger({
-						category: "page",
-						message: `click resolved xpath`,
-						level: LogLevel.Debug,
-						attributes: {
-							xpath: xpathResult ?? "",
-						},
-					})
-				}
-			} catch {}
-		}
-
-		await this.updateCursor(x, y)
-		const dispatches: Array<Promise<unknown>> = []
-		dispatches.push(
-			this.mainSession.send("Input.dispatchMouseEvent", {
-				type: "mouseMoved",
-				x,
-				y,
-				button: "none",
-			}),
-		)
-
-		for (let i = 1; i <= clickCount; i++) {
-			dispatches.push(
-				this.mainSession.send("Input.dispatchMouseEvent", {
-					type: "mousePressed",
-					x,
-					y,
-					button,
-					clickCount: i,
-				}),
-			)
-			dispatches.push(
-				this.mainSession.send("Input.dispatchMouseEvent", {
-					type: "mouseReleased",
-					x,
-					y,
-					button,
-					clickCount: i,
-				}),
-			)
-		}
-		await Promise.all(dispatches)
-
-		return xpathResult ?? ""
+		this.assertOpen()
+		return this.mouse.click(x, y, options)
 	}
 
 	/**
@@ -1587,43 +1800,8 @@ export class Page {
 		y: number,
 		options?: { returnXpath?: boolean },
 	): Promise<string> {
-		let xpathResult: string | undefined
-		if (options?.returnXpath) {
-			try {
-				const hit = await resolveXpathForLocation(this, x, y)
-				if (hit) {
-					this.logger({
-						category: "page",
-						message: "hover resolved hit",
-						level: LogLevel.Debug,
-						attributes: {
-							frameId: hit.frameId,
-							backendNodeId: hit.backendNodeId,
-							x,
-							y,
-						},
-					})
-					xpathResult = hit.absoluteXPath
-				}
-			} catch {
-				this.logger({
-					category: "page",
-					message: "Failed to resolve xpath for hover",
-					level: LogLevel.Debug,
-					attributes: { x, y },
-				})
-			}
-		}
-
-		await this.updateCursor(x, y)
-		await this.mainSession.send("Input.dispatchMouseEvent", {
-			type: "mouseMoved",
-			x,
-			y,
-			button: "none",
-		})
-
-		return xpathResult ?? ""
+		this.assertOpen()
+		return this.mouse.hover(x, y, options)
 	}
 
 	async scroll(
@@ -1633,32 +1811,8 @@ export class Page {
 		deltaY: number,
 		options?: { returnXpath?: boolean },
 	): Promise<string> {
-		let xpathResult: string | undefined
-		if (options?.returnXpath) {
-			try {
-				const hit = await resolveXpathForLocation(this, x, y)
-				if (hit) xpathResult = hit.absoluteXPath
-			} catch {}
-		}
-
-		await this.updateCursor(x, y)
-		await this.mainSession.send("Input.dispatchMouseEvent", {
-			type: "mouseMoved",
-			x,
-			y,
-			button: "none",
-		})
-
-		await this.mainSession.send("Input.dispatchMouseEvent", {
-			type: "mouseWheel",
-			x,
-			y,
-			button: "none",
-			deltaX,
-			deltaY,
-		})
-
-		return xpathResult ?? ""
+		this.assertOpen()
+		return this.mouse.scroll(x, y, deltaX, deltaY, options)
 	}
 
 	/**
@@ -1677,86 +1831,8 @@ export class Page {
 			returnXpath?: boolean
 		},
 	): Promise<[string, string]> {
-		const button = options?.button ?? "left"
-		const steps = Math.max(1, Math.floor(options?.steps ?? 1))
-		const delay = Math.max(0, options?.delay ?? 0)
-
-		const sleep = (ms: number) =>
-			new Promise<void>((r) => (ms > 0 ? setTimeout(r, ms) : r()))
-
-		const buttonMask = (b: typeof button): number => {
-			switch (b) {
-				case "left":
-					return 1
-				case "right":
-					return 2
-				case "middle":
-					return 4
-				default:
-					return 1
-			}
-		}
-
-		let fromXpath: string | undefined
-		let toXpath: string | undefined
-		if (options?.returnXpath) {
-			try {
-				const start = await resolveXpathForLocation(this, fromX, fromY)
-				if (start) fromXpath = start.absoluteXPath
-			} catch {}
-			try {
-				const end = await resolveXpathForLocation(this, toX, toY)
-				if (end) toXpath = end.absoluteXPath
-			} catch {}
-		}
-
-		// Move to start
-		await this.updateCursor(fromX, fromY)
-		await this.mainSession.send("Input.dispatchMouseEvent", {
-			type: "mouseMoved",
-			x: fromX,
-			y: fromY,
-			button: "none",
-		})
-
-		// Press
-		await this.mainSession.send("Input.dispatchMouseEvent", {
-			type: "mousePressed",
-			x: fromX,
-			y: fromY,
-			button,
-			buttons: buttonMask(button),
-			clickCount: 1,
-		})
-
-		// Intermediate moves
-		for (let i = 1; i <= steps; i++) {
-			const t = i / steps
-			const x = fromX + (toX - fromX) * t
-			const y = fromY + (toY - fromY) * t
-			await this.updateCursor(x, y)
-			await this.mainSession.send("Input.dispatchMouseEvent", {
-				type: "mouseMoved",
-				x,
-				y,
-				button,
-				buttons: buttonMask(button),
-			})
-			if (delay) await sleep(delay)
-		}
-
-		// Release at end
-		await this.updateCursor(toX, toY)
-		await this.mainSession.send("Input.dispatchMouseEvent", {
-			type: "mouseReleased",
-			x: toX,
-			y: toY,
-			button,
-			buttons: buttonMask(button),
-			clickCount: 1,
-		})
-
-		return [fromXpath ?? "", toXpath ?? ""]
+		this.assertOpen()
+		return this.mouse.dragAndDrop(fromX, fromY, toX, toY, options)
 	}
 
 	/**
@@ -1769,121 +1845,8 @@ export class Page {
 		text: string,
 		options?: { delay?: number; withMistakes?: boolean },
 	): Promise<void> {
-		const delay = Math.max(0, options?.delay ?? 0)
-		const withMistakes = !!options?.withMistakes
-
-		const sleep = (ms: number) =>
-			new Promise<void>((r) => (ms > 0 ? setTimeout(r, ms) : r()))
-
-		const keyStroke = async (
-			ch: string,
-			override?: {
-				key?: string
-				code?: string
-				windowsVirtualKeyCode?: number
-			},
-		) => {
-			if (override) {
-				const base: Protocol.Input.DispatchKeyEventRequest = {
-					type: "keyDown",
-					key: override.key,
-					code: override.code,
-					windowsVirtualKeyCode: override.windowsVirtualKeyCode,
-				}
-				await this.mainSession.send("Input.dispatchKeyEvent", base)
-				await this.mainSession.send("Input.dispatchKeyEvent", {
-					...base,
-					type: "keyUp",
-				})
-				return
-			}
-
-			// Printable character: include key, code, and text for maximum compatibility
-			// Some sites (like Wordle) check event.key rather than relying on text input
-			const isLetter = /^[a-zA-Z]$/.test(ch)
-			const isDigit = /^[0-9]$/.test(ch)
-
-			let key = ch
-			let code = ""
-			let windowsVirtualKeyCode: number | undefined
-
-			if (isLetter) {
-				// For letters, key is the character, code is KeyX where X is uppercase
-				key = ch
-				code = `Key${ch.toUpperCase()}`
-				windowsVirtualKeyCode = ch.toUpperCase().charCodeAt(0)
-			} else if (isDigit) {
-				key = ch
-				code = `Digit${ch}`
-				windowsVirtualKeyCode = ch.charCodeAt(0)
-			} else if (ch === " ") {
-				key = " "
-				code = "Space"
-				windowsVirtualKeyCode = 32
-			}
-
-			const down: Protocol.Input.DispatchKeyEventRequest = {
-				type: "keyDown",
-				key,
-				code: code || undefined,
-				text: ch,
-				unmodifiedText: ch,
-				windowsVirtualKeyCode,
-			}
-			await this.mainSession.send("Input.dispatchKeyEvent", down)
-			await this.mainSession.send("Input.dispatchKeyEvent", {
-				type: "keyUp",
-				key,
-				code: code || undefined,
-				windowsVirtualKeyCode,
-			})
-		}
-
-		const pressBackspace = async () =>
-			keyStroke("\b", {
-				key: "Backspace",
-				code: "Backspace",
-				windowsVirtualKeyCode: 8,
-			})
-
-		const randomPrintable = (avoid: string): string => {
-			const pool =
-				"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 .,;:'\"!?@#$%^&*()-_=+[]{}<>/\\|`~"
-			let c = avoid
-			while (c === avoid) {
-				c = pool.charAt(Math.floor(Math.random() * pool.length))
-			}
-			return c
-		}
-
-		for (const ch of text) {
-			// Control keys that we explicitly map
-			if (ch === "\n" || ch === "\r") {
-				await keyStroke(ch, {
-					key: "Enter",
-					code: "Enter",
-					windowsVirtualKeyCode: 13,
-				})
-			} else if (ch === "\t") {
-				await keyStroke(ch, {
-					key: "Tab",
-					code: "Tab",
-					windowsVirtualKeyCode: 9,
-				})
-			} else {
-				if (withMistakes && Math.random() < 0.12) {
-					// Type a wrong character, then backspace to correct
-					const wrong = randomPrintable(ch)
-					await keyStroke(wrong)
-					if (delay) await sleep(delay)
-					await pressBackspace()
-					if (delay) await sleep(delay)
-				}
-				await keyStroke(ch)
-			}
-
-			if (delay) await sleep(delay)
-		}
+		this.assertOpen()
+		await this.keyboard.typeText(text, options)
 	}
 
 	/**
@@ -1892,66 +1855,8 @@ export class Page {
 	 * Supports key combinations with modifiers like "Cmd+A", "Ctrl+C", "Shift+Tab", etc.
 	 */
 	async keyPress(key: string, options?: { delay?: number }): Promise<void> {
-		const delay = Math.max(0, options?.delay ?? 0)
-		const sleep = (ms: number) =>
-			new Promise<void>((r) => (ms > 0 ? setTimeout(r, ms) : r()))
-
-		// Split key combination by + but handle the special case of "+" key itself
-		function split(keyString: string): string[] {
-			// Special case: if the entire string is just "+", return it as-is
-			if (keyString === "+") {
-				return ["+"]
-			}
-
-			const keys: string[] = []
-			let building = ""
-			for (const char of keyString) {
-				if (char === "+" && building) {
-					keys.push(building)
-					building = ""
-				} else {
-					building += char
-				}
-			}
-			if (building) {
-				keys.push(building)
-			}
-			return keys
-		}
-
-		const tokens = split(key)
-		if (tokens.length === 0) {
-			throw new HandstageInvalidArgumentError("Invalid key combination")
-		}
-		const mainKey = tokens.at(-1)
-		if (!mainKey) {
-			throw new HandstageInvalidArgumentError("Invalid key combination")
-		}
-		const modifierKeys = tokens.slice(0, -1)
-
-		try {
-			for (const modKey of modifierKeys) {
-				await this.keyDown(modKey)
-			}
-
-			await this.keyDown(mainKey)
-			if (delay) await sleep(delay)
-			await this.keyUp(mainKey)
-
-			for (let i = modifierKeys.length - 1; i >= 0; i--) {
-				const modifierKey = modifierKeys[i]
-				if (!modifierKey) {
-					throw new HandstageInvalidArgumentError(
-						"Invalid key combination modifier",
-					)
-				}
-				await this.keyUp(modifierKey)
-			}
-		} catch (error) {
-			// Clear stuck modifiers on error to prevent affecting subsequent keyPress calls
-			this._pressedModifiers.clear()
-			throw error
-		}
+		this.assertOpen()
+		await this.keyboard.press(key, options)
 	}
 
 	async snapshot(options?: PageSnapshotOptions): Promise<SnapshotResult> {
@@ -1972,354 +1877,80 @@ export class Page {
 		}
 	}
 
-	// Track pressed modifier keys
-	private _pressedModifiers = new Set<string>()
-
-	/** Press a key down without releasing it */
-	private async keyDown(key: string): Promise<void> {
-		const normalizedKey = this.normalizeModifierKey(key)
-
-		const modifierKeys = ["Alt", "Control", "Meta", "Shift"]
-		if (modifierKeys.includes(normalizedKey)) {
-			this._pressedModifiers.add(normalizedKey)
-		}
-
-		let modifiers = 0
-		if (this._pressedModifiers.has("Alt")) modifiers |= 1
-		if (this._pressedModifiers.has("Control")) modifiers |= 2
-		if (this._pressedModifiers.has("Meta")) modifiers |= 4
-		if (this._pressedModifiers.has("Shift")) modifiers |= 8
-
-		const named = this.getNamedKeys()
-
-		if (normalizedKey.length === 1) {
-			const hasNonShiftModifier =
-				this._pressedModifiers.has("Alt") ||
-				this._pressedModifiers.has("Control") ||
-				this._pressedModifiers.has("Meta")
-			if (hasNonShiftModifier) {
-				// For accelerators (e.g., Cmd/Ctrl/Alt + key), do not send text. Use rawKeyDown with key/code/VK.
-				const desc = this.describePrintableKey(normalizedKey)
-				const macCommands = this.isMacOS()
-					? this.macCommandsFor(desc.code ?? "")
-					: []
-				const req: Protocol.Input.DispatchKeyEventRequest = {
-					type: "rawKeyDown",
-					modifiers,
-					key: desc.key,
-					...(desc.code ? { code: desc.code } : {}),
-					...(typeof desc.vk === "number"
-						? { windowsVirtualKeyCode: desc.vk }
-						: {}),
-					...(macCommands.length ? { commands: macCommands } : {}),
-				}
-				await this.mainSession.send("Input.dispatchKeyEvent", req)
-			} else {
-				// Typing path (no non-Shift modifiers): send text to generate input
-				await this.mainSession.send("Input.dispatchKeyEvent", {
-					type: "keyDown",
-					text: normalizedKey,
-					unmodifiedText: normalizedKey,
-					modifiers,
-				})
-			}
-			return
-		}
-
-		const entry = named[normalizedKey] ?? null
-		if (entry) {
-			const macCommands = this.isMacOS() ? this.macCommandsFor(entry.code) : []
-			const includeText = !!entry.text && modifiers === 0
-			const keyDown: Protocol.Input.DispatchKeyEventRequest = {
-				type: includeText ? "keyDown" : "rawKeyDown",
-				key: entry.key,
-				code: entry.code,
-				windowsVirtualKeyCode: entry.vk,
-				modifiers,
-				...(includeText
-					? {
-							text: entry.text,
-							unmodifiedText: entry.unmodifiedText ?? entry.text,
-						}
-					: {}),
-				...(macCommands.length ? { commands: macCommands } : {}),
-			}
-			await this.mainSession.send("Input.dispatchKeyEvent", keyDown)
-			return
-		}
-
-		// Fallback: send with key property only
-		await this.mainSession.send("Input.dispatchKeyEvent", {
-			type: "keyDown",
-			key: normalizedKey,
-			modifiers,
-		})
-	}
-
-	/** Release a pressed key */
-	private async keyUp(key: string): Promise<void> {
-		const normalizedKey = this.normalizeModifierKey(key)
-
-		let modifiers = 0
-		if (this._pressedModifiers.has("Alt")) modifiers |= 1
-		if (this._pressedModifiers.has("Control")) modifiers |= 2
-		if (this._pressedModifiers.has("Meta")) modifiers |= 4
-		if (this._pressedModifiers.has("Shift")) modifiers |= 8
-
-		const modifierKeys = ["Alt", "Control", "Meta", "Shift"]
-		if (modifierKeys.includes(normalizedKey)) {
-			this._pressedModifiers.delete(normalizedKey)
-		}
-
-		const named = this.getNamedKeys()
-
-		if (normalizedKey.length === 1) {
-			const desc = this.describePrintableKey(normalizedKey)
-			await this.mainSession.send("Input.dispatchKeyEvent", {
-				type: "keyUp",
-				key: desc.key,
-				code: desc.code,
-				windowsVirtualKeyCode:
-					typeof desc.vk === "number" ? desc.vk : undefined,
-				modifiers,
-			})
-			return
-		}
-
-		const entry = named[normalizedKey] ?? null
-		if (entry) {
-			await this.mainSession.send("Input.dispatchKeyEvent", {
-				type: "keyUp",
-				key: entry.key,
-				code: entry.code,
-				windowsVirtualKeyCode: entry.vk,
-				modifiers,
-			})
-			return
-		}
-
-		// Fallback: send with key property only
-		await this.mainSession.send("Input.dispatchKeyEvent", {
-			type: "keyUp",
-			key: normalizedKey,
-			modifiers,
-		})
-	}
-
-	/** Normalize key names to match CDP expectations */
-	private normalizeModifierKey(key: string): string {
-		const lower = key.toLowerCase()
-		switch (lower) {
-			// Modifier keys
-			case "cmd":
-			case "command":
-			case "controlormeta":
-				// On Mac, Cmd is Meta; elsewhere map to Control for common shortcuts
-				return this.isMacOS() ? "Meta" : "Control"
-			case "win":
-			case "windows":
-				return "Meta"
-			case "ctrl":
-			case "control":
-				return "Control"
-			case "option":
-			case "alt":
-				return "Alt"
-			case "shift":
-				return "Shift"
-			case "meta":
-				return "Meta"
-			// Action keys
-			case "enter":
-			case "return":
-				return "Enter"
-			case "esc":
-			case "escape":
-				return "Escape"
-			case "backspace":
-				return "Backspace"
-			case "tab":
-				return "Tab"
-			case "space":
-			case "spacebar":
-				return " "
-			case "delete":
-			case "del":
-				return "Delete"
-			// Arrow keys
-			case "left":
-			case "arrowleft":
-				return "ArrowLeft"
-			case "right":
-			case "arrowright":
-				return "ArrowRight"
-			case "up":
-			case "arrowup":
-				return "ArrowUp"
-			case "down":
-			case "arrowdown":
-				return "ArrowDown"
-			// Navigation keys
-			case "home":
-				return "Home"
-			case "end":
-				return "End"
-			case "pageup":
-			case "pgup":
-				return "PageUp"
-			case "pagedown":
-			case "pgdn":
-				return "PageDown"
-			default:
-				return key
-		}
-	}
-
-	/**
-	 * Get the map of named keys with their properties
-	 */
-	private getNamedKeys(): Record<
-		string,
-		{
-			key: string
-			code: string
-			vk: number
-			text?: string
-			unmodifiedText?: string
-		}
-	> {
-		return {
-			Enter: {
-				key: "Enter",
-				code: "Enter",
-				vk: 13,
-				text: "\r",
-				unmodifiedText: "\r",
-			},
-			Tab: { key: "Tab", code: "Tab", vk: 9 },
-			Backspace: { key: "Backspace", code: "Backspace", vk: 8 },
-			Escape: { key: "Escape", code: "Escape", vk: 27 },
-			Delete: { key: "Delete", code: "Delete", vk: 46 },
-			ArrowLeft: { key: "ArrowLeft", code: "ArrowLeft", vk: 37 },
-			ArrowUp: { key: "ArrowUp", code: "ArrowUp", vk: 38 },
-			ArrowRight: { key: "ArrowRight", code: "ArrowRight", vk: 39 },
-			ArrowDown: { key: "ArrowDown", code: "ArrowDown", vk: 40 },
-			Home: { key: "Home", code: "Home", vk: 36 },
-			End: { key: "End", code: "End", vk: 35 },
-			PageUp: { key: "PageUp", code: "PageUp", vk: 33 },
-			PageDown: { key: "PageDown", code: "PageDown", vk: 34 },
-			// Modifier keys
-			Alt: { key: "Alt", code: "AltLeft", vk: 18 },
-			Control: { key: "Control", code: "ControlLeft", vk: 17 },
-			Meta: { key: "Meta", code: "MetaLeft", vk: 91 },
-			Shift: { key: "Shift", code: "ShiftLeft", vk: 16 },
-		}
-	}
-
-	/**
-	 * Minimal description for printable keys (letters/digits/space) to provide code and VK.
-	 * Used when non-Shift modifiers are pressed to avoid sending text while keeping accelerator info.
-	 */
-	private describePrintableKey(ch: string): {
-		key: string
-		code?: string
-		vk?: number
-	} {
-		const shiftDown = this._pressedModifiers.has("Shift")
-		const isLetter = /^[a-zA-Z]$/.test(ch)
-		const isDigit = /^[0-9]$/.test(ch)
-
-		if (isLetter) {
-			const upper = ch.toUpperCase()
-			return {
-				key: shiftDown ? upper : upper.toLowerCase(),
-				code: `Key${upper}`,
-				vk: upper.charCodeAt(0), // 'A'..'Z' => 65..90
-			}
-		}
-
-		if (isDigit) {
-			return {
-				key: ch,
-				code: `Digit${ch}`,
-				vk: ch.charCodeAt(0), // '0'..'9' => 48..57
-			}
-		}
-
-		if (ch === " ") {
-			return { key: " ", code: "Space", vk: 32 }
-		}
-
-		// Fallback: just return the character as-is; VK best-effort from ASCII
-		return {
-			key: shiftDown ? ch.toUpperCase() : ch,
-			vk: ch.toUpperCase().charCodeAt(0),
-		}
-	}
-
-	private isMacOS(): boolean {
-		try {
-			return process.platform === "darwin"
-		} catch {
-			return false
-		}
-	}
-
-	/**
-	 * Return Chromium mac editing commands (without trailing ':') for a given code like 'KeyA'
-	 * Only used on macOS to trigger system editing shortcuts (e.g., selectAll, copy, paste...).
-	 */
-	private macCommandsFor(code: string): string[] {
-		if (!this.isMacOS()) return []
-		const parts: string[] = []
-		if (this._pressedModifiers.has("Shift")) parts.push("Shift")
-		if (this._pressedModifiers.has("Control")) parts.push("Control")
-		if (this._pressedModifiers.has("Alt")) parts.push("Alt")
-		if (this._pressedModifiers.has("Meta")) parts.push("Meta")
-		parts.push(code)
-		const shortcut = parts.join("+")
-		const table: Record<string, string | string[]> = {
-			"Meta+KeyA": "selectAll:",
-			"Meta+KeyC": "copy:",
-			"Meta+KeyX": "cut:",
-			"Meta+KeyV": "paste:",
-			"Meta+KeyZ": "undo:",
-		}
-		const value = table[shortcut]
-		if (!value) return []
-		const list = Array.isArray(value) ? value : [value]
-		return list
-			.filter((c) => !c.startsWith("insert"))
-			.map((c) => c.substring(0, c.length - 1))
-	}
-
 	// ---- Page-level lifecycle waiter that follows main frame id swaps ----
 
 	/** Resolve the main-world execution context for the current main frame. */
-	private async mainWorldExecutionContextId(): Promise<number> {
+	private async mainWorldExecutionContextId(
+		signal?: AbortSignal,
+	): Promise<number> {
 		return executionContexts.waitForMainWorld(
 			this.mainSession,
 			this.mainFrameId(),
 			1000,
+			signal,
 		)
+	}
+
+	private async evaluateMainWorldProbe(
+		expression: string,
+		signal?: AbortSignal,
+	): Promise<Protocol.Runtime.EvaluateResponse> {
+		signal?.throwIfAborted()
+		const contextId = await this.mainWorldExecutionContextId(signal)
+		signal?.throwIfAborted()
+		const objectGroup = `handstage-page-probe-${++pageRuntimeProbeObjectGroupSequence}`
+		try {
+			const params: Protocol.Runtime.EvaluateRequest = {
+				expression,
+				contextId,
+				returnByValue: true,
+				objectGroup,
+			}
+			const response = signal
+				? await sendCDPWithSignalAndLateResult(
+						this.mainSession,
+						"Runtime.evaluate",
+						signal,
+						() => releaseObjectGroup(this.mainSession, objectGroup),
+						params,
+					)
+				: await this.mainSession.send("Runtime.evaluate", params)
+			await releaseDiscardedEvaluationHandles(this.mainSession, response)
+			signal?.throwIfAborted()
+			return response
+		} finally {
+			await raceCleanupAgainstAbort(
+				releaseObjectGroup(this.mainSession, objectGroup),
+				signal,
+			)
+			signal?.throwIfAborted()
+		}
 	}
 
 	private async isMainLoadStateReady(
 		state: "domcontentloaded" | "load",
+		signal?: AbortSignal,
 	): Promise<boolean> {
 		try {
-			const ctxId = await this.mainWorldExecutionContextId()
-			const { result } = await this.mainSession.send("Runtime.evaluate", {
-				expression: "document.readyState",
-				contextId: ctxId,
-				returnByValue: true,
-			})
+			if (signal?.aborted) {
+				throw signal.reason
+			}
+			const { result } = await this.evaluateMainWorldProbe(
+				"document.readyState",
+				signal,
+			)
 			const readyState = String(result?.value ?? "")
 			if (state === "domcontentloaded") {
 				return readyState === "interactive" || readyState === "complete"
 			}
 			return readyState === "complete"
-		} catch {
+		} catch (error) {
+			if (signal?.aborted) {
+				throw signal.reason instanceof Error
+					? signal.reason
+					: new Error("Lifecycle wait aborted")
+			}
+			void error
 			return false
 		}
 	}
@@ -2335,123 +1966,171 @@ export class Page {
 		timeoutMs = 15000,
 		signal?: AbortSignal,
 	): Promise<void> {
+		const parentSignal = signal
+			? AbortSignal.any([this.disposeController.signal, signal])
+			: this.disposeController.signal
+		const deadline = createDeadlineSignal(
+			parentSignal,
+			`waitForMainLoadState(${state})`,
+			timeoutMs,
+		)
+		const waitSignal = deadline.signal
 		const abortError = () =>
-			signal?.reason instanceof Error
-				? signal.reason
+			waitSignal.reason instanceof Error
+				? waitSignal.reason
 				: new Error("Lifecycle wait aborted")
-		if (this.disposed) {
-			throw new CDPConnectionClosedError("page is disposed")
-		}
-		if (signal?.aborted) throw abortError()
-
-		await this.mainSession
-			.send("Page.setLifecycleEventsEnabled", { enabled: true })
-			.catch(() => {})
-		if (this.disposed) {
-			throw new CDPConnectionClosedError("page is disposed")
-		}
-		if (signal?.aborted) throw abortError()
-
-		if (
-			(state === "domcontentloaded" || state === "load") &&
-			(await this.isMainLoadStateReady(state))
-		) {
+		const waitForState = async (): Promise<void> => {
 			if (this.disposed) {
 				throw new CDPConnectionClosedError("page is disposed")
 			}
-			if (signal?.aborted) throw abortError()
-			return
-		}
+			if (waitSignal.aborted) {
+				throw abortError()
+			}
 
-		const wanted = LIFECYCLE_NAME[state]
-		return new Promise<void>((resolve, reject) => {
-			let done = false
-			let timer: ReturnType<typeof setTimeout> | null = null
-			let pollTimer: ReturnType<typeof setTimeout> | null = null
-			let pollInFlight = false
-
-			const cleanup = () => {
-				if (timer) {
-					clearTimeout(timer)
-					timer = null
+			try {
+				await sendCDPWithSignal(
+					this.mainSession,
+					"Page.setLifecycleEventsEnabled",
+					waitSignal,
+					{ enabled: true },
+				)
+			} catch {
+				if (waitSignal.aborted) {
+					throw abortError()
 				}
-				if (pollTimer) {
-					clearTimeout(pollTimer)
-					pollTimer = null
+			}
+			if (this.disposed) {
+				throw new CDPConnectionClosedError("page is disposed")
+			}
+			if (waitSignal.aborted) {
+				throw abortError()
+			}
+
+			if (
+				(state === "domcontentloaded" || state === "load") &&
+				(await this.isMainLoadStateReady(state, waitSignal))
+			) {
+				if (this.disposed) {
+					throw new CDPConnectionClosedError("page is disposed")
 				}
-				this.mainSession.off("Page.lifecycleEvent", onLifecycle)
-				this.mainSession.off("Page.domContentEventFired", onDomContent)
-				this.mainSession.off("Page.loadEventFired", onLoad)
-				signal?.removeEventListener("abort", onAbort)
-				this.activeLifecycleWaitCleanups.delete(fail)
+				if (waitSignal.aborted) {
+					throw abortError()
+				}
+				return
 			}
 
-			const finish = () => {
-				if (done) return
-				done = true
-				cleanup()
-				resolve()
-			}
+			const wanted = LIFECYCLE_NAME[state]
+			return await new Promise<void>((resolve, reject) => {
+				let done = false
+				let pollTimer: ReturnType<typeof setTimeout> | null = null
+				let pollInFlight = false
 
-			const fail = (error: Error) => {
-				if (done) return
-				done = true
-				cleanup()
-				reject(error)
-			}
+				const cleanup = () => {
+					if (pollTimer) {
+						clearTimeout(pollTimer)
+						pollTimer = null
+					}
+					this.mainSession.off("Page.lifecycleEvent", onLifecycle)
+					this.mainSession.off("Page.domContentEventFired", onDomContent)
+					this.mainSession.off("Page.loadEventFired", onLoad)
+					waitSignal.removeEventListener("abort", onAbort)
+					this.activeLifecycleWaitCleanups.delete(fail)
+				}
 
-			const onAbort = () => fail(abortError())
-
-			const onLifecycle = (evt: Protocol.Page.LifecycleEventEvent) => {
-				if (evt.name !== wanted) return
-				if (evt.frameId === this.mainFrameId()) finish()
-			}
-
-			const onDomContent = () => {
-				if (state === "domcontentloaded") finish()
-			}
-
-			const onLoad = () => {
-				if (state === "load") finish()
-			}
-
-			this.mainSession.on("Page.lifecycleEvent", onLifecycle)
-			// Backups for sites that don't emit lifecycle consistently
-			this.mainSession.on("Page.domContentEventFired", onDomContent)
-			this.mainSession.on("Page.loadEventFired", onLoad)
-			this.activeLifecycleWaitCleanups.add(fail)
-			signal?.addEventListener("abort", onAbort, { once: true })
-
-			const pollReadyState = async () => {
-				if (done || pollInFlight) return
-				pollInFlight = true
-				try {
-					if (done) return
-					if (
-						(state === "domcontentloaded" || state === "load") &&
-						(await this.isMainLoadStateReady(state))
-					) {
-						finish()
+				const finish = () => {
+					if (done) {
 						return
 					}
-				} finally {
-					pollInFlight = false
+					done = true
+					cleanup()
+					resolve()
 				}
-				if (!done) {
-					pollTimer = setTimeout(() => {
-						void pollReadyState()
-					}, 100)
-				}
-			}
-			void pollReadyState()
 
-			timer = setTimeout(() => {
-				fail(
-					new Error(
-						`waitForMainLoadState(${state}) timed out after ${timeoutMs}ms`,
-					),
-				)
-			}, timeoutMs)
-		})
+				const fail = (error: Error) => {
+					if (done) {
+						return
+					}
+					done = true
+					cleanup()
+					reject(error)
+				}
+
+				const onAbort = () => fail(abortError())
+
+				const onLifecycle = (evt: Protocol.Page.LifecycleEventEvent) => {
+					if (evt.name !== wanted) {
+						return
+					}
+					if (evt.frameId === this.mainFrameId()) {
+						finish()
+					}
+				}
+
+				const onDomContent = () => {
+					if (state === "domcontentloaded") {
+						finish()
+					}
+				}
+
+				const onLoad = () => {
+					if (state === "load") {
+						finish()
+					}
+				}
+
+				this.mainSession.on("Page.lifecycleEvent", onLifecycle)
+				// Backups for sites that don't emit lifecycle consistently
+				this.mainSession.on("Page.domContentEventFired", onDomContent)
+				this.mainSession.on("Page.loadEventFired", onLoad)
+				this.activeLifecycleWaitCleanups.add(fail)
+				waitSignal.addEventListener("abort", onAbort, { once: true })
+				if (waitSignal.aborted) {
+					onAbort()
+					return
+				}
+
+				const pollReadyState = async () => {
+					if (done || pollInFlight) {
+						return
+					}
+					pollInFlight = true
+					try {
+						if (done) {
+							return
+						}
+						if (
+							(state === "domcontentloaded" || state === "load") &&
+							(await this.isMainLoadStateReady(state, waitSignal))
+						) {
+							finish()
+							return
+						}
+					} finally {
+						pollInFlight = false
+					}
+					if (!done) {
+						pollTimer = setTimeout(() => {
+							void pollReadyState().catch((error) => {
+								if (!done) {
+									fail(
+										error instanceof Error ? error : new Error(String(error)),
+									)
+								}
+							})
+						}, 100)
+					}
+				}
+				void pollReadyState().catch((error) => {
+					if (!done) {
+						fail(error instanceof Error ? error : new Error(String(error)))
+					}
+				})
+			})
+		}
+		try {
+			return await waitForState()
+		} finally {
+			deadline.dispose()
+		}
 	}
 }

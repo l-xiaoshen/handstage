@@ -23,6 +23,8 @@ import type {
 import type { Page } from "./page"
 import { Response } from "./response"
 
+const MAX_PENDING_NETWORK_EVENTS = 256
+
 /**
  * Watches CDP events on a given session and resolves with the navigation's
  * primary document response once identified.
@@ -32,6 +34,7 @@ export class NavigationResponseTracker {
 	private readonly session: CDPSessionLike
 	private readonly connection: CDPConnectionLike
 	private readonly navigationCommandId: number
+	private readonly initialLoaderId: string | undefined
 
 	private expectedLoaderId: string | undefined
 	private selectedRequestId: string | null = null
@@ -39,6 +42,9 @@ export class NavigationResponseTracker {
 	private terminalError: Error | null = null
 	private acceptNextWithoutLoader = false
 	private disposed = false
+	private listeningDetached = false
+	private listeningDestroyed = false
+	private listeningConnectionClosed = false
 
 	private responseResolved = false
 	private resolveResponse!: (value: Response | null) => void
@@ -52,11 +58,9 @@ export class NavigationResponseTracker {
 		string,
 		Protocol.Network.ResponseReceivedExtraInfoEvent
 	>()
+	private readonly pendingTerminalEvents = new Map<string, Error | null>()
 
-	private readonly listeners: Array<{
-		event: CDPEvent
-		handler: (event: unknown) => void
-	}> = []
+	private readonly listenerCleanups: Array<() => void> = []
 
 	/**
 	 * Create a tracker bound to a specific navigation command. The tracker begins
@@ -73,39 +77,59 @@ export class NavigationResponseTracker {
 		this.session = params.session
 		this.connection = params.connection
 		this.navigationCommandId = params.navigationCommandId
+		this.initialLoaderId = this.page.mainFrameLoaderId?.()
 
 		this.responsePromise = new Promise<Response | null>((resolve) => {
 			this.resolveResponse = (value) => {
-				if (this.responseResolved) return
+				if (this.responseResolved) {
+					return
+				}
 				this.responseResolved = true
 				resolve(value)
 			}
 		})
 
-		this.installListeners()
-		this.connection.on("Target.detachedFromTarget", this.onSessionDetached)
-		this.connection.on("Target.targetDestroyed", this.onTargetDestroyed)
-		this.connection.onTransportClosed(this.onConnectionClosed)
+		try {
+			this.installListeners()
+			this.connection.on("Target.detachedFromTarget", this.onSessionDetached)
+			this.listeningDetached = true
+			this.connection.on("Target.targetDestroyed", this.onTargetDestroyed)
+			this.listeningDestroyed = true
+			this.connection.onTransportClosed(this.onConnectionClosed)
+			this.listeningConnectionClosed = true
+		} catch (error) {
+			this.dispose()
+			throw error
+		}
 	}
 
 	/** Stop listening for CDP events and release any pending bookkeeping. */
 	public dispose(): void {
-		if (this.disposed) return
-		this.disposed = true
-		for (const { event, handler } of this.listeners) {
-			this.session.off(event, handler as never)
+		if (this.disposed) {
+			return
 		}
-		this.listeners.length = 0
+		this.disposed = true
+		for (const cleanup of this.listenerCleanups) {
+			try {
+				cleanup()
+			} catch {}
+		}
+		this.listenerCleanups.length = 0
 		this.pendingResponsesByLoader.clear()
 		this.pendingExtraInfo.clear()
-		if (!this.selectedResponse) this.resolveResponse(null)
+		this.pendingTerminalEvents.clear()
+		if (!this.selectedResponse) {
+			this.resolveResponse(null)
+		}
 		this.releaseConnectionListeners()
 	}
 
 	private onSessionDetached = (
 		event: Protocol.Target.DetachedFromTargetEvent,
 	): void => {
-		if (!this.session.id || event.sessionId !== this.session.id) return
+		if (!this.session.id || event.sessionId !== this.session.id) {
+			return
+		}
 		this.handleTerminalError(new Error("Navigation session detached"))
 	}
 
@@ -116,20 +140,41 @@ export class NavigationResponseTracker {
 	private onTargetDestroyed = (
 		event: Protocol.Target.TargetDestroyedEvent,
 	): void => {
-		if (event.targetId !== this.page.targetId()) return
+		if (event.targetId !== this.page.targetId()) {
+			return
+		}
 		this.handleTerminalError(new Error("Navigation target destroyed"))
 	}
 
 	private handleTerminalError(error: Error): void {
-		if (this.terminalError) return
+		if (this.terminalError) {
+			return
+		}
 		this.terminalError = error
-		if (!this.selectedResponse) this.resolveResponse(null)
+		if (!this.selectedResponse) {
+			this.resolveResponse(null)
+		}
 	}
 
 	private releaseConnectionListeners(): void {
-		this.connection.off("Target.detachedFromTarget", this.onSessionDetached)
-		this.connection.off("Target.targetDestroyed", this.onTargetDestroyed)
-		this.connection.offTransportClosed(this.onConnectionClosed)
+		if (this.listeningDetached) {
+			this.listeningDetached = false
+			try {
+				this.connection.off("Target.detachedFromTarget", this.onSessionDetached)
+			} catch {}
+		}
+		if (this.listeningDestroyed) {
+			this.listeningDestroyed = false
+			try {
+				this.connection.off("Target.targetDestroyed", this.onTargetDestroyed)
+			} catch {}
+		}
+		if (this.listeningConnectionClosed) {
+			this.listeningConnectionClosed = false
+			try {
+				this.connection.offTransportClosed(this.onConnectionClosed)
+			} catch {}
+		}
 	}
 
 	/**
@@ -138,7 +183,9 @@ export class NavigationResponseTracker {
 	 * and match them once the loader id is known.
 	 */
 	public setExpectedLoaderId(loaderId: string | undefined): void {
-		if (!loaderId) return
+		if (!loaderId) {
+			return
+		}
 		this.expectedLoaderId = loaderId
 		const pending = this.pendingResponsesByLoader.get(loaderId)
 		if (pending) {
@@ -163,7 +210,9 @@ export class NavigationResponseTracker {
 	public async navigationCompleted(): Promise<Response | null> {
 		if (!this.responseResolved) {
 			queueMicrotask(() => {
-				if (!this.responseResolved) this.resolveResponse(null)
+				if (!this.responseResolved) {
+					this.resolveResponse(null)
+				}
 			})
 		}
 		return this.responsePromise
@@ -182,6 +231,12 @@ export class NavigationResponseTracker {
 		this.addListener("Network.responseReceivedExtraInfo", (event) => {
 			this.onResponseReceivedExtraInfo(event)
 		})
+		this.addListener("Network.loadingFinished", (event) => {
+			this.onLoadingFinished(event)
+		})
+		this.addListener("Network.loadingFailed", (event) => {
+			this.onLoadingFailed(event)
+		})
 	}
 
 	/** Attach a CDP listener and track it for later disposal. */
@@ -190,28 +245,42 @@ export class NavigationResponseTracker {
 		handler: (event: CDPEventParams<E>) => void,
 	): void {
 		this.session.on(event, handler)
-		this.listeners.push({ event, handler: handler as (event: unknown) => void })
+		this.listenerCleanups.push(() => this.session.off(event, handler))
 	}
 
 	/** Handle the initial response payload for document navigations. */
 	private onResponseReceived(
 		event: Protocol.Network.ResponseReceivedEvent,
 	): void {
-		if (!this.page.isCurrentNavigationCommand(this.navigationCommandId)) return
-		if (!event?.response) return
-		if (event.type !== "Document") return
-		if (event.frameId !== this.page.mainFrameId()) return
-
+		if (!this.page.isCurrentNavigationCommand(this.navigationCommandId)) {
+			return
+		}
+		if (!event?.response) {
+			return
+		}
+		if (event.type !== "Document") {
+			return
+		}
 		const loaderId = event.loaderId ?? ""
+		if (event.frameId !== this.page.mainFrameId()) {
+			if (loaderId) {
+				this.storePendingResponse(loaderId, event)
+			}
+			return
+		}
 		if (this.acceptNextWithoutLoader) {
+			if (!loaderId || loaderId === this.initialLoaderId) {
+				return
+			}
 			this.acceptNextWithoutLoader = false
+			this.expectedLoaderId = loaderId
 			this.selectResponse(event)
 			return
 		}
 
 		if (this.expectedLoaderId) {
 			if (loaderId && loaderId !== this.expectedLoaderId) {
-				this.pendingResponsesByLoader.set(loaderId, event)
+				this.storePendingResponse(loaderId, event)
 				return
 			}
 			this.selectResponse(event)
@@ -219,7 +288,7 @@ export class NavigationResponseTracker {
 		}
 
 		if (loaderId) {
-			this.pendingResponsesByLoader.set(loaderId, event)
+			this.storePendingResponse(loaderId, event)
 			return
 		}
 
@@ -230,12 +299,79 @@ export class NavigationResponseTracker {
 	private onResponseReceivedExtraInfo(
 		event: Protocol.Network.ResponseReceivedExtraInfoEvent,
 	): void {
-		if (!event?.requestId) return
+		if (!event?.requestId) {
+			return
+		}
 		if (this.selectedRequestId && event.requestId === this.selectedRequestId) {
 			this.selectedResponse?.applyExtraInfo(event)
 			return
 		}
-		this.pendingExtraInfo.set(event.requestId, event)
+		if (this.selectedResponse) {
+			return
+		}
+		this.setBounded(this.pendingExtraInfo, event.requestId, event)
+	}
+
+	private onLoadingFinished(
+		event: Protocol.Network.LoadingFinishedEvent,
+	): void {
+		if (!event?.requestId) {
+			return
+		}
+		if (event.requestId === this.selectedRequestId && this.selectedResponse) {
+			this.selectedResponse.markFinished(null)
+			return
+		}
+		if (this.isPendingRequest(event.requestId)) {
+			this.setBounded(this.pendingTerminalEvents, event.requestId, null)
+		}
+	}
+
+	private onLoadingFailed(event: Protocol.Network.LoadingFailedEvent): void {
+		if (!event?.requestId) {
+			return
+		}
+		const error = new Error(event.errorText || "Navigation request failed")
+		if (event.requestId === this.selectedRequestId && this.selectedResponse) {
+			this.selectedResponse.markFinished(error)
+			return
+		}
+		if (this.isPendingRequest(event.requestId)) {
+			this.setBounded(this.pendingTerminalEvents, event.requestId, error)
+		}
+	}
+
+	private storePendingResponse(
+		loaderId: string,
+		event: Protocol.Network.ResponseReceivedEvent,
+	): void {
+		const replaced = this.pendingResponsesByLoader.get(loaderId)
+		if (replaced && replaced.requestId !== event.requestId) {
+			this.pendingExtraInfo.delete(replaced.requestId)
+			this.pendingTerminalEvents.delete(replaced.requestId)
+		}
+		this.setBounded(this.pendingResponsesByLoader, loaderId, event)
+	}
+
+	private isPendingRequest(requestId: string): boolean {
+		for (const event of this.pendingResponsesByLoader.values()) {
+			if (event.requestId === requestId) {
+				return true
+			}
+		}
+		return false
+	}
+
+	private setBounded<K, V>(map: Map<K, V>, key: K, value: V): void {
+		map.delete(key)
+		map.set(key, value)
+		while (map.size > MAX_PENDING_NETWORK_EVENTS) {
+			const oldest = map.keys().next()
+			if (oldest.done) {
+				break
+			}
+			map.delete(oldest.value)
+		}
 	}
 
 	/**
@@ -248,8 +384,12 @@ export class NavigationResponseTracker {
 			this.pendingResponsesByLoader.delete(event.loaderId)
 		}
 
-		if (this.responseResolved) return
-		if (this.selectedResponse) return
+		if (this.responseResolved) {
+			return
+		}
+		if (this.selectedResponse) {
+			return
+		}
 
 		const protocol = event.response?.protocol?.toLowerCase() ?? ""
 		const url = event.response?.url ?? ""
@@ -258,6 +398,7 @@ export class NavigationResponseTracker {
 
 		if (isDataUrl || isAboutUrl) {
 			this.pendingExtraInfo.delete(event.requestId)
+			this.pendingTerminalEvents.delete(event.requestId)
 			this.selectedRequestId = null
 			this.selectedResponse = null
 			this.resolveResponse(null)
@@ -284,6 +425,15 @@ export class NavigationResponseTracker {
 			response.applyExtraInfo(extraInfo)
 			this.pendingExtraInfo.delete(event.requestId)
 		}
+		if (this.pendingTerminalEvents.has(event.requestId)) {
+			response.markFinished(
+				this.pendingTerminalEvents.get(event.requestId) ?? null,
+			)
+			this.pendingTerminalEvents.delete(event.requestId)
+		}
+		this.pendingResponsesByLoader.clear()
+		this.pendingExtraInfo.clear()
+		this.pendingTerminalEvents.clear()
 
 		this.resolveResponse(response)
 	}

@@ -10,6 +10,10 @@ import type { CDPSessionLike } from "../../cdp"
 import { executionContexts } from "../../executionContextRegistry"
 import { buildLocatorInvocation } from "../../locatorInvocation"
 import type { Page } from "../../page"
+import {
+	releaseDiscardedEvaluationHandles,
+	releaseObjectIds,
+} from "../../runtimeObjectUtils"
 import { prefixXPath } from "./xpathUtils"
 
 /**
@@ -31,9 +35,13 @@ export function parseXPathToSteps(path: string): Step[] {
 		}
 
 		const start = i
-		while (i < s.length && s[i] !== "/") i++
+		while (i < s.length && s[i] !== "/") {
+			i++
+		}
 		const raw = s.slice(start, i).trim()
-		if (!raw) continue
+		if (!raw) {
+			continue
+		}
 		const name = raw.replace(/\[\d+\]\s*$/u, "").toLowerCase()
 		steps.push({ axis, raw, name })
 	}
@@ -70,7 +78,9 @@ export async function resolveFocusFrameAndTail(
 	let absPrefix = ""
 
 	const flushIntoChild = async (): Promise<void> => {
-		if (!buf.length) return
+		if (!buf.length) {
+			return
+		}
 		const selectorForIframe = buildXPathFromSteps(buf)
 		const parentSess = page.getSessionForFrame(ctxFrameId)
 		const objectId = await resolveObjectIdForXPath(
@@ -78,11 +88,12 @@ export async function resolveFocusFrameAndTail(
 			selectorForIframe,
 			ctxFrameId,
 		)
-		if (!objectId)
+		if (!objectId) {
 			throw new HandstageIframeError(
 				selectorForIframe,
 				"Failed to resolve iframe element by XPath",
 			)
+		}
 
 		try {
 			await parentSess.send("DOM.enable").catch(() => {})
@@ -101,18 +112,17 @@ export async function resolveFocusFrameAndTail(
 					}
 				} catch {}
 			}
-			if (!childFrameId)
+			if (!childFrameId) {
 				throw new HandstageIframeError(
 					selectorForIframe,
 					"Could not map iframe to child frameId",
 				)
+			}
 
 			absPrefix = prefixXPath(absPrefix || "/", selectorForIframe)
 			ctxFrameId = childFrameId
 		} finally {
-			await parentSess
-				.send("Runtime.releaseObject", { objectId })
-				.catch(() => {})
+			await releaseObjectIds(parentSess, [objectId])
 		}
 
 		buf = []
@@ -153,11 +163,12 @@ export async function resolveCssFocusFrameAndTail(
 		}
 		const parentSess = page.getSessionForFrame(ctxFrameId)
 		const objectId = await resolveObjectIdForCss(parentSess, part, ctxFrameId)
-		if (!objectId)
+		if (!objectId) {
 			throw new HandstageIframeError(
 				part,
 				"Failed to resolve iframe via CSS hop",
 			)
+		}
 		try {
 			await parentSess.send("DOM.enable").catch(() => {})
 			const desc = await parentSess.send("DOM.describeNode", { objectId })
@@ -174,16 +185,15 @@ export async function resolveCssFocusFrameAndTail(
 					}
 				} catch {}
 			}
-			if (!childFrameId)
+			if (!childFrameId) {
 				throw new HandstageIframeError(
 					part,
 					"Could not map CSS iframe hop to child frameId",
 				)
+			}
 			ctxFrameId = childFrameId
 		} finally {
-			await parentSess
-				.send("Runtime.releaseObject", { objectId })
-				.catch(() => {})
+			await releaseObjectIds(parentSess, [objectId])
 		}
 	}
 
@@ -213,21 +223,17 @@ export async function resolveObjectIdForXPath(
 		JSON.stringify(xpath),
 		"0",
 	])
-	const { result, exceptionDetails } = await session.send("Runtime.evaluate", {
+	const evaluation = await session.send("Runtime.evaluate", {
 		expression: expr,
 		returnByValue: false,
 		contextId,
 		awaitPromise: true,
 	})
-	if (exceptionDetails) {
-		if (result.objectId) {
-			await session
-				.send("Runtime.releaseObject", { objectId: result.objectId })
-				.catch(() => {})
-		}
+	if (evaluation.exceptionDetails) {
+		await releaseDiscardedEvaluationHandles(session, evaluation)
 		return null
 	}
-	return result?.objectId ?? null
+	return evaluation.result.objectId ?? null
 }
 
 /** Resolve a CSS selector (supports '>>' within the same frame only) to a Runtime objectId. */
@@ -258,28 +264,23 @@ export async function resolveObjectIdForCss(
 	])
 
 	const evaluate = async (expression: string): Promise<string | null> => {
-		const { result, exceptionDetails } = await session.send(
-			"Runtime.evaluate",
-			{
-				expression,
-				returnByValue: false,
-				contextId,
-				awaitPromise: true,
-			},
-		)
-		if (exceptionDetails) {
-			if (result.objectId) {
-				await session
-					.send("Runtime.releaseObject", { objectId: result.objectId })
-					.catch(() => {})
-			}
+		const evaluation = await session.send("Runtime.evaluate", {
+			expression,
+			returnByValue: false,
+			contextId,
+			awaitPromise: true,
+		})
+		if (evaluation.exceptionDetails) {
+			await releaseDiscardedEvaluationHandles(session, evaluation)
 			return null
 		}
-		return result?.objectId ?? null
+		return evaluation.result.objectId ?? null
 	}
 
 	const primary = await evaluate(primaryExpr)
-	if (primary) return primary
+	if (primary) {
+		return primary
+	}
 	return evaluate(fallbackExpr)
 }
 
@@ -289,7 +290,9 @@ export function listChildrenOf(
 ): string[] {
 	const out: string[] = []
 	for (const [fid, p] of parentByFrame.entries()) {
-		if (p === parentId) out.push(fid)
+		if (p === parentId) {
+			out.push(fid)
+		}
 	}
 	return out
 }

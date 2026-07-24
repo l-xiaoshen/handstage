@@ -26,7 +26,9 @@ export function createFilteredLogger(
 	const sink = rawLogger ?? createConsoleLogger()
 	const minLevel = verbose ?? LogLevel.Info
 	return (line: LogLine) => {
-		if (!shouldEmitLogLine(line.level, minLevel)) return
+		if (!shouldEmitLogLine(line.level, minLevel)) {
+			return
+		}
 		sink({ ...line, level: line.level ?? LogLevel.Info })
 	}
 }

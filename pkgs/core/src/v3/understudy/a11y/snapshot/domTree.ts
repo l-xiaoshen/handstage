@@ -2,6 +2,7 @@ import type { Protocol } from "devtools-protocol"
 import type { SessionDomIndex } from "../../../types/private/snapshot"
 import { HandstageDomProcessError } from "../../../types/public/sdkErrors"
 import type { CDPSessionLike } from "../../cdp"
+import { errorMessage } from "../../protocolError"
 import {
 	buildChildXPathSegments,
 	joinXPath,
@@ -44,9 +45,15 @@ export function collectDomTraversalTargets(
 	node: Protocol.DOM.Node,
 ): Protocol.DOM.Node[] {
 	const targets: Protocol.DOM.Node[] = []
-	if (node.children) targets.push(...node.children)
-	if (node.shadowRoots) targets.push(...node.shadowRoots)
-	if (node.contentDocument) targets.push(node.contentDocument)
+	if (node.children) {
+		targets.push(...node.children)
+	}
+	if (node.shadowRoots) {
+		targets.push(...node.shadowRoots)
+	}
+	if (node.contentDocument) {
+		targets.push(node.contentDocument)
+	}
 	return targets
 }
 
@@ -65,8 +72,9 @@ export async function hydrateDomTree(
 
 	while (stack.length) {
 		const node = stack.pop()
-		if (!node)
+		if (!node) {
 			throw new HandstageDomProcessError("DOM stack unexpectedly empty")
+		}
 		const nodeId =
 			typeof node.nodeId === "number" && node.nodeId > 0
 				? node.nodeId
@@ -79,9 +87,14 @@ export async function hydrateDomTree(
 		const seenByNode = nodeId ? expandedNodeIds.has(nodeId) : false
 		const seenByBackend =
 			!nodeId && backendId ? expandedBackendIds.has(backendId) : false
-		if (seenByNode || seenByBackend) continue
-		if (nodeId) expandedNodeIds.add(nodeId)
-		else if (backendId) expandedBackendIds.add(backendId)
+		if (seenByNode || seenByBackend) {
+			continue
+		}
+		if (nodeId) {
+			expandedNodeIds.add(nodeId)
+		} else if (backendId) {
+			expandedBackendIds.add(backendId)
+		}
 
 		const needsExpansion = shouldExpandNode(node)
 		if (needsExpansion && (nodeId || backendId)) {
@@ -104,7 +117,7 @@ export async function hydrateDomTree(
 					expanded = true
 					break
 				} catch (err) {
-					const message = err instanceof Error ? err.message : String(err)
+					const message = errorMessage(err)
 					if (isCborStackError(message)) {
 						continue
 					}
@@ -149,7 +162,7 @@ export async function getDomTreeWithFallback(
 
 			return root
 		} catch (err) {
-			const message = err instanceof Error ? err.message : String(err)
+			const message = errorMessage(err)
 			if (isCborStackError(message)) {
 				lastCborMessage = message
 				continue
@@ -208,8 +221,9 @@ export async function domMapsForSession(
 
 	while (stack.length) {
 		const entry = stack.pop()
-		if (!entry)
+		if (!entry) {
 			throw new HandstageDomProcessError("DOM map stack unexpectedly empty")
+		}
 		const { node, xpath } = entry
 
 		if (node.backendNodeId) {
@@ -217,7 +231,9 @@ export async function domMapsForSession(
 			tagNameMap[encId] = String(node.nodeName).toLowerCase()
 			xpathMap[encId] = xpath || "/"
 			const isScrollable = node?.isScrollable === true
-			if (isScrollable) scrollableMap[encId] = true
+			if (isScrollable) {
+				scrollableMap[encId] = true
+			}
 		}
 
 		const kids = node.children ?? []
@@ -283,7 +299,9 @@ export async function buildSessionDomIndex(
 		if (node.backendNodeId) {
 			absByBe.set(node.backendNodeId, xp || "/")
 			tagByBe.set(node.backendNodeId, String(node.nodeName).toLowerCase())
-			if (node?.isScrollable === true) scrollByBe.set(node.backendNodeId, true)
+			if (node?.isScrollable === true) {
+				scrollByBe.set(node.backendNodeId, true)
+			}
 			docRootOf.set(node.backendNodeId, docRootBe)
 		}
 
@@ -335,13 +353,19 @@ export async function buildSessionDomIndex(
 export function relativizeXPath(baseAbs: string, nodeAbs: string): string {
 	const base = normalizeXPath(baseAbs)
 	const abs = normalizeXPath(nodeAbs)
-	if (abs === base) return "/"
+	if (abs === base) {
+		return "/"
+	}
 	if (abs.startsWith(base)) {
 		const tail = abs.slice(base.length)
-		if (!tail) return "/"
+		if (!tail) {
+			return "/"
+		}
 		return tail.startsWith("/") || tail.startsWith("//") ? tail : `/${tail}`
 	}
-	if (base === "/") return abs
+	if (base === "/") {
+		return abs
+	}
 	return abs
 }
 
@@ -353,11 +377,22 @@ export function findNodeByBackendId(
 	const stack: Protocol.DOM.Node[] = [root]
 	while (stack.length) {
 		const n = stack.pop()
-		if (!n)
+		if (!n) {
 			throw new HandstageDomProcessError("DOM search stack unexpectedly empty")
-		if (n.backendNodeId === backendNodeId) return n
-		if (n.children) for (const c of n.children) stack.push(c)
-		if (n.shadowRoots) for (const s of n.shadowRoots) stack.push(s)
+		}
+		if (n.backendNodeId === backendNodeId) {
+			return n
+		}
+		if (n.children) {
+			for (const c of n.children) {
+				stack.push(c)
+			}
+		}
+		if (n.shadowRoots) {
+			for (const s of n.shadowRoots) {
+				stack.push(s)
+			}
+		}
 	}
 	return undefined
 }

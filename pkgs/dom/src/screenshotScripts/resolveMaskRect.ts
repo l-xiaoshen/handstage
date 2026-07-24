@@ -30,24 +30,40 @@ export function resolveMaskRect(
 
 	function findTopLayerRoot(el: Element | null): Element | null {
 		const dialog = safeClosest(el, "dialog[open]")
-		if (dialog) return dialog
+		if (dialog) {
+			return dialog
+		}
 		const popover = safeClosest(el, "[popover]")
-		if (popover && safeMatches(popover, ":popover-open")) return popover
+		if (popover && safeMatches(popover, ":popover-open")) {
+			return popover
+		}
 		return null
 	}
 
-	if (!this || typeof this.getBoundingClientRect !== "function") return null
+	if (!this || typeof this.getBoundingClientRect !== "function") {
+		return null
+	}
 	const rect = this.getBoundingClientRect()
-	if (!rect) return null
+	if (!rect) {
+		return null
+	}
 	const style = window.getComputedStyle(this)
-	if (!style) return null
-	if (style.visibility === "hidden" || style.display === "none") return null
-	if (rect.width <= 0 || rect.height <= 0) return null
+	if (!style) {
+		return null
+	}
+	if (style.visibility === "hidden" || style.display === "none") {
+		return null
+	}
+	if (rect.width <= 0 || rect.height <= 0) {
+		return null
+	}
 
 	const root = findTopLayerRoot(this)
 	if (root) {
 		const rootRect = root.getBoundingClientRect()
-		if (!rootRect) return null
+		if (!rootRect) {
+			return null
+		}
 		let rootToken: string | null = null
 		if (maskToken) {
 			try {
