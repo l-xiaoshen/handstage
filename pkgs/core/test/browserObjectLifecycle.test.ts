@@ -63,9 +63,14 @@ describe("browser object lifecycle", () => {
 		})
 
 		expect(await installV3PiercerIntoSession(transientSession)).toBe(true)
+		const transientEvaluation = transientSession.sent.find(
+			(entry) => entry.method === "Runtime.evaluate",
+		)
+		if (!transientEvaluation) {
+			throw new Error("Expected Runtime.evaluate to be sent")
+		}
 		const transientGroup = (
-			transientSession.sent.find((entry) => entry.method === "Runtime.evaluate")
-				?.params as { objectGroup: string }
+			transientEvaluation.params as { objectGroup: string }
 		).objectGroup
 		expect(releasedGroups(transientSession)).toContain(transientGroup)
 

@@ -11,8 +11,7 @@ export const tsdownBaseConfig = {
 		dts: ".d.ts",
 	}),
 	deps: {
-		neverBundle: ["bun"],
-		skipNodeModulesBundle: true,
+		neverBundle: true,
 	},
 } satisfies UserConfig
 

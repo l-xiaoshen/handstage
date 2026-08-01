@@ -1,4 +1,4 @@
-import { type ToolSet, tool } from "ai"
+import { type Tool, tool } from "ai"
 import type { HandstageAgentToolHandlers } from "./handlerTypes"
 import {
 	// ClickInputSchema,
@@ -35,9 +35,14 @@ import {
 	TypeOnIdInputSchema,
 } from "./schemas"
 
-export type HandstageAgentToolSet = ReturnType<
-	typeof createHandstageAgentToolDefinitions
+type HandstageAgentTool<Name extends keyof HandstageAgentToolHandlers> = Tool<
+	Parameters<HandstageAgentToolHandlers[Name]>[0],
+	Awaited<ReturnType<HandstageAgentToolHandlers[Name]>>
 >
+
+export type HandstageAgentToolSet = {
+	[Name in keyof HandstageAgentToolHandlers]: HandstageAgentTool<Name>
+}
 
 function pagesToXml(
 	pages: Array<{ pageId: string; url: string; title: string }>,
@@ -55,7 +60,7 @@ function pagesToXml(
  */
 export function createHandstageAgentToolDefinitions(
 	handler: HandstageAgentToolHandlers,
-) {
+): HandstageAgentToolSet {
 	const tools = {
 		pages: tool({
 			description:
@@ -257,7 +262,7 @@ export function createHandstageAgentToolDefinitions(
 				return await handler.hover_on_id(input)
 			},
 		}),
-	} as const satisfies ToolSet
+	} as const satisfies HandstageAgentToolSet
 
 	return tools
 }
